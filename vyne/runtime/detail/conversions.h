@@ -1,0 +1,147 @@
+#pragma once
+#include "printing.h"
+// ============================================================================
+// TYPE CONVERSIONS
+// ============================================================================
+
+static inline VyneValue vyne_to_int(VyneValue v) {
+    if (v.type == V_INT64) return v;
+    if (v.type == V_FLOAT64) return vyne_int((int64_t)v.as.f64);
+    if (v.type == V_STRING) return vyne_int(atoll(v.as.str));
+    if (v.type == V_BOOL) return vyne_int(v.as.i64);
+    return vyne_int(0);
+}
+
+static inline VyneValue vyne_to_float(VyneValue v) {
+    if (v.type == V_FLOAT64) return v;
+    if (v.type == V_INT64) return vyne_float((double)v.as.i64);
+    if (v.type == V_STRING) return vyne_float(atof(v.as.str));
+    return vyne_float(0.0);
+}
+
+static inline const char* vyne_get_type_name(VyneValue v) {
+    switch (v.type) {
+        case V_INT64:   return "Int64";
+        case V_FLOAT64: return "Float64";
+        case V_STRING:  return "String";
+        case V_BOOL:    return "Boolean";
+        case V_ARRAY:   return "Array";
+        case V_MAP:     return "Map";
+        case V_STRUCT:  return "Struct";
+        case V_NULL:    return "Null";
+        default:        return "Unknown";
+    }
+}
+
+static inline int64_t vyne_get_sizeof(VyneValue v) {
+    if (v.type == V_ARRAY) return (int64_t)v.as.arr->size;
+    if (v.type == V_MAP)   return (int64_t)v.as.map->size;
+    if (v.type == V_STRING) return (int64_t)strlen(v.as.str);
+    if (v.type == V_STRUCT) return (int64_t)v.as.strct->field_count;
+    return 8;
+}
+
+static inline void _vyne_format_float(char* buf, double val) {
+    sprintf(buf, "%g", val);
+    if (strchr(buf, '.') == NULL && strchr(buf, 'e') == NULL)
+        strcat(buf, ".0");
+}
+
+static inline VyneValue vyne_to_string(VyneValue v) {
+    char buf[256];
+    switch (v.type) {
+        case V_INT64:   sprintf(buf, "%lld", v.as.i64); break;
+        case V_FLOAT64: _vyne_format_float(buf, v.as.f64); break;
+        case V_BOOL:    strcpy(buf, v.as.i64 ? "true" : "false"); break;
+        case V_NULL:    strcpy(buf, "null"); break;
+        case V_STRING:  return v;
+        case V_ARRAY: {
+            VyneArray* arr = v.as.arr;
+            size_t total = 2; // '[' + ']'
+            for (int i = 0; i < arr->size; i++) {
+                VyneValue elem = vyne_to_string(arr->elements[i]);
+                total += strlen(elem.as.str);
+                if (i > 0) total += 2; // ", "
+            }
+            char* tmp = (char*)arena_alloc(total + 1);
+            size_t pos = 0;
+            tmp[pos++] = '[';
+            for (int i = 0; i < arr->size; i++) {
+                if (i > 0) { tmp[pos++] = ','; tmp[pos++] = ' '; }
+                VyneValue elem = vyne_to_string(arr->elements[i]);
+                size_t slen = strlen(elem.as.str);
+                memcpy(tmp + pos, elem.as.str, slen);
+                pos += slen;
+            }
+            tmp[pos++] = ']';
+            tmp[pos]   = '\0';
+            return vyne_string(tmp);
+        }
+        case V_MAP: {
+            VyneMap* m = v.as.map;
+
+            // Single pass: build one string per slot, store into a
+            // small stack-allocated scratch array (or a pointer array
+            // on the arena for larger maps).
+            int n = m->size;
+            VyneValue* vals = (VyneValue*)arena_alloc(sizeof(VyneValue) * (n > 0 ? n : 1));
+            const char** keys = (const char**)arena_alloc(sizeof(char*) * (n > 0 ? n : 1));
+
+            int k = 0;
+            size_t total = 3;
+            for (int i = 0; i < m->capacity && k < n; i++) {
+                const char* key = m->entries[i].key;
+                if (key == NULL || key == VYNE_TOMBSTONE) continue;
+                keys[k]   = key;
+                vals[k]   = vyne_to_string(m->entries[i].value);
+                total    += strlen(key) + 6 + strlen(vals[k].as.str) + 2;
+                k++;
+            }
+
+            char* tmp = (char*)arena_alloc(total);
+            size_t pos = 0;
+            tmp[pos++] = '{';
+            for (int i = 0; i < n; i++) {
+                if (i > 0) { tmp[pos++] = ','; tmp[pos++] = ' '; }
+                tmp[pos++] = '"';
+                size_t kl = strlen(keys[i]);
+                memcpy(tmp + pos, keys[i], kl); pos += kl;
+                tmp[pos++] = '"';
+                tmp[pos++] = ':';
+                tmp[pos++] = ' ';
+                size_t vl = strlen(vals[i].as.str);
+                memcpy(tmp + pos, vals[i].as.str, vl); pos += vl;
+            }
+            tmp[pos++] = '}';
+            tmp[pos] = '\0';
+            return vyne_string_own(tmp);
+        }
+        case V_STRUCT: {
+            VyneStruct* s = v.as.strct;
+            size_t total = strlen(s->type_name) + 4;
+            for (int i = 0; i < s->field_count; i++) {
+                total += strlen(s->fields[i].name) + 2;
+                VyneValue fv = vyne_to_string(s->fields[i].value);
+                total += strlen(fv.as.str) + 2;
+            }
+            char* tmp = (char*)arena_alloc(total);
+            size_t pos = 0;
+            memcpy(tmp + pos, s->type_name, strlen(s->type_name));
+            pos += strlen(s->type_name);
+            tmp[pos++]=' '; tmp[pos++]='{'; tmp[pos++]=' ';
+            for (int i = 0; i < s->field_count; i++) {
+                if (i) { tmp[pos++]=','; tmp[pos++]=' '; }
+                size_t kl = strlen(s->fields[i].name);
+                memcpy(tmp + pos, s->fields[i].name, kl); pos += kl;
+                tmp[pos++]=':'; tmp[pos++]=' ';
+                VyneValue fv = vyne_to_string(s->fields[i].value);
+                size_t vl = strlen(fv.as.str);
+                memcpy(tmp + pos, fv.as.str, vl); pos += vl;
+            }
+            tmp[pos++]=' '; tmp[pos++]='}'; tmp[pos]='\0';
+            return vyne_string(tmp);
+        }
+        default: strcpy(buf, "[object]"); break;
+    }
+    return vyne_string(buf);
+}
