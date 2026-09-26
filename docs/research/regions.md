@@ -21,10 +21,11 @@ We describe the design, the lowering to C, the interaction between the
 two constructs, and a small case study in which an existing training
 loop in a neural-network classifier was rewritten to use scratch
 buffers. We report that the rewritten loop eliminates all arena traffic
-for the two accumulator buffers, and we identify three follow-up
-capabilities (shaped assignment, shaped parameters, escape analysis)
-that are required before the technique generalizes to the rest of the
-loop.
+for the two accumulator buffers. Two follow-up capabilities — a
+native ABI for primitive-typed scalar parameters (landed, §4.5) and
+the corresponding ABI for array parameters, together with escape
+analysis — are still required before the technique generalizes to
+the rest of the loop.
 
 ---
 
@@ -316,6 +317,24 @@ before it landed; the same three-case dispatch would have required
 three separate type queries and a fifth copy of the element-type
 mapping had it been written first.
 
+### 4.5 Native scalar ABI
+
+Every Vyne function is emitted as a boxed C function of the form
+`VyneValue fn_X(int arg_count, VyneValue* args)`. When the function's
+parameters and return type are all primitive — `Int64`, `Float64`, or
+`Bool` — and the body contains no top-level `defer` or `try/catch`, the
+emitter additionally produces a second, unboxed C function whose
+signature is the direct C translation of the parameter and return
+types:
+
+````c
+// boxed (always emitted)
+VyneValue fn_add(int arg_count, VyneValue* args);
+
+// native (emitted only when the function qualifies)
+int64_t fn_add_native(int64_t a, int64_t b);
+```
+
 ---
 
 ## 5. Case Study: A Neural-Network Training Loop
@@ -366,7 +385,7 @@ through epoch :: 1..EPOCHS -> loop {
         };
     };
 };
-```
+````
 
 ### 5.2 Emitted code
 
@@ -429,11 +448,17 @@ the region rewind.
 Two capabilities are required before the technique generalizes to the
 rest of a numerical kernel.
 
-**Shape-aware function parameters.** Passing a scratch array to a Vyne
-function currently boxes it. A shape-aware ABI — `(const double*,
-int64_t, int64_t)` for a rank-2 `Float64` — would require the emitter
-to maintain a second calling convention alongside the existing
-`(int, VyneValue*)` form. This is a moderate change.
+**Native ABI for array parameters.** Passing an `Array<Float64>` to a
+Vyne function currently boxes it, even though the emitter already knows
+the argument is a `VyneArray_f64` and could pass `(const double*,
+int64_t)` directly. Extending §4.5's dispatcher to this case requires
+the native variant signature to reflect the array element type, and the
+argument coercion at the call site to produce `.data` and `.size`
+rather than a pointer to the container. This is the load-bearing step
+for numerical kernels: without it, every loop that reads an array
+parameter pays a runtime tag check per element, and the C compiler
+cannot vectorize the loop body. The primitive ABI in §4.5 is the
+prerequisite; the array case is the payoff. It is a moderate change.
 
 **Escape analysis.** The current design does not prove that a scratch
 value has not escaped before rewind. `region.commit` therefore accepts
