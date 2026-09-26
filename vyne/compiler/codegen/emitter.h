@@ -176,26 +176,44 @@ public:
         auto it = globalTypes.find(name);
         return it == globalTypes.end() ? nullptr : &it->second;
     }
-    const CType* lookupAnyType(const std::string& name) const {
+
+    const CType* lookupType(const std::string& name) const {
+        auto it = nativeTemps.find(name);
+        if (it != nativeTemps.end()) return &it->second;
         if (auto lt = lookupLocalType(name)) return lt;
         return lookupGlobalType(name);
+    }
+
+    const CType* lookupAnyType(const std::string& name) const {
+        return lookupType(name);
     }
 
     void declareNativeTemp(const std::string& name, const CType& ct) {
         nativeTemps[name] = ct;
     }
+
+    // Filtered view: non-null only for provably-primitive types.
+    // (Behaviorally identical to the old version — it also returned any
+    // nativeTemp entry, primitive or not, thanks to the early return.
+    // This preserves that.)
     const CType* exprNativeType(const std::string& expr) const {
-        auto it = nativeTemps.find(expr);
-        if (it != nativeTemps.end()) return &it->second;
-        auto lt = lookupLocalType(expr);
-        if (lt && lt->isPrimitive()) return lt;
-        auto gt = lookupGlobalType(expr);
-        if (gt && gt->isPrimitive()) return gt;
-        return nullptr;
+        const CType* ct = lookupType(expr);
+        return (ct && ct->isPrimitive()) ? ct : nullptr;
     }
     std::string boxIfNative(const std::string& expr) const {
         const CType* ct = exprNativeType(expr);
         return ct ? ct->box(expr) : expr;
+    }
+    std::string boxAny(const std::string& expr) const {
+        const CType* ct = lookupType(expr);
+        if (ct && ct->kind == CType::Kind::Array && !ct->args.empty()) {
+            VType elem = ct->args[0].toVType();
+            if (elem == VType::Float64)
+                return "vyne_array_f64_to_value(&" + expr + ")";
+            if (elem == VType::Int64)
+                return "vyne_array_i64_to_value(&" + expr + ")";
+        }
+        return boxIfNative(expr);
     }
     std::string nativeRead(const std::string& expr, VType kind) const {
         const CType* ct = exprNativeType(expr);

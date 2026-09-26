@@ -37,6 +37,11 @@ struct CType {
     std::string mangledName;    // mangled C name for monomorphized structs/interfaces
     std::string nativeName;     // "int64_t", "double", "bool", "VyneValue", ...
 
+    CType() = default;
+    CType(Kind k) : kind(k) {} 
+    CType(Kind k, std::vector<CType> a, std::vector<int64_t> s = {})
+        : kind(k), args(std::move(a)), shape(std::move(s)) {}
+
     // scratch shaped methods
     bool hasShape() const { return !shape.empty(); }
 
@@ -153,4 +158,24 @@ struct CType {
     }
 
     static CType fromKind(Kind k) { CType c; c.kind = k; return c; }
+
+    // Map a Vyne element type to its C scalar name. Used by scratch arrays
+    // and typed-array fallbacks. Unknown maps to the boxed name.
+    static std::string elemCName(VType t) {
+        switch (t) {
+            case VType::Int64:   return "int64_t";
+            case VType::Float64: return "double";
+            case VType::Bool:    return "bool";
+            default:             return "VyneValue";
+        }
+    }
+
+    // Map a Vyne element type to the typed-array container struct name.
+    static std::string arrayContainerName(VType elem) {
+        switch (elem) {
+            case VType::Int64:   return "VyneArray_i64";
+            case VType::Float64: return "VyneArray_f64";
+            default:             return "VyneValue";
+        }
+    }
 };

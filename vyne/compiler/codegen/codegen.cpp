@@ -44,6 +44,13 @@
 //     not compile.
 // ============================================================================
 
+// TODO USE THIS LATER, RIGHT NOW NO PLACE USES MANGLE
+static inline std::string mangle(const std::string& s) {
+    std::string out = s;
+    std::replace(out.begin(), out.end(), '.', '_');
+    return out;
+}
+
 // ============================================================
 // LITERALS
 // ============================================================
@@ -54,11 +61,6 @@ static std::string floatLit(double v) {
                                  std::chars_format::general);
     if (ec != std::errc{}) return "0.0";
     return std::string(buf, p);
-}
-
-static const CType* lookupCType(C_Emitter& e, const std::string& expr) {
-    if (const CType* t = e.exprNativeType(expr)) return t;
-    return e.lookupAnyType(expr);
 }
 
 static VType inferArrayElemType(const ASTNode* node) {
@@ -84,15 +86,6 @@ static VType inferArrayElemType(const ASTNode* node) {
     }
     return common;
 }
-
-static std::string typedArrayCName(VType elem) {
-    switch (elem) {
-        case VType::Int64:   return "VyneArray_i64";
-        case VType::Float64: return "VyneArray_f64";
-        default:             return "VyneValue";
-    }
-}
-
 // Coerce a C expression string to a native C value of static type `want`.
 // Same shape as the `operand` lambda in BinOpNode::getCExpr.
 static std::string coerceToNative(C_Emitter& e, const ASTNode* node,
@@ -123,26 +116,6 @@ static std::string coerceToNative(C_Emitter& e, const ASTNode* node,
         return "((" + expr + ").type == V_INT64) ? (" + expr +
                ").as.i64 : (int64_t)(" + expr + ").as.f64";
     return expr;
-}
-
-// Box a C expression into a VyneValue expression. If the expression is
-// a registered typed array local/temp, this calls vyne_array_*_to_value
-// (a copying allocation). Otherwise it delegates to e.boxIfNative, so
-// this is a strict superset — safe to use at every boxing site.
-//
-// Note: this may allocate. Callers that emit the same string twice will
-// box twice. In practice every call site materializes the result into a
-// temp immediately, so this is one allocation per site.
-static std::string boxTypedArray(C_Emitter& e, const std::string& expr) {
-    const CType* ct = lookupCType(e, expr);
-    if (ct && ct->kind == CType::Kind::Array && !ct->args.empty()) {
-        VType elem = ct->args[0].toVType();
-        if (elem == VType::Float64)
-            return "vyne_array_f64_to_value(&" + expr + ")";
-        if (elem == VType::Int64)
-            return "vyne_array_i64_to_value(&" + expr + ")";
-    }
-    return e.boxIfNative(expr);
 }
 
 std::string NumberNode::getCExpr(C_Emitter& e) const {
@@ -322,14 +295,14 @@ void AssignmentNode::compile(C_Emitter& e) const {
             VType elem = inferArrayElemType(rhs.get());
             if (elem != VType::Unknown) {
                 std::string val = rhs->getCExpr(e);
-                const CType* rt = lookupCType(e, val);
+                const CType* rt = e.lookupType(val);
                 if (rt && rt->kind == CType::Kind::Array && !rt->args.empty()) {
                     if (!hasGlobal) {
                         CType arrType;
                         arrType.kind = CType::Kind::Array;
                         arrType.args.push_back(CType::fromVType(elem));
                         e.declareGlobal(bareName, arrType);
-                        e.emitGlobalDecl(typedArrayCName(elem) + " " +
+                        e.emitGlobalDecl(CType::arrayContainerName(elem) + " " +
                                          bareName + ";");
                     }
                     e.emit(bareName + " = " + val + ";");
@@ -343,7 +316,7 @@ void AssignmentNode::compile(C_Emitter& e) const {
             !existing->args.empty()) {
             VType elem = existing->args[0].toVType();
             std::string val = rhs->getCExpr(e);
-            const CType* rt = lookupCType(e, val);
+            const CType* rt = e.lookupType(val);
             if (rt && rt->kind == CType::Kind::Array && !rt->args.empty() &&
                 rt->args[0].toVType() == elem) {
                 e.emit(bareName + " = " + val + ";");
@@ -362,7 +335,7 @@ void AssignmentNode::compile(C_Emitter& e) const {
             e.emitGlobalDecl("VyneValue " + bareName + ";");
         }
         std::string val = rhs->getCExpr(e);
-        e.emit(bareName + " = " + boxTypedArray(e, val) + ";");
+        e.emit(bareName + " = " + e.boxAny(val) + ";");
         return;
     }
 
@@ -379,20 +352,20 @@ void AssignmentNode::compile(C_Emitter& e) const {
             VType elem = inferArrayElemType(rhs.get());
             if (elem != VType::Unknown) {
                 std::string val = rhs->getCExpr(e);
-                const CType* rt = lookupCType(e, val);
+                const CType* rt = e.lookupType(val);
                 if (rt && rt->kind == CType::Kind::Array && !rt->args.empty()) {
                     CType arrType;
                     arrType.kind = CType::Kind::Array;
                     arrType.args.push_back(CType::fromVType(elem));
                     e.declareLocal(varName, arrType);
-                    e.emit(typedArrayCName(elem) + " " + varName +
+                    e.emit(CType::arrayContainerName(elem) + " " + varName +
                            " = " + val + ";");
                     return;
                 }
                 // RHS didn't materialize as a typed array — box it.
                 e.registerDeclaration(varName);
                 e.emit("VyneValue " + varName + " = " +
-                       boxTypedArray(e, val) + ";");
+                       e.boxAny(val)+ ";");
                 return;
             }
         }
@@ -406,7 +379,7 @@ void AssignmentNode::compile(C_Emitter& e) const {
             e.registerDeclaration(varName);
             std::string val = rhs->getCExpr(e);
             e.emit("VyneValue " + varName + " = " +
-                   boxTypedArray(e, val) + ";");
+                   e.boxAny(val) + ";");
         }
         return;
     }
@@ -425,7 +398,7 @@ void AssignmentNode::compile(C_Emitter& e) const {
         !existing->args.empty()) {
         VType elem = existing->args[0].toVType();
         std::string val = rhs->getCExpr(e);
-        const CType* rt = lookupCType(e, val);
+        const CType* rt = e.lookupType(val);
         if (rt && rt->kind == CType::Kind::Array && !rt->args.empty() &&
             rt->args[0].toVType() == elem) {
             e.emit(varName + " = " + val + ";");
@@ -440,7 +413,7 @@ void AssignmentNode::compile(C_Emitter& e) const {
 
     // --- boxed local ---
     std::string val = rhs->getCExpr(e);
-    e.emit(varName + " = " + boxTypedArray(e, val) + ";");
+    e.emit(varName + " = " + e.boxAny(val)+ ";");
 }
 
 // ============================================================
@@ -660,8 +633,8 @@ std::string BinOpNode::getCExpr(C_Emitter& e) const {
         default: break;
     }
 
-    e.emit("VyneValue " + temp + " = vyne_binop(" + boxTypedArray(e, l) + ", " +
-           boxTypedArray(e, r) + ", " + std::to_string(opCode) + ");");
+    e.emit("VyneValue " + temp + " = vyne_binop(" + e.boxAny(l) + ", " +
+           e.boxAny(r) + ", " + std::to_string(opCode) + ");");
     return temp;
 }
 
@@ -674,7 +647,7 @@ std::string UnaryNode::getCExpr(C_Emitter& e) const {
             "(line " + std::to_string(lineNumber) + "). Use the interpreter instead.");
     }
 
-    std::string val = boxTypedArray(e, right->getCExpr(e));
+    std::string val = e.boxAny(right->getCExpr(e));
     std::string temp = e.newTemp("un");
     int opCode = static_cast<int>(op);
 
@@ -744,7 +717,7 @@ void PostFixNode::compile(C_Emitter& e) const { getCExpr(e); }
 // ============================================================
 
 void IfNode::compile(C_Emitter& e) const {
-    std::string cond = boxTypedArray(e, condition->getCExpr(e));
+    std::string cond = e.boxAny(condition->getCExpr(e));
     e.emitBlockOpen("if (vyne_is_truthy(" + cond + ")) {");
     if (body) body->compile(e);
     e.emitBlockClose();
@@ -759,17 +732,17 @@ std::string IfNode::getCExpr(C_Emitter& e) const {
     std::string temp = e.newTemp("ifres");
     e.emit("VyneValue " + temp + " = vyne_null();");
 
-    std::string cond = boxTypedArray(e, condition->getCExpr(e));
+    std::string cond = e.boxAny(condition->getCExpr(e));
     e.emitBlockOpen("if (vyne_is_truthy(" + cond + ")) {");
     if (body) {
-        std::string bv = boxTypedArray(e, body->getCExpr(e));
+        std::string bv = e.boxAny(body->getCExpr(e));
         e.emit(temp + " = " + bv + ";");
     }
     e.emitBlockClose();
 
     if (elseBody) {
         e.emitBlockOpen("else {");
-        std::string ev = boxTypedArray(e, elseBody->getCExpr(e));
+        std::string ev = e.boxAny(elseBody->getCExpr(e));
         e.emit(temp + " = " + ev + ";");
         e.emitBlockClose();
     }
@@ -779,7 +752,7 @@ std::string IfNode::getCExpr(C_Emitter& e) const {
 
 void WhileNode::compile(C_Emitter& e) const {
     e.emitBlockOpen("while (1) {");
-    std::string cond = boxTypedArray(e, condition->getCExpr(e));
+    std::string cond = e.boxAny(condition->getCExpr(e));
     e.emit("if (!vyne_is_truthy(" + cond + ")) break;");
     if (body) body->compile(e);
     e.emitBlockClose();
@@ -791,7 +764,7 @@ std::string WhileNode::getCExpr(C_Emitter& e) const {
 }
 
 void ReturnNode::compile(C_Emitter& e) const {
-    std::string expr = expression ? boxTypedArray(e, expression->getCExpr(e))
+    std::string expr = expression ? e.boxAny(expression->getCExpr(e))
                                   : "vyne_null()";
 
     // Every region we're lexically inside at the point of this return.
@@ -925,7 +898,7 @@ void ForNode::compile(C_Emitter& e) const {
     std::string collection = iterable->getCExpr(e);
 
     {
-        const CType* ct = lookupCType(e, collection);
+        const CType* ct = e.lookupType(collection);
         if (ct && ct->kind == CType::Kind::Array && !ct->args.empty()) {
             VType elem = ct->args[0].toVType();
             CType elemType = CType::fromVType(elem);
@@ -998,7 +971,7 @@ std::string ForNode::getCExpr(C_Emitter& e) const {
                             " <= " + hiT + "; ++" + iv + ") {");
             e.declareLocal(elemVar, CType::fromVType(VType::Int64));
             e.emit("int64_t " + elemVar + " = " + iv + ";");
-            std::string cond = boxTypedArray(e, body->getCExpr(e));
+            std::string cond = e.boxAny(body->getCExpr(e));
             e.emitBlockOpen("if (!vyne_is_truthy(" + cond + ")) {");
             e.emit(everyTemp + " = false;");
             e.emit("break;");
@@ -1018,25 +991,25 @@ std::string ForNode::getCExpr(C_Emitter& e) const {
 
         switch (mode) {
             case ForMode::COLLECT: {
-                std::string result = boxTypedArray(e, body->getCExpr(e));
+                std::string result = e.boxAny(body->getCExpr(e));
                 e.emit("vyne_array_push(" + listTemp + ", " + result + ");");
                 break;
             }
             case ForMode::FILTER: {
-                std::string cond = boxTypedArray(e, body->getCExpr(e));
+                std::string cond = e.boxAny(body->getCExpr(e));
                 e.emitBlockOpen("if (vyne_is_truthy(" + cond + ")) {");
                 e.emit("vyne_array_push(" + listTemp + ", " +
-                       boxTypedArray(e, elemVar) + ");");
+                       e.boxAny(elemVar) + ");");
                 e.emitBlockClose();
                 break;
             }
             case ForMode::UNIQUE: {
                 std::string dupCheck = e.newTemp("seen");
                 e.emit("bool " + dupCheck + " = vyne_array_contains(" +
-                       listTemp + ", " + boxTypedArray(e, elemVar) + ");");
+                       listTemp + ", " + e.boxAny(elemVar) + ");");
                 e.emitBlockOpen("if (!" + dupCheck + ") {");
                 e.emit("vyne_array_push(" + listTemp + ", " +
-                       boxTypedArray(e, elemVar) + ");");
+                       e.boxAny(elemVar) + ");");
                 e.emitBlockClose();
                 break;
             }
@@ -1049,7 +1022,7 @@ std::string ForNode::getCExpr(C_Emitter& e) const {
 
     {
         std::string rawCollection = iterable->getCExpr(e);
-        const CType* ct = lookupCType(e, rawCollection);
+        const CType* ct = e.lookupType(rawCollection);
         if (ct && ct->kind == CType::Kind::Array && !ct->args.empty()) {
             VType elem = ct->args[0].toVType();
             CType elemType = CType::fromVType(elem);
@@ -1062,7 +1035,7 @@ std::string ForNode::getCExpr(C_Emitter& e) const {
                 std::string pushFn  = (elem == VType::Float64)
                     ? "vyne_array_f64_push"   : "vyne_array_i64_push";
 
-                e.emit(typedArrayCName(elem) + " " + outName + " = " +
+                e.emit(CType::arrayContainerName(elem) + " " + outName + " = " +
                        ctor + "(" + rawCollection + ".size);");
                 e.emit(outName + ".size = 0;");
 
@@ -1098,7 +1071,7 @@ std::string ForNode::getCExpr(C_Emitter& e) const {
                 e.emit(elemType.cTypeName() + " " + elemVar + " = " +
                        rawCollection + ".data[" + iv + "];");
                 std::string rawExpr = body->getCExpr(e);
-                std::string cond    = boxTypedArray(e, rawExpr);
+                std::string cond    = e.boxAny(rawExpr);
                 e.emitBlockOpen("if (!vyne_is_truthy(" + cond + ")) {");
                 e.emit(every + " = false;");
                 e.emit("break;");
@@ -1111,7 +1084,7 @@ std::string ForNode::getCExpr(C_Emitter& e) const {
     }
 
     // --- Boxed fallback -----------------------------------------------
-    std::string collection = boxTypedArray(e, iterable->getCExpr(e));
+    std::string collection = e.boxAny(iterable->getCExpr(e));
     std::string iTemp = e.newTemp("i");
     std::string sizeTemp = e.newTemp("sz");
     std::string elemVar = "v_" + iteratorName;
@@ -1127,7 +1100,7 @@ std::string ForNode::getCExpr(C_Emitter& e) const {
                         iTemp + " < " + sizeTemp + "; " + iTemp + "++) {");
         e.emit("VyneValue " + elemVar + " = vyne_array_get(" +
                collection + ", vyne_int(" + iTemp + "));");
-        std::string cond = boxTypedArray(e, body->getCExpr(e));
+        std::string cond = e.boxAny(body->getCExpr(e));
         e.emitBlockOpen("if (!vyne_is_truthy(" + cond + ")) {");
         e.emit(everyTemp + " = false;");
         e.emit("break;");
@@ -1150,25 +1123,25 @@ std::string ForNode::getCExpr(C_Emitter& e) const {
 
     switch (mode) {
         case ForMode::COLLECT: {
-            std::string result = boxTypedArray(e, body->getCExpr(e));
+            std::string result = e.boxAny(body->getCExpr(e));
             e.emit("vyne_array_push(" + listTemp + ", " + result + ");");
             break;
         }
         case ForMode::FILTER: {
-            std::string cond = boxTypedArray(e, body->getCExpr(e));
+            std::string cond = e.boxAny(body->getCExpr(e));
             e.emitBlockOpen("if (vyne_is_truthy(" + cond + ")) {");
             e.emit("vyne_array_push(" + listTemp + ", " +
-                   boxTypedArray(e, elemVar) + ");");
+                   e.boxAny(elemVar) + ");");
             e.emitBlockClose();
             break;
         }
         case ForMode::UNIQUE: {
             std::string dupCheck = e.newTemp("seen");
             e.emit("bool " + dupCheck + " = vyne_array_contains(" +
-                   listTemp + ", " + boxTypedArray(e, elemVar) + ");");
+                   listTemp + ", " + e.boxAny(elemVar) + ");");
             e.emitBlockOpen("if (!" + dupCheck + ") {");
             e.emit("vyne_array_push(" + listTemp + ", " +
-                   boxTypedArray(e, elemVar) + ");");
+                   e.boxAny(elemVar) + ");");
             e.emitBlockClose();
             break;
         }
@@ -1398,7 +1371,7 @@ std::string FunctionCallNode::getCExpr(C_Emitter& e) const {
                        std::to_string(n) + ");");
                 for (int i = 0; i < n; ++i) {
                     e.emit(argArr + "[" + std::to_string(i) + "] = " +
-                           boxTypedArray(e, orderedArgs[i]->getCExpr(e)) + ";");
+                           e.boxAny(orderedArgs[i]->getCExpr(e)) + ";");
                 }
             } else {
                 e.emit("VyneValue* " + argArr + " = NULL;");
@@ -1445,7 +1418,7 @@ std::string FunctionCallNode::getCExpr(C_Emitter& e) const {
         std::vector<std::string> argStrs;
         argStrs.reserve(orderedArgs.size());
         for (auto* argNode : orderedArgs) {
-            argStrs.push_back(boxTypedArray(e, argNode->getCExpr(e)));
+            argStrs.push_back(e.boxAny(argNode->getCExpr(e)));
         }
 
         if (defaults) {
@@ -1478,7 +1451,7 @@ std::string FunctionCallNode::getCExpr(C_Emitter& e) const {
             // NOTE: no deep copy. Array / map arguments are shared by
             // reference, matching assignment semantics and Python / JS /
             // Lua. If a callee mutates its parameter, the caller sees it.
-            std::string val = boxTypedArray(e, orderedArgs[i]->getCExpr(e));
+            std::string val = e.boxAny(orderedArgs[i]->getCExpr(e));
             e.emit(argArr + "[" + std::to_string(i) + "] = " + val + ";");
         }
     } else {
@@ -1504,7 +1477,7 @@ std::string ArrayNode::getCExpr(C_Emitter& e) const {
             ? "vyne_array_f64_create"
             : "vyne_array_i64_create";
 
-        e.emit(typedArrayCName(elem) + " " + name + " = " +
+        e.emit(CType::arrayContainerName(elem) + " " + name + " = " +
                ctor + "(" + std::to_string(elements.size()) + ");");
 
         for (size_t i = 0; i < elements.size(); ++i) {
@@ -1527,7 +1500,7 @@ std::string ArrayNode::getCExpr(C_Emitter& e) const {
     e.emit("VyneValue " + temp + " = vyne_array_create(" +
            std::to_string(size) + ");");
     for (int i = 0; i < size; i++) {
-        std::string elemExpr = boxTypedArray(e, elements[i]->getCExpr(e));
+        std::string elemExpr = e.boxAny(elements[i]->getCExpr(e));
         e.emit("vyne_array_set(" + temp + ", vyne_int(" +
                std::to_string(i) + "), " + elemExpr + ");");
     }
@@ -1538,7 +1511,7 @@ void ArrayNode::compile(C_Emitter& e) const { getCExpr(e); }
 
 std::string IndexAccessNode::getCExpr(C_Emitter& e) const {
     std::string bRaw = base->getCExpr(e);
-    const CType* bt = lookupCType(e, bRaw);
+    const CType* bt = e.lookupType(bRaw);
 
     if (bt && bt->hasShape()) {
         VType elem = bt->args.empty() ? VType::Float64
@@ -1566,8 +1539,8 @@ std::string IndexAccessNode::getCExpr(C_Emitter& e) const {
     }
 
     // Boxed path — unchanged.
-    std::string b = boxTypedArray(e, bRaw);
-    std::string idx = boxTypedArray(e, index->getCExpr(e));
+    std::string b = e.boxAny(bRaw);
+    std::string idx = e.boxAny(index->getCExpr(e));
     std::string temp = e.newTemp("idx");
     e.emit("VyneValue " + temp + " = vyne_index_get(" + b + ", " + idx + ");");
     return temp;
@@ -1577,7 +1550,7 @@ void IndexAccessNode::compile(C_Emitter& e) const { getCExpr(e); }
 
 void IndexAssignmentNode::compile(C_Emitter& e) const {
     std::string bRaw = base->getCExpr(e);
-    const CType* bt = lookupCType(e, bRaw);
+    const CType* bt = e.lookupType(bRaw);
 
     if (bt && bt->hasShape()) {
         VType elem = bt->args.empty() ? VType::Float64
@@ -1602,9 +1575,9 @@ void IndexAssignmentNode::compile(C_Emitter& e) const {
 
     // Boxed fallback — same as before, routed through boxTypedArray so a
     // typed array literal on the RHS still boxes correctly.
-    std::string b = boxTypedArray(e, bRaw);
-    std::string i = boxTypedArray(e, index->getCExpr(e));
-    std::string r = boxTypedArray(e, rhs->getCExpr(e));
+    std::string b = e.boxAny(bRaw);
+    std::string i = e.boxAny(index->getCExpr(e));
+    std::string r = e.boxAny(rhs->getCExpr(e));
     e.emit("vyne_index_set(" + b + ", " + i + ", " + r + ");");
 }
 
@@ -1619,8 +1592,8 @@ std::string IndexAssignmentNode::getCExpr(C_Emitter& e) const {
 
 std::string RangeNode::getCExpr(C_Emitter& e) const {
     if (!left || !right) return "vyne_null()";
-    std::string l = boxTypedArray(e, left->getCExpr(e));
-    std::string r = boxTypedArray(e, right->getCExpr(e));
+    std::string l = e.boxAny(left->getCExpr(e));
+    std::string r = e.boxAny(right->getCExpr(e));
     std::string temp = e.newTemp("rng");
     e.emit("VyneValue " + temp + " = vyne_range_create(" + l + ", " + r + ");");
     return temp;
@@ -1630,7 +1603,7 @@ void RangeNode::compile(C_Emitter& e) const { getCExpr(e); }
 
 std::string SliceNode::getCExpr(C_Emitter& e) const {
     std::string bRaw = base->getCExpr(e);
-    const CType* bt = lookupCType(e, bRaw);
+    const CType* bt = e.lookupType(bRaw);
 
     if (bt && bt->kind == CType::Kind::Array && !bt->args.empty()) {
         VType elem = bt->args[0].toVType();
@@ -1647,7 +1620,7 @@ std::string SliceNode::getCExpr(C_Emitter& e) const {
             ? "vyne_array_f64_slice"
             : "vyne_array_i64_slice";
         std::string name = e.newTemp("slc");
-        e.emit(typedArrayCName(elem) + " " + name + " = " +
+        e.emit(CType::arrayContainerName(elem)+ " " + name + " = " +
                fn + "(&" + bRaw + ", " + lo + ", " + hi + ");");
 
         CType ct;
@@ -1658,9 +1631,9 @@ std::string SliceNode::getCExpr(C_Emitter& e) const {
     }
 
     // Boxed fallback — same as before, with boxTypedArray on the base.
-    std::string b  = boxTypedArray(e, bRaw);
-    std::string lo = low  ? boxTypedArray(e, low->getCExpr(e))  : "vyne_null()";
-    std::string hi = high ? boxTypedArray(e, high->getCExpr(e)) : "vyne_null()";
+    std::string b  = e.boxAny(bRaw);
+    std::string lo = low  ? e.boxAny(low->getCExpr(e))  : "vyne_null()";
+    std::string hi = high ? e.boxAny(high->getCExpr(e)) : "vyne_null()";
     std::string temp = e.newTemp("slc");
     e.emit("VyneValue " + temp + " = vyne_slice_get(" +
            b + ", " + lo + ", " + hi + ");");
@@ -1676,7 +1649,7 @@ void SliceNode::compile(C_Emitter& e) const { getCExpr(e); }
 std::string BuiltInCallNode::getCExpr(C_Emitter& e) const {
     if (funcName == "out") {
         for (const auto& arg : arguments) {
-            e.emit("vyne_out(" + boxTypedArray(e, arg->getCExpr(e)) + ");");
+            e.emit("vyne_out(" + e.boxAny(arg->getCExpr(e)) + ");");
         }
         return "vyne_null()";
     }
@@ -1684,21 +1657,21 @@ std::string BuiltInCallNode::getCExpr(C_Emitter& e) const {
         if (arguments.empty()) return "vyne_string(\"\")";
         std::string temp = e.newTemp("str");
         e.emit("VyneValue " + temp + " = vyne_to_string(" +
-               boxTypedArray(e, arguments[0]->getCExpr(e)) + ");");
+               e.boxAny(arguments[0]->getCExpr(e)) + ");");
         return temp;
     }
     if (funcName == "int64") {
         std::string arg = arguments.empty() ? "vyne_null()"
-                                            : boxTypedArray(e, arguments[0]->getCExpr(e));
+                                            : e.boxAny(arguments[0]->getCExpr(e));
         return "vyne_to_int(" + arg + ")";
     }
     if (funcName == "float64") {
         if (arguments.empty()) return "vyne_float(0.0)";
-        return "vyne_to_float(" + boxTypedArray(e, arguments[0]->getCExpr(e)) + ")";
+        return "vyne_to_float(" + e.boxAny(arguments[0]->getCExpr(e)) + ")";
     }
     if (funcName == "sizeof") {
         if (arguments.empty()) return "vyne_int(0)";
-        std::string arg = boxTypedArray(e, arguments[0]->getCExpr(e));
+        std::string arg = e.boxAny(arguments[0]->getCExpr(e));
         std::string temp = e.newTemp("sz");
         e.emit("VyneValue " + temp + " = vyne_int(vyne_get_sizeof(" + arg + "));");
         return temp;
@@ -1707,18 +1680,18 @@ std::string BuiltInCallNode::getCExpr(C_Emitter& e) const {
         if (arguments.empty()) return "vyne_string(\"null\")";
         std::string temp = e.newTemp("type");
         e.emit("VyneValue " + temp + " = vyne_string(vyne_get_type_name(" +
-               boxTypedArray(e, arguments[0]->getCExpr(e)) + "));");
+               e.boxAny(arguments[0]->getCExpr(e)) + "));");
         return temp;
     }
     if (funcName == "free") {
         if (arguments.empty()) return "vyne_null()";
         // Free is a no-op in the C runtime since we use arena allocation
-        e.emit("// free() called on: " + boxTypedArray(e, arguments[0]->getCExpr(e)));
+        e.emit("// free() called on: " + e.boxAny(arguments[0]->getCExpr(e)));
         return "vyne_null()";
     }
     if (funcName == "exit") {
         if (!arguments.empty()) {
-            e.emit("exit((int)" + boxTypedArray(e, arguments[0]->getCExpr(e)) + ".as.i64);");
+            e.emit("exit((int)" + e.boxAny(arguments[0]->getCExpr(e)) + ".as.i64);");
         } else {
             e.emit("exit(0);");
         }
@@ -1726,8 +1699,8 @@ std::string BuiltInCallNode::getCExpr(C_Emitter& e) const {
     }
     if (funcName == "sequence") {
         if (arguments.size() < 2) return "vyne_array_create(0)";
-        std::string start = boxTypedArray(e, arguments[0]->getCExpr(e));
-        std::string end   = boxTypedArray(e, arguments[1]->getCExpr(e));
+        std::string start = e.boxAny(arguments[0]->getCExpr(e));
+        std::string end   = e.boxAny(arguments[1]->getCExpr(e));
         std::string temp  = e.newTemp("seq");
         std::string iv    = e.newTemp("i");
         std::string nTmp  = e.newTemp("seq_n");
@@ -1790,7 +1763,7 @@ void ProgramNode::compileAliased(C_Emitter& e, const std::string& alias) const {
             e.emit("VyneValue " + mangled + ";");
             e.popGlobalContext();
             std::string val = assign->getRHS()->getCExpr(e);
-            e.emit(mangled + " = " + boxTypedArray(e, val) + ";");
+            e.emit(mangled + " = " + e.boxAny(val) + ";");
             e.pushGlobalContext();
         }
         else if (stmt->type() == NodeType::IMPORT) {
@@ -1881,9 +1854,9 @@ std::string BlockNode::getCExpr(C_Emitter& e) const {
 // ============================================================
 
 std::string TernaryNode::getCExpr(C_Emitter& e) const {
-    std::string cond = boxTypedArray(e, condition->getCExpr(e));
-    std::string tVal = boxTypedArray(e, trueExpr->getCExpr(e));
-    std::string fVal = boxTypedArray(e, falseExpr->getCExpr(e));
+    std::string cond = e.boxAny(condition->getCExpr(e));
+    std::string tVal = e.boxAny(trueExpr->getCExpr(e));
+    std::string fVal = e.boxAny(falseExpr->getCExpr(e));
     std::string temp = e.newTemp("tern");
     e.emit("VyneValue " + temp + " = vyne_is_truthy(" + cond + ") ? " +
            tVal + " : " + fVal + ";");
@@ -1939,7 +1912,7 @@ std::string MemberAccessNode::getCExpr(C_Emitter& e) const {
                 if (const auto* cached = e.getFieldCache(cacheKey))
                     return cached->temp;
 
-                std::string recv = boxTypedArray(e, receiver->getCExpr(e));
+                std::string recv = e.boxAny(receiver->getCExpr(e));
                 uint32_t fid = StringPool::intern(memberName);
                 std::string temp = e.newTemp("fld");
                 const char* cName = (elem == VType::Float64)
@@ -1962,7 +1935,7 @@ std::string MemberAccessNode::getCExpr(C_Emitter& e) const {
     }
 
     // --- Boxed fallback ----------------------------------------------
-    std::string recv = boxTypedArray(e, receiver->getCExpr(e));
+    std::string recv = e.boxAny(receiver->getCExpr(e));
     uint32_t fid = StringPool::intern(memberName);
     return "vyne_struct_get(" + recv + ", " + std::to_string(fid) + ")";
 }
@@ -1975,7 +1948,7 @@ void MemberAssignmentNode::compile(C_Emitter& e) const {
     // Any write invalidates all cached unboxes for this function.
     e.clearFieldCache();
 
-    std::string val = boxTypedArray(e, rhs->getCExpr(e));
+    std::string val = e.boxAny(rhs->getCExpr(e));
 
     if (receiver->type() == NodeType::VARIABLE) {
         auto* var = static_cast<VariableNode*>(receiver.get());
@@ -1996,7 +1969,7 @@ void MemberAssignmentNode::compile(C_Emitter& e) const {
         }
     }
 
-    std::string recv = boxTypedArray(e, receiver->getCExpr(e));
+    std::string recv = e.boxAny(receiver->getCExpr(e));
     uint32_t fid = StringPool::intern(memberName);
     e.emit("vyne_struct_set(" + recv + ", " + std::to_string(fid) +
            ", \"" + memberName + "\", " + val + ");");
@@ -2031,7 +2004,7 @@ void GroupNode::compile(C_Emitter& e) const {
             e.emit("VyneValue " + mangled + ";");
             e.popGlobalContext();
             std::string val = assign->getRHS()->getCExpr(e);
-            e.emit(mangled + " = " + boxTypedArray(e, val) + ";");
+            e.emit(mangled + " = " + e.boxAny(val) + ";");
             e.pushGlobalContext();
                 } else if (stmt->type() == NodeType::FUNCTION) {
             e.popGlobalContext();
@@ -2232,7 +2205,7 @@ std::string MethodCallNode::getCExpr(C_Emitter& e) const {
                        std::to_string(n > 0 ? n : 1) + ");");
                 for (int i = 0; i < n; ++i) {
                     e.emit(argArr + "[" + std::to_string(i) + "] = " +
-                           boxTypedArray(e, arguments[i]->getCExpr(e)) + ";");
+                           e.boxAny(arguments[i]->getCExpr(e)) + ";");
                 }
                 e.emit("VyneValue " + resTemp + " = " + entry->cName +
                        "(" + std::to_string(n) + ", " + argArr + ");");
@@ -2266,7 +2239,7 @@ std::string MethodCallNode::getCExpr(C_Emitter& e) const {
             std::string argStr;
             for (size_t i = 0; i < arguments.size(); ++i) {
                 if (i > 0) argStr += ", ";
-                argStr += boxTypedArray(e, arguments[i]->getCExpr(e));
+                argStr += e.boxAny(arguments[i]->getCExpr(e));
             }
             e.emit("VyneValue " + resTemp + " = " + entry->cName +
                    "(" + argStr + ");");
@@ -2313,7 +2286,7 @@ std::string MethodCallNode::getCExpr(C_Emitter& e) const {
             std::vector<std::string> argStrs;
             argStrs.reserve(arguments.size());
             for (const auto& a : arguments)
-                argStrs.push_back(boxTypedArray(e, a->getCExpr(e)));
+                argStrs.push_back(e.boxAny(a->getCExpr(e)));
             if (defaults) {
                 for (size_t i = argStrs.size(); i < defaults->size(); ++i) {
                     argStrs.push_back((*defaults)[i]);
@@ -2346,7 +2319,7 @@ std::string MethodCallNode::getCExpr(C_Emitter& e) const {
                    std::to_string(argSize) + ");");
             for (int i = 0; i < argSize; ++i) {
                 e.emit(argArr + "[" + std::to_string(i) + "] = " +
-                       boxTypedArray(e, arguments[i]->getCExpr(e)) + ";");
+                       e.boxAny(arguments[i]->getCExpr(e)) + ";");
             }
         } else {
             e.emit("VyneValue* " + argArr + " = NULL;");
@@ -2366,13 +2339,13 @@ std::string MethodCallNode::getCExpr(C_Emitter& e) const {
     // ----------------------------------------------------------------
     std::string recvRaw = receiver->getCExpr(e);
     std::string recv = e.newTemp("m_recv");
-    e.emit("VyneValue " + recv + " = " + boxTypedArray(e, recvRaw) + ";");
+    e.emit("VyneValue " + recv + " = " + e.boxAny(recvRaw) + ";");
 
     // Array methods
     if (methodName == "push") {
         for (const auto& argNode : arguments) {
             e.emit("vyne_array_push(" + recv + ", " +
-                   boxTypedArray(e, argNode->getCExpr(e)) + ");");
+                   e.boxAny(argNode->getCExpr(e)) + ");");
         }
         return recv;
     }
@@ -2420,7 +2393,7 @@ std::string MethodCallNode::getCExpr(C_Emitter& e) const {
         return temp;
     }
     if (methodName == "delete_at") {
-        std::string idx = boxTypedArray(e, arguments[0]->getCExpr(e));
+        std::string idx = e.boxAny(arguments[0]->getCExpr(e));
         std::string temp = e.newTemp("delat");
         e.emit("VyneValue " + temp + " = vyne_array_delete_at(" + recv +
                ", (" + idx + ").as.i64);");
@@ -2431,8 +2404,8 @@ std::string MethodCallNode::getCExpr(C_Emitter& e) const {
         return recv;
     }
     if (methodName == "place_all") {
-        std::string v = boxTypedArray(e, arguments[0]->getCExpr(e));
-        std::string c = boxTypedArray(e, arguments[1]->getCExpr(e));
+        std::string v = e.boxAny(arguments[0]->getCExpr(e));
+        std::string c = e.boxAny(arguments[1]->getCExpr(e));
         e.emit("vyne_array_place_all(" + recv + ", " + v +
                ", (" + c + ").as.i64);");
         return recv;
@@ -2445,8 +2418,8 @@ std::string MethodCallNode::getCExpr(C_Emitter& e) const {
                 "Compile Error: substr() requires at least 1 argument (line " +
                 std::to_string(lineNumber) + ")");
         }
-        std::string s = boxTypedArray(e, arguments[0]->getCExpr(e));
-        std::string c = (arguments.size() >= 2) ? boxTypedArray(e, arguments[1]->getCExpr(e)) : "vyne_int(-1)";
+        std::string s = e.boxAny(arguments[0]->getCExpr(e));
+        std::string c = (arguments.size() >= 2) ? e.boxAny(arguments[1]->getCExpr(e)) : "vyne_int(-1)";
         std::string temp = e.newTemp("substr");
         e.emit("VyneValue " + temp + " = vyne_string_substr(" + recv +
                ", (" + s + ").as.i64, (" + c + ").as.i64);");
@@ -2458,7 +2431,7 @@ std::string MethodCallNode::getCExpr(C_Emitter& e) const {
                 "Compile Error: find() requires 1 argument (line " +
                 std::to_string(lineNumber) + ")");
         }
-        std::string target = boxTypedArray(e, arguments[0]->getCExpr(e));
+        std::string target = e.boxAny(arguments[0]->getCExpr(e));
         std::string temp = e.newTemp("find");
         e.emit("VyneValue " + temp + " = vyne_string_find(" + recv + ", " + target + ");");
         return temp;
@@ -2484,8 +2457,8 @@ std::string MethodCallNode::getCExpr(C_Emitter& e) const {
                 "Compile Error: replace() requires 2 arguments (line " +
                 std::to_string(lineNumber) + ")");
         }
-        std::string o = boxTypedArray(e, arguments[0]->getCExpr(e));
-        std::string n = boxTypedArray(e, arguments[1]->getCExpr(e));
+        std::string o = e.boxAny(arguments[0]->getCExpr(e));
+        std::string n = e.boxAny(arguments[1]->getCExpr(e));
         std::string temp = e.newTemp("rep");
         e.emit("VyneValue " + temp + " = vyne_string_replace(" + recv +
                ", " + o + ", " + n + ");");
@@ -2505,7 +2478,7 @@ std::string MethodCallNode::getCExpr(C_Emitter& e) const {
     }
 
     if (methodName == "has") {
-        std::string arg = boxTypedArray(e, arguments[0]->getCExpr(e));
+        std::string arg = e.boxAny(arguments[0]->getCExpr(e));
         std::string temp = e.newTemp("has");
         e.emit("VyneValue " + temp + " = vyne_bool(vyne_map_has(" + recv + ", " + arg + "));");
         return temp;
@@ -2521,13 +2494,13 @@ std::string MethodCallNode::getCExpr(C_Emitter& e) const {
         return temp;
     }
     if (methodName == "set") {
-        std::string k = boxTypedArray(e, arguments[0]->getCExpr(e));
-        std::string v = boxTypedArray(e, arguments[1]->getCExpr(e));
+        std::string k = e.boxAny(arguments[0]->getCExpr(e));
+        std::string v = e.boxAny(arguments[1]->getCExpr(e));
         e.emit("vyne_map_set(" + recv + ", " + k + ", " + v + ");");
         return v;
     }
     if (methodName == "delete") {
-        std::string k = boxTypedArray(e, arguments[0]->getCExpr(e));
+        std::string k = e.boxAny(arguments[0]->getCExpr(e));
         std::string temp = e.newTemp("del");
         e.emit("VyneValue " + temp + " = vyne_delete_any(" + recv + ", " + k + ");");
         return temp;
@@ -2551,7 +2524,7 @@ std::string MethodCallNode::getCExpr(C_Emitter& e) const {
         e.emit(argArr + "[0] = " + recv + ";");
         for (int i = 0; i < argSize; ++i) {
             e.emit(argArr + "[" + std::to_string(i + 1) + "] = " +
-                   boxTypedArray(e, arguments[i]->getCExpr(e)) + ";");
+                   e.boxAny(arguments[i]->getCExpr(e)) + ";");
         }
         e.emit(temp + " = vyne_struct_call(" + recv + ", \"" + methodName + "\", " +
                std::to_string(argSize + 1) + ", " + argArr + ");");
@@ -2781,7 +2754,7 @@ void NullCoalesceAssignmentNode::compile(C_Emitter& e) const {
             e.emitGlobalDecl("VyneValue " + cVar + ";");
         }
         e.pushMainContext();
-        std::string val = boxTypedArray(e, rhs->getCExpr(e));
+        std::string val = e.boxAny(rhs->getCExpr(e));
         e.emit("if (" + cVar + ".type == V_NULL) {");
         e.emit("    " + cVar + " = " + val + ";");
         e.emit("}");
@@ -2789,13 +2762,13 @@ void NullCoalesceAssignmentNode::compile(C_Emitter& e) const {
     } else {
         if (!e.isLocalDeclared(cVar)) {
             e.registerDeclaration(cVar);
-            std::string val = boxTypedArray(e, rhs->getCExpr(e));
+            std::string val = e.boxAny(rhs->getCExpr(e));
             e.emit("VyneValue " + cVar + " = vyne_null();");
             e.emit("if (" + cVar + ".type == V_NULL) {");
             e.emit("    " + cVar + " = " + val + ";");
             e.emit("}");
         } else {
-            std::string val = boxTypedArray(e, rhs->getCExpr(e));
+            std::string val = e.boxAny(rhs->getCExpr(e));
             e.emit("if (" + cVar + ".type == V_NULL) {");
             e.emit("    " + cVar + " = " + val + ";");
             e.emit("}");
@@ -2815,7 +2788,7 @@ std::string NullCoalesceAssignmentNode::getCExpr(C_Emitter& e) const {
 
 void NullCoalesceMemberAssignmentNode::compile(C_Emitter& e) const {
     std::string recv = receiver->getCExpr(e);
-    std::string val = boxTypedArray(e, rhs->getCExpr(e));
+    std::string val = e.boxAny(rhs->getCExpr(e));
     uint32_t fid = StringPool::intern(memberName);
 
     e.emit("{");
@@ -2836,8 +2809,8 @@ std::string NullCoalesceMemberAssignmentNode::getCExpr(C_Emitter& e) const {
 // ============================================================
 
 std::string InNode::getCExpr(C_Emitter& e) const {
-    std::string leftVal = boxTypedArray(e, left->getCExpr(e));
-    std::string rightVal = boxTypedArray(e, right->getCExpr(e));
+    std::string leftVal = e.boxAny(left->getCExpr(e));
+    std::string rightVal = e.boxAny(right->getCExpr(e));
     std::string temp = e.newTemp("in");
 
     e.emit("VyneValue " + temp + " = vyne_in_operator(" +
@@ -2852,8 +2825,8 @@ void InNode::compile(C_Emitter& e) const { getCExpr(e); }
 // ============================================================
 
 std::string NullCoalesceNode::getCExpr(C_Emitter& e) const {
-    std::string leftVal = boxTypedArray(e, left->getCExpr(e));
-    std::string rightVal = boxTypedArray(e, right->getCExpr(e));
+    std::string leftVal = e.boxAny(left->getCExpr(e));
+    std::string rightVal = e.boxAny(right->getCExpr(e));
     std::string temp = e.newTemp("coalesce");
 
     e.emit("VyneValue " + temp + " = (" + leftVal + ".type == V_NULL) ? " +
@@ -2886,10 +2859,10 @@ std::string PipelineNode::getCExpr(C_Emitter& e) const {
 
         e.emit("VyneValue* " + argArr + " = (VyneValue*)arena_alloc(sizeof(VyneValue) * " +
                std::to_string(totalArgs) + ");");
-        e.emit(argArr + "[0] = " + boxTypedArray(e, leftVal) + ";");
+        e.emit(argArr + "[0] = " + e.boxAny(leftVal) + ";");
 
         for (size_t i = 0; i < args.size(); ++i) {
-            std::string v = boxTypedArray(e, args[i]->getCExpr(e));
+            std::string v = e.boxAny(args[i]->getCExpr(e));
             e.emit(argArr + "[" + std::to_string(i + 1) + "] = " + v + ";");
         }
 
@@ -2920,10 +2893,10 @@ std::string PipelineNode::getCExpr(C_Emitter& e) const {
         e.emit("VyneValue* " + argArr + " = (VyneValue*)arena_alloc(sizeof(VyneValue) * " +
                std::to_string(totalArgs + 1) + ");");
         e.emit(argArr + "[0] = " + recv + ";");
-        e.emit(argArr + "[1] = " + boxTypedArray(e, leftVal) + ";");
+        e.emit(argArr + "[1] = " + e.boxAny(leftVal) + ";");
         for (size_t i = 0; i < args.size(); ++i) {
             e.emit(argArr + "[" + std::to_string(i + 2) + "] = " +
-                   boxTypedArray(e, args[i]->getCExpr(e)) + ";");
+                   e.boxAny(args[i]->getCExpr(e)) + ";");
         }
         e.emit(temp + " = vyne_struct_call(" + recv + ", \"" + methodName + "\", " +
                std::to_string(totalArgs + 1) + ", " + argArr + ");");
@@ -2940,7 +2913,7 @@ std::string PipelineNode::getCExpr(C_Emitter& e) const {
 // ============================================================
 
 void ThrowNode::compile(C_Emitter& e) const {
-    std::string expr = expression ? boxTypedArray(e, expression->getCExpr(e))
+    std::string expr = expression ? e.boxAny(expression->getCExpr(e))
                                   : "vyne_null()";
     e.emit("vyne_throw(" + expr + ");");
 }
@@ -3145,8 +3118,8 @@ std::string MapNode::getCExpr(C_Emitter& e) const {
     std::string temp = e.newTemp("map");
     e.emit("VyneValue " + temp + " = vyne_map_create();");
     for (const auto& [keyNode, valNode] : pairs) {
-        std::string k = boxTypedArray(e, keyNode->getCExpr(e));
-        std::string v = boxTypedArray(e, valNode->getCExpr(e));
+        std::string k = e.boxAny(keyNode->getCExpr(e));
+        std::string v = e.boxAny(valNode->getCExpr(e));
         e.emit("vyne_map_set(" + temp + ", " + k + ", " + v + ");");
     }
     return temp;
@@ -3166,7 +3139,7 @@ std::string InterpolatedStringNode::getCExpr(C_Emitter& e) const {
         std::string piece;
         if (isExpr) {
             if (exprIdx >= exprNodes.size()) break;
-            std::string v = boxTypedArray(e, exprNodes[exprIdx++]->getCExpr(e));
+            std::string v = e.boxAny(exprNodes[exprIdx++]->getCExpr(e));
             piece = e.newTemp("is");
             e.emit("VyneValue " + piece + " = vyne_to_string(" + v + ");");
         } else {
@@ -3195,14 +3168,6 @@ void InterpolatedStringNode::compile(C_Emitter& e) const { getCExpr(e); }
 // SHAPE-TYPED SCRATCH
 // ============================================================
 
-static const char* scratchElemCName(VType t) {
-    switch (t) {
-        case VType::Float64: return "double";
-        case VType::Int64:   return "int64_t";
-        default:             return "double";
-    }
-}
-
 void ScratchNode::compile(C_Emitter& e) const {
     if (!e.hasRegion()) {
         throw std::runtime_error(
@@ -3222,11 +3187,11 @@ void ScratchNode::compile(C_Emitter& e) const {
     arrType.kind = CType::Kind::Array;
     arrType.args.push_back(CType::fromVType(elemType));
     arrType.shape = shape;
-    arrType.nativeName = scratchElemCName(elemType);
+    arrType.nativeName = CType::elemCName(elemType);
 
     // C declaration: double v_grad_w1[64*16];
     int64_t n = arrType.numElements();
-    e.emit(std::string(scratchElemCName(elemType)) + " " + cName +
+    e.emit(std::string(CType::elemCName(elemType)) + " " + cName +
            "[" + std::to_string(n) + "];");
 
     // Register as a scoped local with shape, so later accesses see it.
@@ -3286,7 +3251,7 @@ std::string ScratchIndexNode::getCExpr(C_Emitter& e) const {
     VType elem = bt->args.empty() ? VType::Float64 : bt->args[0].toVType();
 
     std::string tmp = e.newTemp("sid");
-    e.emit(std::string(scratchElemCName(elem)) + " " + tmp + " = " +
+    e.emit(std::string(CType::elemCName(elem)) + " " + tmp + " = " +
            baseExpr + "[" + flat + "];");
     e.declareNativeTemp(tmp, CType::fromVType(elem));
     return tmp;
