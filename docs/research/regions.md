@@ -424,6 +424,8 @@ the region rewind.
 
 ---
 
+## 6. Limitations and Future Work
+
 Two capabilities are required before the technique generalizes to the
 rest of a numerical kernel.
 
