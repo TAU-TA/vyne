@@ -21,10 +21,12 @@ We describe the design, the lowering to C, the interaction between the
 two constructs, and a small case study in which an existing training
 loop in a neural-network classifier was rewritten to use scratch
 buffers. We report that the rewritten loop eliminates all arena traffic
-for the two accumulator buffers. Two follow-up capabilities — a
-native ABI for primitive-typed scalar parameters (landed, §4.5) and
-the corresponding ABI for array parameters, together with escape
-analysis — are still required before the technique generalizes to
+for the two accumulator buffers. The same technique extends to the weight-gradient
+buffers via a shaped-assignment lowering introduced in the same release; a second
+pass over the case study makes all five per-iteration arrays stack-resident.
+Two follow-up capabilities — a native ABI for primitive-typed
+scalar parameters (landed, §4.5) and the corresponding ABI for array parameters,
+together with escape analysis — are still required before the technique generalizes to
 the rest of the loop.
 
 ---
@@ -256,6 +258,8 @@ compile error. Second, the element-copy loop in the third case does
 allocate nothing; it reads from the boxed right-hand side's existing
 storage and writes to the scratch array on the C stack.
 
+The two properties that §3.4 cannot provide — a compile-time shape check and a compile-time element-type check on the third case — are consequences of the type system carrying no shape or element annotation on `Array`. Both are named in §6.6 and are orthogonal to the case study in §5.
+
 ---
 
 ## 4. Implementation Notes
@@ -441,50 +445,306 @@ still produce and consume boxed tensors, and every intermediate value
 they materialize is still allocated on the arena and released only at
 the region rewind.
 
+### 5.5 A second pass: weight-gradient buffers
+
+The rewrite in §5.1 exercises shaped assignment only on the initializers
+of `db1_buf` and `db2_buf`. A second pass over the same program extends
+the same technique to the three weight-gradient buffers that dominate
+the loop's allocation budget:
+
+```vyne
+region training {
+    scratch db2_buf :: Float64[12];
+    scratch db1_buf :: Float64[16];
+    scratch dW3 :: Float64[12, 1];
+    scratch dW2 :: Float64[16, 12];
+    scratch dW1 :: Float64[64, 16];
+
+    ...
+    dW3 = vlinalg.multiply(vlinalg.transpose(A2), delta3);
+    dW2 = vlinalg.multiply(vlinalg.transpose(A1), delta2);
+    dW1 = vlinalg.multiply(vlinalg.transpose(X),  delta1);
+    ...
+
+};
+```
+
+Each assignment lowers to the third case of §3.4. The emitted C is a
+single runtime shape check followed by an element-wise copy from the
+boxed `VyneValue` produced by `vlinalg.multiply` into a raw `double`
+array on the C stack. The saved cost is that every subsequent use of
+`dW1`, `dW2`, `dW3` — including the SGD update, which reads each
+element once — is a native `double` load, and the arrays themselves
+no longer allocate on the arena per iteration.
+
+The three gradient buffers are the largest allocations in the loop
+(1024 + 192 + 12 = 1228 elements, versus 28 for the bias buffers).
+Promoting them to scratch is the single biggest reduction in arena
+traffic that this technique can deliver on this program without
+modifying `vlinalg` itself. The reduction is bounded by the same
+boundary §5.4 names: the source of each copy is still a boxed
+tensor, and the result of `dW1` in the SGD update is still read
+through the arena because `sgd_update_inplace` takes boxed arguments.
+What disappears is the per-iteration allocation of the destination.
+
+### 5.6 Measurements
+
+_To be filled in._ The three configurations to measure are:
+
+1. **Baseline** — original program, no scratch, no shaped assignment.
+2. **Accumulators only** — the rewrite of §5.1; `db1_buf` and `db2_buf`
+   are scratch, everything else is boxed.
+3. **Accumulators + gradients** — the rewrite of §5.1 plus the gradient
+   buffers of §5.5.
+
+For each configuration, record:
+
+- **Final classification accuracy** at `EPOCHS = 50`. This is a
+  correctness check, not a performance check. All three should be equal
+  to the last decimal; a difference means the rewrite changed behaviour
+  and the change needs to be understood before any other number is
+  reported.
+- **Peak resident set size** at `EPOCHS ∈ {50, 500, 5000}`. This is the
+  point of the exercise. Under the memory model of §2, the baseline
+  should grow linearly with `EPOCHS`, and the two rewritten
+  configurations should be flat. If configuration (3) is flat across
+  `EPOCHS` and configuration (1) is linear, the memory model is doing
+  what §2 promises.
+- **Wall-clock time per epoch** for the same three values of `EPOCHS`.
+  This is a secondary number. The technique is not a speedup; it is a
+  memory-footprint change. If it is also a speedup, that is worth
+  reporting; if it is neutral, that is expected.
+
+Peak RSS is best measured with `/usr/bin/time -v` on Linux or
+`Get-Process` on Windows. Report the mean of five runs and the standard
+deviation, not the minimum; the arena's block size of 8 MB makes the
+minimum unrepresentative.
+
 ---
 
 ## 6. Limitations and Future Work
 
-Two capabilities are required before the technique generalizes to the
-rest of a numerical kernel.
+The technique described in §2–§4 is complete for its intended scope but
+has a number of well-defined boundaries. We enumerate them here in order
+of what we would build next, from the smallest follow-up to the largest.
 
-**Native ABI for array parameters.** Passing an `Array<Float64>` to a
-Vyne function currently boxes it, even though the emitter already knows
-the argument is a `VyneArray_f64` and could pass `(const double*,
-int64_t)` directly. Extending §4.5's dispatcher to this case requires
-the native variant signature to reflect the array element type, and the
-argument coercion at the call site to produce `.data` and `.size`
-rather than a pointer to the container. This is the load-bearing step
-for numerical kernels: without it, every loop that reads an array
-parameter pays a runtime tag check per element, and the C compiler
-cannot vectorize the loop body. The primitive ABI in §4.5 is the
-prerequisite; the array case is the payoff. It is a moderate change.
+### 6.1 Borrow parameters (new)
 
-**Escape analysis.** The current design does not prove that a scratch
-value has not escaped before rewind. `region.commit` therefore accepts
-only boxed values, and any attempt to escape a shaped value is a
-compile error. A proper escape analysis would let scratch values be
-committed and would let the compiler reclaim committed values earlier
-than program exit.
+Scratch arrays are visible only inside the region that declares them.
+A call to a Vyne function from inside the region sees the array as a
+boxed `VyneValue`, because there is no ABI for passing a raw C array
+to a function whose parameters were declared with the standard
+`:: Float64[]` syntax. Any code that wants to operate on a scratch
+array must therefore be inlined into the region body, or must pay
+the boxing cost at the call boundary.
 
-Two limitations of the current shaped-assignment support (§3.4) are
-worth naming even though they do not block adoption. First, the third
-case — assignment from a boxed value — performs a runtime tag check on
-every element, because the boxed right-hand side carries no static
-element type; a producer whose return type were a typed
-`VyneArray_f64` would skip the check entirely. Second, because `Array`
-in the type system carries no shape, a shape mismatch on a boxed
-assignment is a runtime `exit(1)`, not a compile error. Both
-limitations close together, if and when the type system learns to
-distinguish `Array` from shaped `Array` and if `vlinalg` grows
-shape-aware return types; neither is required for the case study in
-§5.
+The natural fix is a borrow parameter, marked with & before the
+type at the declaration site and required at the call site:
+
+```vyne
+fn fill(x &Float64[64, 16], value :: Float64) {
+    through i :: 0..63 -> loop {
+        through j :: 0..15 -> loop { x[i, j] = value; };
+    };
+};
+```
+
+The `&` is not optional; requiring it at the call site is what lets
+the reader see that `buf` will be mutated. The lowering passes the
+underlying `double\*` plus the declared dimensions, and the callee
+compiles against a native C array parameter rather than a boxed
+value.
+
+This is the second half of what a mini-tensor needs. Without it, a
+numerical kernel can be written in Vyne only by inlining it into the
+region body, which is fine for a single training loop and inadequate for
+a library. With it, `fill`, `matmul_into`, `accumulate_into`, and their
+siblings become ordinary functions that take scratch arrays by reference
+and mutate them in place, and the emitted C is the same loop the
+programmer would have written by hand.
+
+Effort: one day. The parser change is trivial; the emitter change is
+a second parameter-signature variant in the same dispatcher that §4.5
+introduced for primitives, with the array case adding `double\*` and
+`int64_t` for the dimensions.
+
+### 6.2 Native ABI for array parameters
+
+Distinct from borrowing a scratch array is the question of passing an
+ordinary `Array<Float64>` natively. Today, passing an `Array<Float64>`
+to a Vyne function boxes it, even though the emitter already knows the
+argument is a `VyneArray_f64` and could pass `(const double\*, int64_t)`
+directly. Extending §4.5's dispatcher to this case requires the native
+variant signature to reflect the array element type, and the argument
+coercion at the call site to produce `.data` and `.size` rather than a
+pointer to the container.
+
+This is the load-bearing step for numerical kernels. Without it, every
+loop that reads an array parameter pays a runtime tag check per element,
+and the C compiler cannot vectorize the loop body even when the element
+type is statically known. The primitive ABI in §4.5 is the prerequisite;
+the array case is the payoff. The two together are what would let a
+Vyne-defined `matmul` reach the same generated code that a C
+implementation would.
+
+The distinction from §6.1 is worth stating explicitly. Borrow parameters
+are a language-level feature: the programmer writes `&` and the
+semantics of the call change. The native array ABI is a compiler-level
+optimization: the source code is unchanged, and the emitter chooses a
+narrower calling convention when the argument's static type permits it.
+Both are needed. Borrow parameters let scratch be passed into functions;
+the native array ABI lets ordinary `Array<Float64>` be passed without
+the boxing cost.
+
+**Effort**: moderate. The signature computation is mechanical once §4.5
+exists; the harder part is the interaction with deep-copy semantics,
+since Vyne arrays are passed by reference and the native path must
+preserve that.
+
+### 6.3 Scratch slicing and views
+
+There is no way to take a sub-range of a scratch array and pass it
+somewhere as a first-class value. `W[0, :]` on a scratch `W` is not
+a valid expression; the parser rejects the slice form on shaped
+arrays because there is no way to represent the result.
+
+The natural fix is a view: a triple of
+
+```c
+{double\* base; int64_t stride; int64_t len;}
+```
+
+that aliases a slice of an existing scratch
+array without copying. Reads and writes through the view multiply
+the index by the stride and add it to the base pointer. The view
+is stack-resident; like the array it views, it dies with the region.
+
+Views are what make scratch composable into kernels. A matmul that wants
+to operate on the _k_-th row of `A` and the _k_-th column of `B` should
+be able to take those slices as parameters, not materialize them first.
+The same goes for the per-sample update in the training loop: a strided
+view of `W` for a single column should be a view of `W`, not a freshly
+allocated column vector. And `sdg_update_inplace`'s eventual
+scratch-taking variant should accept a view of `W`, so the update loop
+runs over the original array's storage rather than a copy.
+
+There is a lifetime question that views introduce and that scratch does
+not: a view holds a pointer into another scratch array, and that pointer
+must not outlive the array. Because both are stack-allocated in the same
+region, the lifetime of the view is a subset of the lifetime of the
+array it views, which is what the lexical scoping already guarantees. No
+additional checking is needed; the same scope discipline that makes
+scratch safe makes views safe.
+
+**Effort**: two days, dominated by getting the stride arithmetic right in
+`ScratchIndexNode` and `ScratchStoreNode`, and by deciding whether a view
+is a distinct `CType` kind or a variant of `CType::Kind::Array`.
+
+### 6.4 Escape analysis
+
+The current design does not prove that a scratch value has not escaped
+before rewind. `region.commit` therefore accepts only boxed values, and
+any attempt to escape a shaped value is a compile error. A proper escape
+analysis would let scratch values be committed and would let the compiler
+reclaim committed values earlier than program exit.
+
+This is the largest of the follow-ups and the one with the most research
+value. The analysis answers a single question — does this value's
+storage need to outlive its lexical scope? — and once it is available,
+four separate things become automatic:
+
+- Automatic commit. Instead of a programmer-inserted region.commit
+  at each escape point, the compiler inserts it where the analysis
+  determines a value has escaped.
+
+- Automatic reclamation. A committed value that the analysis can
+  prove dead at a known program point can be reclaimed at that point
+  rather than at program exit.
+
+- Automatic scratch promotion. A boxed local whose allocation is
+  provably region-scoped and whose size is statically bounded can be
+  lowered to a scratch array without a `scratch` declaration.
+
+- **Dangling-rewind diagnostics**. A `region.commit` that the analysis
+  proves unnecessary, or a `return` of a value the analysis proves will
+  dangle, becomes a compile error rather than a runtime dangling
+  pointer.
+
+The last two are the ones that pay for the analysis. Automatic scratch
+promotion in particular is what would let a programmer write ordinary
+Vyne and get the same code the current rewrite produces by hand. If the
+analysis is good enough, `scratch` and `region.commit` become escape
+hatches rather than required annotations.
+
+**Effort**: two to three weeks. The analysis itself is the well-understood
+part; the difficult piece is the fallback when the analysis cannot prove
+a lifetime, which must be a correct but slower path, not a compile error.
+The current design already has the correct-but-slower path — box the
+value — so the fallback is free. What is new is the fast path.
+
+### 6.5 Commit arena reclamation
 
 `region.commit` currently deep-clones its argument into a commit arena
-that is never freed. In a hot loop, this grows the commit arena
-linearly with iteration count. The fix is the same escape analysis:
-once the compiler can prove that a committed value is dead at a known
-point, it can reclaim the corresponding arena region.
+that is never freed. In a hot loop, this grows the commit arena linearly
+with iteration count. The fix is the same escape analysis: once the
+compiler can prove that a committed value is dead at a known point, it
+can reclaim the corresponding arena region.
+
+This is a consequence of §6.4 rather than an independent item. It is
+called out separately because the effect is measurable independently:
+even a coarse escape analysis that proves some committed values dead
+would cap the commit arena's growth at the size of the live committed
+set, which for most programs is a small constant. The difference between
+"grows linearly with iterations" and "bounded by live set" is the
+difference between a program that runs for a day and a program that runs
+for a month.
+
+The correct implementation is not a per-value free — the commit arena
+does not have the block structure to support that — but a commit-arena
+checkpoint that mirrors the region checkpoint. A region that commits
+into the commit arena takes a checkpoint on entry and rewinds on exit,
+promoting only the committed values that survived. The interface is the
+same as §2.3 from the user's perspective; what changes is that the
+committed values are now second-tier scratch rather than permanent.
+
+**Effort**: two days once §6.4 exists. Without §6.4, the commit-arena
+checkpoint cannot know which committed values to preserve and which to
+discard, and reverts to the current behaviour.
+
+### 6.6 Limitations of shaped-assignment support
+
+Two limitations of the current shaped-assignment support (§3.4) are worth
+naming even though they do not block adoption.
+
+First, the third case — assignment from a boxed value — performs a
+runtime tag check on every element, because the boxed right-hand side
+carries no static element type. A producer whose return type were a
+typed `VyneArray_f64` would skip the check entirely. The fix is not a
+change to the shaped-assignment lowering; it is a change to the types
+that `vlinalg` and other boxed producers declare as their return types.
+The machinery is already in the emitter (`boxAny` knows how to box a
+`VyneArray_f64` and the reverse path is what §3.4's third case does by
+hand); what is missing is a way for a library to say "this function
+returns a `VyneArray_f64`, not a `VyneValue` that happens to contain
+one."
+
+Second, because `Array` in the type system carries no shape, a shape
+mismatch on a boxed assignment is a runtime exit(1), not a compile
+error. The static alternative is a shaped Array type, which is the
+same type-system change that the first limitation wants. Both close
+together, if and when the type system learns to distinguish Array
+from shaped Array. Neither is required for the case study in §5,
+because in that program the shapes are fixed constants and the
+programmer can verify the sizes by hand.
+
+There is a third limitation that the language-level reading of §3.4
+makes visible: an assignment to a scratch variable is an expression in
+Vyne, not a statement, and its result is the scratch array itself. That
+means the assignment can appear in contexts where the compiler cannot
+know its destination at parse time — `if c { scratch_a } else { scratch_b } = rhs` is not legal because the grammar does not admit a scratch variable
+as the target of a conditional assignment. This is a parser restriction,
+not a semantic one, and could be relaxed with a small amount of grammar
+work. It is not on the critical path for any current program.
 
 ---
 
@@ -517,9 +777,12 @@ that a language without a JIT can use directly.
 
 ## 8. Availability
 
-The implementation is part of the Vyne compiler at [repo]. The
+The implementation is part of the Vyne compiler at [repo](https://github.com/t2ncay/vyne). The
 scratch feature is behind the `scratch` keyword; no flag is required.
 The RNA classifier case study is at `tests/training/ml_seq.vy`.
+
+The shaped-assignment lowering described in §3.4 landed alongside the
+constructs of §2–§3 and is exercised by `tests/transpiler/scratch_assign_test.vy`.
 
 ---
 
@@ -532,7 +795,15 @@ The RNA classifier case study is at `tests/training/ml_seq.vy`.
 - Hallenberg, N., Elsman, M., Tofte, M. _Combining Region Inference
   and Region-Based Memory Management._ TOPLAS 24(4), 2002.
 
-```
+````
 
 ---
+
 ```
+
+```
+
+```
+
+```
+````
