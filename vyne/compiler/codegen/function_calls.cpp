@@ -93,11 +93,63 @@ std::string FunctionCallNode::getCExpr(C_Emitter& e) const {
         }
     }
 
+    std::vector<std::string> argCExprs;
+    std::vector<VType>       argVTypes;
+    argCExprs.reserve(orderedArgs.size());
+    argVTypes.reserve(orderedArgs.size());
+
+    for (auto* a : orderedArgs) {
+        std::string s = a->getCExpr(e);
+        const CType* ct = e.exprNativeType(s);
+        VType t = ct ? ct->toVType() : a->getStaticType();
+        argCExprs.push_back(std::move(s));
+        argVTypes.push_back(t);
+    }
+
     int argSize = (int)orderedArgs.size();
     std::string retTemp = e.newTemp("ret");
 
     std::string mangledName = originalName;
     std::replace(mangledName.begin(), mangledName.end(), '.', '_');
+
+    // ----------------------------------------------------------------
+    // Native-variant dispatch. Fires only when the callee has a native
+    // variant AND every argument's static type matches the parameter
+    // (Int64 → Float64 widening permitted). Otherwise the boxed path
+    // below runs unchanged.
+    // ----------------------------------------------------------------
+    {
+        const std::string* nativeName = e.lookupNativeVariant(mangledName);
+        const std::vector<CType>* paramTypes =
+            e.getFunctionParamTypes(originalName);
+        const CType* retCt = e.getFunctionReturnType(originalName);
+
+        if (nativeName && paramTypes && retCt && retCt->isPrimitive() &&
+            paramTypes->size() == orderedArgs.size())
+        {
+            bool allMatch = true;
+            for (size_t i = 0; i < argVTypes.size(); ++i) {
+                VType want = (*paramTypes)[i].toVType();
+                bool ok = (argVTypes[i] == want) ||
+                          (want == VType::Float64 && argVTypes[i] == VType::Int64);
+                if (!ok) { allMatch = false; break; }
+            }
+
+            if (allMatch) {
+                std::string argList;
+                for (size_t i = 0; i < orderedArgs.size(); ++i) {
+                    if (i > 0) argList += ", ";
+                    argList += coerceToNative(e, orderedArgs[i], argCExprs[i],
+                                              (*paramTypes)[i].toVType());
+                }
+                std::string nret = e.newTemp("nret");
+                e.emit(retCt->cTypeName() + " " + nret + " = fn_" +
+                       *nativeName + "(" + argList + ");");
+                e.declareNativeTemp(nret, *retCt);
+                return nret;
+            }
+        }
+    }
 
     // ----------------------------------------------------------------
     // Interface constructors take their arguments directly — no
@@ -116,8 +168,8 @@ std::string FunctionCallNode::getCExpr(C_Emitter& e) const {
 
         std::vector<std::string> argStrs;
         argStrs.reserve(orderedArgs.size());
-        for (auto* argNode : orderedArgs) {
-            argStrs.push_back(e.boxAny(argNode->getCExpr(e)));
+        for (size_t i = 0; i < orderedArgs.size(); ++i) {
+            argStrs.push_back(e.boxAny(argCExprs[i]));
         }
 
         if (defaults) {
@@ -150,7 +202,7 @@ std::string FunctionCallNode::getCExpr(C_Emitter& e) const {
             // NOTE: no deep copy. Array / map arguments are shared by
             // reference, matching assignment semantics and Python / JS /
             // Lua. If a callee mutates its parameter, the caller sees it.
-            std::string val = e.boxAny(orderedArgs[i]->getCExpr(e));
+            std::string val = e.boxAny(argCExprs[i]);
             e.emit(argArr + "[" + std::to_string(i) + "] = " + val + ";");
         }
     } else {
