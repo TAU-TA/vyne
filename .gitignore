@@ -32,3 +32,4 @@ builtincall_test
 *_release
 nul
 *.bak
+*.ps1
