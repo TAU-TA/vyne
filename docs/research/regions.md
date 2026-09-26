@@ -219,6 +219,42 @@ the feature earns its keep:
 The rule we recommend is: **scratch is for local, purely-numeric
 accumulation.** Reads and writes of scalars, nothing else.
 
+### 3.4 Assignment into scratch
+
+A scratch variable may appear on the left of an assignment. The lowering
+depends on what is statically known about the right-hand side.
+
+- **Scratch = scratch, matching element type.** Lowered to `memcpy`.
+  The two buffers share a C array layout, so no per-element work is
+  emitted and no tag checks are performed.
+
+- **Scratch = typed array, matching element type.** Lowered to an
+  element-wise loop reading `rhs.data[k]` directly. The element kind is
+  known statically and matches the target, so the loop contains no
+  per-element tag check either.
+
+- **Scratch = boxed value.** Lowered to a runtime check that the
+  right-hand side is a `VyneValue` array of the declared length,
+  followed by an element-wise copy with per-element numeric coercion.
+  The copy accepts `Float64` or `Int64` elements on the right-hand
+  side; the target's element type is fixed by the `scratch`
+  declaration.
+
+The third case is the only one that can fail at runtime. Because the
+type system does not carry shape information on `Array` — a boxed
+producer like `fn make_arr() -> Array` has no static shape — a shape
+mismatch is a runtime `exit(1)`, not a compile error. This is a
+deliberate trade-off: the static alternative would require a shaped
+`Array` type, and §6 identifies that as future work. The runtime check
+costs one comparison per assignment, not per element.
+
+Two properties are worth noting. First, the compiler never silently
+retargets a shaped assignment to the boxed path: an assignment to a
+scratch variable either lowers to one of the three cases above or is a
+compile error. Second, the element-copy loop in the third case does
+allocate nothing; it reads from the boxed right-hand side's existing
+storage and writes to the scratch array on the C stack.
+
 ---
 
 ## 4. Implementation Notes
@@ -270,6 +306,15 @@ array member access that has always been used for those types.
 `ScratchIndexNode` and `ScratchStoreNode` handle the multi-index case
 by computing a flat index from the shape's strides. The rank check is
 performed here.
+
+Shaped assignment is lowered in `AssignmentNode::compile`. A branch
+fires when the assignment target's `CType` has a non-empty `shape`
+field, sits between the primitive-assignment case and the typed-array
+case, and covers all three cases of §3.4 in about forty lines. The
+feature is small because the type-lookup path had already been unified
+before it landed; the same three-case dispatch would have required
+three separate type queries and a fifth copy of the element-type
+mapping had it been written first.
 
 ---
 
@@ -379,22 +424,13 @@ the region rewind.
 
 ---
 
-## 6. Limitations and Future Work
-
-Three capabilities are required before the technique generalizes to the
+Two capabilities are required before the technique generalizes to the
 rest of a numerical kernel.
-
-**Shaped assignment from boxed sources.** The assignment
-`scratch dW1 :: Float64[64, 16]; dW1 = vlinalg.multiply(...);` does not
-type-check. Adding it requires an element-copy loop emitted at the
-assignment site, plus a runtime shape check against the declared
-dimensions. This is a small codegen change and is the most tractable of
-the three.
 
 **Shape-aware function parameters.** Passing a scratch array to a Vyne
 function currently boxes it. A shape-aware ABI — `(const double*,
-int64_t, int64_t)` for a rank-2 `Float64` — would require the emitter to
-maintain a second calling convention alongside the existing
+int64_t, int64_t)` for a rank-2 `Float64` — would require the emitter
+to maintain a second calling convention alongside the existing
 `(int, VyneValue*)` form. This is a moderate change.
 
 **Escape analysis.** The current design does not prove that a scratch
@@ -404,11 +440,24 @@ compile error. A proper escape analysis would let scratch values be
 committed and would let the compiler reclaim committed values earlier
 than program exit.
 
-Additionally, `region.commit` currently deep-clones its argument into a
-commit arena that is never freed. In a hot loop, this grows the commit
-arena linearly with iteration count. The fix is the same escape
-analysis: once the compiler can prove that a committed value is dead at
-a known point, it can reclaim the corresponding arena region.
+Two limitations of the current shaped-assignment support (§3.4) are
+worth naming even though they do not block adoption. First, the third
+case — assignment from a boxed value — performs a runtime tag check on
+every element, because the boxed right-hand side carries no static
+element type; a producer whose return type were a typed
+`VyneArray_f64` would skip the check entirely. Second, because `Array`
+in the type system carries no shape, a shape mismatch on a boxed
+assignment is a runtime `exit(1)`, not a compile error. Both
+limitations close together, if and when the type system learns to
+distinguish `Array` from shaped `Array` and if `vlinalg` grows
+shape-aware return types; neither is required for the case study in
+§5.
+
+`region.commit` currently deep-clones its argument into a commit arena
+that is never freed. In a hot loop, this grows the commit arena
+linearly with iteration count. The fix is the same escape analysis:
+once the compiler can prove that a committed value is dead at a known
+point, it can reclaim the corresponding arena region.
 
 ---
 
