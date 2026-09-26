@@ -10,9 +10,44 @@ void ProgramNode::compile(C_Emitter& e) const {
     for (const auto& stmt : statements) {
         if (stmt && stmt->type() == NodeType::FUNCTION) {
             auto* fn = static_cast<FunctionNode*>(stmt.get());
+
             std::vector<std::string> paramNames;
-            for (const auto& p : fn->getParameters()) paramNames.push_back(p.name);
-            e.registerFunctionSignature(fn->getOriginalName(), std::move(paramNames));
+            std::vector<CType> paramTypes;
+            bool allPrimitive = true;
+
+            for (const auto& p : fn->getParameters()) {
+                paramNames.push_back(p.name);
+                CType ct = CType::fromVType(p.type);
+                paramTypes.push_back(ct);
+                if (!ct.isPrimitive() || p.isReference) allPrimitive = false;
+            }
+
+            CType retCt = CType::fromVType(fn->getReturnType());
+            bool retPrimitive = retCt.isPrimitive();
+
+            // Conservative: reject functions with top-level defer or try/catch.
+            bool hasDeferOrTry = false;
+            for (const auto& s : fn->getBody()) {
+                if (s && (s->type() == NodeType::DEFER ||
+                        s->type() == NodeType::TRY_CATCH)) {
+                    hasDeferOrTry = true;
+                    break;
+                }
+            }
+
+            e.registerFunctionSignature(fn->getOriginalName(),
+                                        std::move(paramNames));
+            e.registerFunctionParamTypes(fn->getOriginalName(),
+                                        std::move(paramTypes));
+            e.registerFunctionReturnType(fn->getOriginalName(), retCt);
+
+            if (allPrimitive && retPrimitive && !hasDeferOrTry) {
+                std::string mangled = fn->getOriginalName();
+                std::replace(mangled.begin(), mangled.end(), '.', '_');
+                if (!fn->getTargetModule().empty())
+                    mangled = fn->getTargetModule() + "_" + mangled;
+                e.registerNativeVariant(mangled, mangled + "_native");
+            }
         }
     }
 

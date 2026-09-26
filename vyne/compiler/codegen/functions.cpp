@@ -98,6 +98,56 @@ static void emitFunctionBody(C_Emitter& e,
     e.clearReturnVars();
 }
 
+static void emitNativeFunctionBody(
+        C_Emitter& e,
+        const std::vector<Parameter>& parameters,
+        const std::vector<std::shared_ptr<ASTNode>>& body,
+        const std::string& nativeName,
+        const CType& returnType)
+{
+    e.pushFunctionContext();
+    e.enterFunction(nativeName);         // prefix used for local resolution
+    e.setNativeReturnType(returnType);   // tells ReturnNode to emit native
+
+    std::string paramList;
+    for (size_t i = 0; i < parameters.size(); ++i) {
+        if (i > 0) paramList += ", ";
+        std::string pName = "v_" + nativeName + "_" + parameters[i].name;
+        CType pt = CType::fromVType(parameters[i].type);
+        paramList += pt.cTypeName() + " " + pName;
+    }
+
+    // (3) Forward declaration.
+    e.emitGlobalDecl(returnType.cTypeName() + " fn_" + nativeName +
+                     "(" + paramList + ");");
+
+    e.emit("// native variant of " + nativeName);
+    e.emitBlockOpen(returnType.cTypeName() + " fn_" + nativeName +
+                    "(" + paramList + ") {");
+
+    for (size_t i = 0; i < parameters.size(); ++i) {
+        std::string pName = "v_" + nativeName + "_" + parameters[i].name;
+        CType pt = CType::fromVType(parameters[i].type);
+        e.declareLocal(pName, pt);
+    }
+
+    for (const auto& stmt : body)
+        if (stmt) stmt->compile(e);
+
+    switch (returnType.kind) {
+        case CType::Kind::Float64: e.emit("return 0.0;");   break;
+        case CType::Kind::Int64:   e.emit("return 0;");     break;
+        case CType::Kind::Bool:    e.emit("return false;"); break;
+        default:                   e.emit("return 0;");     break;
+    }
+
+    e.emitBlockClose();
+    e.emit("");
+    e.exitFunction();
+    e.popFunctionContext();
+    e.clearNativeReturnType();
+}
+
 void FunctionNode::compile(C_Emitter& e) const {
     std::string mangledName = originalName;
     std::replace(mangledName.begin(), mangledName.end(), '.', '_');
@@ -121,6 +171,18 @@ void FunctionNode::compile(C_Emitter& e) const {
 
     e.exitFunction();
     e.popFunctionContext();
+
+    {
+        std::string nativeMangled = originalName;
+        std::replace(nativeMangled.begin(), nativeMangled.end(), '.', '_');
+        if (!targetModule.empty())
+            nativeMangled = targetModule + "_" + nativeMangled;
+
+        if (const std::string* nv = e.lookupNativeVariant(nativeMangled)) {
+            CType retCt = CType::fromVType(returnType);
+            emitNativeFunctionBody(e, parameters, body, *nv, retCt);
+        }
+    }
 }
 
 void FunctionNode::compileAs(C_Emitter& e, const std::string& mangledName) const {

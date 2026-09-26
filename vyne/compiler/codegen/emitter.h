@@ -51,6 +51,10 @@ class C_Emitter {
     std::unordered_set<std::string> interfaceSet;
     std::unordered_set<std::string> groupSet;
     std::unordered_map<std::string, std::vector<std::string>> functionSignatures;
+    std::unordered_map<std::string, std::vector<CType>> functionParamTypes;
+    std::unordered_map<std::string, CType> functionReturnTypes;
+    std::unordered_map<std::string, std::string> nativeVariants;
+    CType nativeReturnType;
     std::unordered_map<std::string, std::vector<std::string>> interfaceDefaults;
     std::string groupPrefix;
 
@@ -236,8 +240,7 @@ public:
         fieldCache.clear();
         currentInterfaceType.clear();
         regionStack.clear();
-        // Fresh function scope. The function's own emitBlockOpen will push a
-        // child scope for the C body.
+        nativeReturnType = CType{};
         localScopes.clear();
         localScopes.emplace_back();
     }
@@ -384,6 +387,34 @@ public:
                                    std::vector<std::string> params) {
         functionSignatures[name] = std::move(params);
     }
+    void registerFunctionParamTypes(const std::string& name,
+                                std::vector<CType> types) {
+        functionParamTypes[name] = std::move(types);
+    }
+    void registerFunctionReturnType(const std::string& name, const CType& ct) {
+        functionReturnTypes[name] = ct;
+    }
+    const CType* getFunctionReturnType(const std::string& name) const {
+        auto it = functionReturnTypes.find(name);
+        return it == functionReturnTypes.end() ? nullptr : &it->second;
+    }
+    const std::vector<CType>* getFunctionParamTypes(const std::string& name) const {
+        auto it = functionParamTypes.find(name);
+        return it == functionParamTypes.end() ? nullptr : &it->second;
+    }
+
+    void registerNativeVariant(const std::string& boxedMangled,
+                            const std::string& nativeMangled) {
+        nativeVariants[boxedMangled] = nativeMangled;
+    }
+    const std::string* lookupNativeVariant(const std::string& boxedMangled) const {
+        auto it = nativeVariants.find(boxedMangled);
+        return it == nativeVariants.end() ? nullptr : &it->second;
+    }
+
+    void setNativeReturnType(const CType& ct) { nativeReturnType = ct; }
+    void clearNativeReturnType() { nativeReturnType = CType{}; }
+    const CType& getNativeReturnType() const { return nativeReturnType; }
     const std::vector<std::string>* getFunctionSignature(const std::string& name) const {
         auto it = functionSignatures.find(name);
         return it == functionSignatures.end() ? nullptr : &it->second;
@@ -494,6 +525,11 @@ public:
         localScopes.emplace_back();
         globalTypes.clear();
         nativeTemps.clear();
+
+        functionParamTypes.clear();
+        functionReturnTypes.clear();
+        nativeVariants.clear();
+        nativeReturnType = CType{};
 
         interfaceArrayFields.clear();
         localStructTypes.clear();

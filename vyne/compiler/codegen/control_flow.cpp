@@ -54,8 +54,19 @@ std::string WhileNode::getCExpr(C_Emitter& e) const {
 }
 
 void ReturnNode::compile(C_Emitter& e) const {
+    if (e.getNativeReturnType().isPrimitive()) {
+        VType retVT = e.getNativeReturnType().toVType();
+        std::string raw = expression ? expression->getCExpr(e) : "vyne_null()";
+        std::string native = coerceToNative(e, expression.get(), raw, retVT);
+        e.emitRegionUnwind();
+        e.emit("return " + native + ";");
+        return;
+    }
+
     std::string expr = expression ? e.boxAny(expression->getCExpr(e))
                                   : "vyne_null()";
+
+    // ... rest of the existing function unchanged ...
 
     // Every region we're lexically inside at the point of this return.
     // A `return` exits all of them; the question is whether we can safely

@@ -67,6 +67,8 @@ static std::string coerceToNative(C_Emitter& e, const ASTNode* node,
     if (want == VType::Int64)
         return "((" + expr + ").type == V_INT64) ? (" + expr +
                ").as.i64 : (int64_t)(" + expr + ").as.f64";
+    if (want == VType::Bool)
+        return "((" + expr + ").as.i64 != 0)";
     return expr;
 }
 
