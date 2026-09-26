@@ -871,6 +871,8 @@ public:
 
     VType getReturnArrayElemType() const { return returnArrayElemType; }
     void  setReturnArrayElemType(VType t) { returnArrayElemType = t; }
+
+    const std::string& getTargetModule() const { return targetModule; }
 };
 
 class FunctionCallNode : public ASTNode {
