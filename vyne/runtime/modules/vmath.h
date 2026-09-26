@@ -180,6 +180,13 @@ static inline VyneValue vmath_random_float(VyneValue mn, VyneValue mx) {
     return vyne_float(lo + unit * (hi - lo));
 }
 
+static inline VyneValue vmath_seed(VyneValue s) {
+    int64_t v = (s.type == V_INT64) ? s.as.i64 : (int64_t)s.as.f64;
+    _vmath_rng_state = (uint64_t)v;
+    _vmath_rng_inc   = 1442695040888963407ULL;
+    return vyne_null();
+}
+
 /* ===================================================================
  * M5: native (unboxed) variants for hot math functions.
  * Callers that already hold `double` skip the VyneValue round-trip.

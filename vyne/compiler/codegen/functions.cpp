@@ -44,11 +44,16 @@ static void emitFunctionBody(C_Emitter& e,
             }
             e.declareLocal(paramName, pt);
             e.emit(pt.cTypeName() + " " + paramName + " = " + init + ";");
-        } else {
-            e.registerDeclaration(paramName);
-            e.emit("VyneValue " + paramName +
-                   " = " + guard + " ? " + arg + " : vyne_null();");
-        }
+            } else {
+                e.registerDeclaration(paramName);
+                e.emit("VyneValue " + paramName +
+                    " = " + guard + " ? " + arg + " : vyne_null();");
+
+                if (parameters[i].type == VType::Struct &&
+                    !parameters[i].typePath.empty()) {
+                    e.setLocalStructType(paramName, parameters[i].typePath);
+                }
+            }
     }
 
     // Return-value slot (shared by defer and try/catch paths).

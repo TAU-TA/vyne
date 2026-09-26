@@ -25,9 +25,12 @@ static inline VyneArray_i64 vyne_array_i64_create(int64_t n) {
 static inline void vyne_array_f64_push(VyneArray_f64* a, double v) {
     if (VYNE_UNLIKELY(a->size >= a->cap)) {
         int64_t new_cap = a->cap * 2;
+        double* old_data = a->data;
+        arena_try_reclaim(old_data, sizeof(double) * (size_t)a->cap);
         double* new_data = (double*)arena_alloc(sizeof(double) * (size_t)new_cap);
-        memcpy(new_data, a->data, sizeof(double) * (size_t)a->size);
-        arena_try_reclaim(a->data, sizeof(double) * (size_t)a->cap);
+        if (new_data != old_data) {
+            memcpy(new_data, old_data, sizeof(double) * (size_t)a->size);
+        }
         a->data = new_data;
         a->cap  = new_cap;
     }

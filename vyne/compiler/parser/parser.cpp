@@ -396,6 +396,7 @@ std::unique_ptr<ASTNode> Parser::parseInterfaceDefinition() {
                     uint32_t pId = StringPool::instance().intern(paramTok.name);
                     VType pType = VType::Unknown;
                     VType pArrayElem = VType::Unknown;
+                    std::string pTypePath;               // NEW
 
                     bool isReference = false;
 
@@ -403,20 +404,20 @@ std::unique_ptr<ASTNode> Parser::parseInterfaceDefinition() {
                         consume(VTokenType::Referencer);
                         isReference = true;
                     }
-                    
+
                     if (peekToken().type == VTokenType::Extends) {
                         consume(VTokenType::Extends);
-                        std::string typePath = parseTypePath();
-                        pType = resolveType(typePath);
-                        pArrayElem = resolveArrayElementType(typePath);
+                        pTypePath = parseTypePath();      // CHANGED
+                        pType = resolveType(pTypePath);
+                        pArrayElem = resolveArrayElementType(pTypePath);
 
                         if (peekToken().type == VTokenType::Referencer) {
                             consume(VTokenType::Referencer);
                             isReference = true;
                         }
                     }
-                    
-                    params.emplace_back(pId, paramTok.name, pType, isReference, pArrayElem);
+
+                    params.emplace_back(pId, paramTok.name, pType, isReference, pArrayElem, pTypePath);
                 } while (peekToken().type == VTokenType::Comma);
             }
             consume(VTokenType::Right_Parenthese);
@@ -914,6 +915,7 @@ std::unique_ptr<ASTNode> Parser::parseFunctionDefinition() {
             uint32_t pId = StringPool::instance().intern(paramTok.name);
             VType pType = VType::Unknown;
             VType pArrayElem = VType::Unknown;   // M4-C1
+            std::string pTypePath;
 
             bool isReference = false;
 
@@ -925,9 +927,9 @@ std::unique_ptr<ASTNode> Parser::parseFunctionDefinition() {
             if (peekToken().type == VTokenType::Extends) {
                 consume(VTokenType::Extends);
 
-                std::string typePath = parseTypePath();
-                pType = resolveType(typePath);
-                pArrayElem = resolveArrayElementType(typePath);   // M4-C1
+                pTypePath = parseTypePath();
+                pType = resolveType(pTypePath);
+                pArrayElem = resolveArrayElementType(pTypePath);   // M4-C1
                                 
                 if (peekToken().type == VTokenType::Referencer) {
                     consume(VTokenType::Referencer);
@@ -935,7 +937,7 @@ std::unique_ptr<ASTNode> Parser::parseFunctionDefinition() {
                 }
             }
 
-            params.emplace_back(pId, paramTok.name, pType, isReference, pArrayElem);
+            params.emplace_back(pId, paramTok.name, pType, isReference, pArrayElem, pTypePath);
 
         } while (peekToken().type == VTokenType::Comma); 
     }

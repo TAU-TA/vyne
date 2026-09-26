@@ -263,11 +263,24 @@ void AssignmentNode::compile(C_Emitter& e) const {
         }
 
         if (!hasGlobal) {
-            e.declareGlobal(bareName, CType::fromKind(CType::Kind::Unknown));
-            e.emitGlobalDecl("VyneValue " + bareName + ";");
+            if (isDeclaration && declared.isPrimitive()) {
+                e.declareGlobal(bareName, declared);
+                e.emitGlobalDecl(declared.cTypeName() + " " + bareName + " = 0;");
+            } else {
+                e.declareGlobal(bareName, CType::fromKind(CType::Kind::Unknown));
+                e.emitGlobalDecl("VyneValue " + bareName + ";");
+            }
         }
-        std::string val = rhs->getCExpr(e);
-        e.emit(bareName + " = " + e.boxAny(val) + ";");
+
+        const CType* reg = e.lookupGlobalType(bareName);
+        if (reg && reg->isPrimitive()) {
+            std::string val = rhs->getCExpr(e);
+            std::string init = nativeInit(e, rhs.get(), val, *reg);
+            e.emit(bareName + " = " + init + ";");
+        } else {
+            std::string val = rhs->getCExpr(e);
+            e.emit(bareName + " = " + e.boxAny(val) + ";");
+        }
         return;
     }
 

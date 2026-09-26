@@ -27,14 +27,18 @@ static inline void vyne_array_push(VyneValue arr_val, VyneValue val) {
 
     if (VYNE_UNLIKELY(arr->size >= arr->capacity)) {
         int new_cap = arr->capacity * 2;
+        VyneValue* old_elems = arr->elements;
+
+        // Reclaim FIRST. If the old buffer is the arena tail, this
+        // moves g_arena_cur back to its start, and the alloc below
+        // lands on the same address — in-place growth, no copy.
+        arena_try_reclaim(old_elems, sizeof(VyneValue) * arr->capacity);
+
         VyneValue* new_elems = (VyneValue*)arena_alloc(sizeof(VyneValue) * new_cap);
-        memcpy(new_elems, arr->elements, sizeof(VyneValue) * arr->size);
 
-        // If the old buffer was the last thing allocated, hand it back
-        // to the arena. This turns an N-element build from ~2N slots
-        // wasted to ~N (only the final buffer survives).
-        arena_try_reclaim(arr->elements, sizeof(VyneValue) * arr->capacity);
-
+        if (new_elems != old_elems) {
+            memcpy(new_elems, old_elems, sizeof(VyneValue) * arr->size);
+        }
         arr->elements = new_elems;
         arr->capacity = new_cap;
     }

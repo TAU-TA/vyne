@@ -12,7 +12,6 @@ enum {
     VBOP_FLOOR_DIV = 51
 };
 
-VYNE_NOINLINE
 static VyneValue vyne_binop_slow(VyneValue left, VyneValue right, int op) {
     // String concatenation
     if (op == VBOP_ADD && (left.type == V_STRING || right.type == V_STRING)) {
@@ -120,6 +119,32 @@ static inline VyneValue vyne_binop(VyneValue left, VyneValue right, int op) {
             case VBOP_AND: return vyne_bool((l != 0) && (r != 0));
             case VBOP_OR:  return vyne_bool((l != 0) || (r != 0));
             // Any other op with two int64 operands: not a valid combination.
+            default: break;
+        }
+    }
+
+    if (VYNE_LIKELY(left.type == V_FLOAT64 && right.type == V_FLOAT64)) {
+        double l = left.as.f64;
+        double r = right.as.f64;
+        switch (op) {
+            case VBOP_ADD: return vyne_float(l + r);
+            case VBOP_SUB: return vyne_float(l - r);
+            case VBOP_MUL: return vyne_float(l * r);
+            case VBOP_DIV:
+                if (r == 0.0) { fprintf(stderr, "Runtime error: Division by zero!\n"); exit(1); }
+                return vyne_float(l / r);
+            case VBOP_MOD:
+                if (r == 0.0) { fprintf(stderr, "Runtime error: Modulo by zero!\n"); exit(1); }
+                return vyne_float(fmod(l, r));
+            case VBOP_POW: return vyne_float(pow(l, r));
+            case VBOP_EQ:  return vyne_bool(l == r);
+            case VBOP_NEQ: return vyne_bool(l != r);
+            case VBOP_GT:  return vyne_bool(l > r);
+            case VBOP_LT:  return vyne_bool(l < r);
+            case VBOP_GTE: return vyne_bool(l >= r);
+            case VBOP_LTE: return vyne_bool(l <= r);
+            case VBOP_AND: return vyne_bool((l != 0.0) && (r != 0.0));
+            case VBOP_OR:  return vyne_bool((l != 0.0) || (r != 0.0));
             default: break;
         }
     }

@@ -25,12 +25,15 @@ struct Parameter {
     std::string name;
     VType type;
     VType arrayElemType = VType::Unknown;   // M4-C1: for Array<T>, the T
+    std::string typePath;                   // raw source path, e.g. "vlinalg.Types.Matrix"
     bool isReference;
 
     Parameter(uint32_t i, std::string n, VType t, bool ir,
-              VType aet = VType::Unknown) 
+              VType aet = VType::Unknown,
+              std::string tp = "")
         : id(i), name(std::move(n)), type(t),
-          arrayElemType(aet), isReference(ir) {}
+          arrayElemType(aet), typePath(std::move(tp)),
+          isReference(ir) {}
 };
 
 struct VyneObject {
