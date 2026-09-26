@@ -1,4 +1,5 @@
 #include "detail/codegen_helpers.h"
+#include "ctype.h"
 
 // Variable reads and assignments, including typed native initialization and boxing boundaries.
 // Keep expressions that emit statements in evaluation order; see README.md.
@@ -87,6 +88,105 @@ static std::string nativeInit(C_Emitter& e, const ASTNode* rhs,
         default:
             return val;
     }
+}
+
+// ============================================================
+// Shape-typed scratch store
+// ------------------------------------------------------------
+// Lower `scratch_dst = rhs` into an element-wise copy. Three
+// cases, dispatched on the static type of `rhs`:
+//
+//   1. rhs is another scratch of matching shape and element kind
+//        -> memcpy, no per-element work
+//   2. rhs is a typed array (VyneArray_f64 / VyneArray_i64) of
+//      matching element kind
+//        -> element loop, one load and one store per element,
+//           no runtime tag check
+//   3. rhs is boxed (VyneValue)
+//        -> runtime shape check, then per-element tag check and
+//           numeric coercion
+//
+// The destination is a raw C array (double v_x[N] / int64_t
+// v_x[N]) declared by ScratchNode::compile. The caller guarantees
+// dstType.hasShape() and dstType.args[0] is Float64 or Int64.
+// ============================================================
+
+static std::string _shapeStr(const CType& ct) {
+    std::string s;
+    for (size_t i = 0; i < ct.shape.size(); ++i) {
+        if (i) s += ", ";
+        s += std::to_string(ct.shape[i]);
+    }
+    return s;
+}
+
+static void emitScratchStore(C_Emitter& e,
+                             const std::string& dstName,
+                             const CType& dstType,
+                             const ASTNode* rhsNode,
+                             int lineNumber) {
+    VType elem = dstType.args.empty()
+               ? VType::Float64
+               : dstType.args[0].toVType();
+    int64_t n = dstType.numElements();
+    const char* elemCName = (elem == VType::Float64) ? "double" : "int64_t";
+
+    std::string src = rhsNode->getCExpr(e);
+    const CType* rt = e.lookupType(src);
+
+    // ---- Case 1: scratch-to-scratch, same element kind ----
+    if (rt && rt->hasShape() && !rt->args.empty() &&
+        rt->args[0].toVType() == elem) {
+        if (!rt->sameShape(dstType)) {
+            throw std::runtime_error(
+                "Shape Error: cannot assign scratch of shape [" +
+                _shapeStr(*rt) + "] to scratch of shape [" +
+                _shapeStr(dstType) + "] (line " +
+                std::to_string(lineNumber) + ").");
+        }
+        e.emit("memcpy(" + dstName + ", " + src + ", " +
+               std::to_string(n) + " * sizeof(" + elemCName + "));");
+        return;
+    }
+
+    // ---- Case 2: typed array (VyneArray_f64 / _i64) -> scratch ----
+    if (rt && rt->kind == CType::Kind::Array && !rt->args.empty() &&
+        rt->args[0].toVType() == elem) {
+        std::string k = e.newTemp("k");
+        e.emitBlockOpen("for (int64_t " + k + " = 0; " + k +
+                        " < " + std::to_string(n) + "; ++" + k + ") {");
+        e.emit(dstName + "[" + k + "] = " + src + ".data[" + k + "];");
+        e.emitBlockClose();
+        return;
+    }
+
+    // ---- Case 3: boxed source ----
+    // Shape is a runtime property here. If the src is a scratch or
+    // typed array we'd have hit case 1 or 2; anything else is a
+    // VyneValue, and we validate at runtime.
+    std::string srcVar = e.newTemp("src");
+    e.emit("VyneValue " + srcVar + " = " + e.boxAny(src) + ";");
+    e.emit("if (" + srcVar + ".type != V_ARRAY || " +
+           srcVar + ".as.arr->size != " + std::to_string(n) + ") {");
+    e.emit("    fprintf(stderr, \"Runtime error: shape mismatch "
+           "assigning to a scratch of " + std::to_string(n) +
+           " elements\\n\"); exit(1);");
+    e.emit("}");
+
+    std::string k = e.newTemp("k");
+    e.emitBlockOpen("for (int64_t " + k + " = 0; " + k +
+                    " < " + std::to_string(n) + "; ++" + k + ") {");
+    std::string cell = srcVar + ".as.arr->elements[" + k + "]";
+    if (elem == VType::Float64) {
+        e.emit(dstName + "[" + k + "] = ((" + cell +
+               ").type == V_FLOAT64) ? (" + cell +
+               ").as.f64 : (double)(" + cell + ").as.i64;");
+    } else {
+        e.emit(dstName + "[" + k + "] = ((" + cell +
+               ").type == V_INT64) ? (" + cell +
+               ").as.i64 : (int64_t)(" + cell + ").as.f64;");
+    }
+    e.emitBlockClose();
 }
 
 void AssignmentNode::compile(C_Emitter& e) const {
@@ -226,54 +326,10 @@ void AssignmentNode::compile(C_Emitter& e) const {
         return;
     }
 
-    // --- shape-typed scratch local: RHS must be copied element-wise,
-    //     because scratch lives as a raw C array, not a VyneArray struct ---
+    // --- shape-typed scratch reassignment: rhs is copied element-wise
+    //     into the destination's raw C array ---
     if (existing && existing->hasShape()) {
-        VType elem = existing->args.empty()
-                   ? VType::Float64
-                   : existing->args[0].toVType();
-        int64_t n  = existing->numElements();
-        const char* ctName = (elem == VType::Float64) ? "double" : "int64_t";
-
-        std::string src = rhs->getCExpr(e);
-        const CType* rt = e.lookupType(src);
-
-        if (rt && rt->hasShape() && !rt->args.empty() &&
-            rt->args[0].toVType() == elem) {
-            e.emit("memcpy(" + varName + ", " + src + ", " +
-                   std::to_string(n) + " * sizeof(" + ctName + "));");
-            return;
-        }
-
-        if (rt && rt->kind == CType::Kind::Array && !rt->args.empty() &&
-            rt->args[0].toVType() == elem) {
-            std::string k = e.newTemp("k");
-            e.emitBlockOpen("for (int64_t " + k + " = 0; " + k +
-                            " < " + std::to_string(n) + "; ++" + k + ") {");
-            e.emit(varName + "[" + k + "] = " + src + ".data[" + k + "];");
-            e.emitBlockClose();
-            return;
-        }
-
-        std::string srcVar = e.newTemp("src");
-        e.emit("VyneValue " + srcVar + " = " + e.boxAny(src) + ";");
-        e.emit("if (" + srcVar + ".type != V_ARRAY || " +
-               srcVar + ".as.arr->size != " + std::to_string(n) + ") {");
-        e.emit("    fprintf(stderr, \"shape mismatch assigning to " +
-               originalName + "\\n\"); exit(1);");
-        e.emit("}");
-        std::string k = e.newTemp("k");
-        e.emitBlockOpen("for (int64_t " + k + " = 0; " + k +
-                        " < " + std::to_string(n) + "; ++" + k + ") {");
-        std::string cell = srcVar + ".as.arr->elements[" + k + "]";
-        if (elem == VType::Float64) {
-            e.emit(varName + "[" + k + "] = ((" + cell + ").type == V_FLOAT64) "
-                   "? (" + cell + ").as.f64 : (double)(" + cell + ").as.i64;");
-        } else {
-            e.emit(varName + "[" + k + "] = ((" + cell + ").type == V_INT64) "
-                   "? (" + cell + ").as.i64 : (int64_t)(" + cell + ").as.f64;");
-        }
-        e.emitBlockClose();
+        emitScratchStore(e, varName, *existing, rhs.get(), lineNumber);
         return;
     }
 
