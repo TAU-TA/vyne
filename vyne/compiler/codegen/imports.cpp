@@ -1,0 +1,153 @@
+#include "detail/codegen_helpers.h"
+
+// Imported module compilation and namespacing.
+// Keep expressions that emit statements in evaluation order; see README.md.
+// ============================================================
+// IMPORT
+// ============================================================
+
+void ImportNode::compile(C_Emitter& e) const {
+    std::filesystem::path finalPath;
+    std::string cleanPath = filePath;
+    if (!cleanPath.empty() && (cleanPath[0] == '/' || cleanPath[0] == '\\'))
+        cleanPath.erase(0, 1);
+
+    if (isExtern) {
+        finalPath = std::filesystem::path(FileUtils::getExeDir())
+                    / "vyne" / "modules" / "external" / cleanPath;
+    } else {
+        finalPath = std::filesystem::path(e.getSourceDir()) / cleanPath;
+    }
+    finalPath = std::filesystem::weakly_canonical(finalPath);
+
+    if (!std::filesystem::exists(finalPath) || std::filesystem::is_directory(finalPath)) {
+        throw std::runtime_error("Vyne Error: import '" + cleanPath +
+                                 "' not found at: " + finalPath.string());
+    }
+
+    if (e.isAlreadyImported(finalPath.string()))
+        return;
+    e.markImported(finalPath.string());
+
+    const std::string& source = FileUtils::readFile(finalPath.string());
+    auto tokens = tokenize(source);
+
+    SymbolContainer parseEnv;
+    Parser parser(std::move(tokens));
+    std::unique_ptr<ProgramNode> externalAst = parser.parseProgram(parseEnv);
+    if (!externalAst)
+        throw std::runtime_error("Import Error: failed to parse '" + cleanPath + "'");
+
+    std::string prevDir = e.getSourceDir();
+    e.setSourceDir(finalPath.parent_path().string());
+
+    for (const auto& stmt : externalAst->statements) {
+        if (!stmt) continue;
+        if (stmt->type() == NodeType::INTERFACE) {
+            auto* iface = static_cast<InterfaceNode*>(stmt.get());
+            e.registerInterface(iface->getInterfaceName());
+            if (!iface->getModuleName().empty()) {
+                e.registerInterface(iface->getModuleName() + "." + iface->getInterfaceName());
+            }
+        }
+        if (stmt->type() == NodeType::GROUP) {
+            auto* grp = static_cast<GroupNode*>(stmt.get());
+            e.registerGroup(grp->getGroupName());
+        }
+        if (stmt->type() == NodeType::MODULE) {
+            auto* mod = static_cast<ModuleNode*>(stmt.get());
+            e.registerGroup(mod->getOriginalName());
+        }
+    }
+
+    if (alias.empty()) {
+        for (const auto& stmt : externalAst->statements) {
+            if (stmt) stmt->compile(e);
+        }
+    } else {
+        e.registerGroup(alias);
+        e.pushGlobalContext();
+        e.emit("// --- import as " + alias + " ---");
+
+        for (const auto& stmt : externalAst->statements) {
+            if (!stmt) continue;
+            if (stmt->type() == NodeType::FUNCTION) {
+                auto* fn = static_cast<FunctionNode*>(stmt.get());
+                e.popGlobalContext();
+                fn->compileAs(e, alias + "_" + fn->getOriginalName());
+                e.pushGlobalContext();
+            } else if (stmt->type() == NodeType::ASSIGNMENT) {
+                auto* assign = static_cast<AssignmentNode*>(stmt.get());
+                std::string mangled = "v_" + alias + "_" + assign->getOriginalName();
+                std::replace(mangled.begin(), mangled.end(), '.', '_');
+                e.emit("VyneValue " + mangled + ";");
+                e.popGlobalContext();
+                std::string val = assign->getRHS()->getCExpr(e);
+                e.emit(mangled + " = " + val + ";");
+                e.pushGlobalContext();
+            } else {
+                e.popGlobalContext();
+                stmt->compile(e);
+                e.pushGlobalContext();
+            }
+        }
+        e.popGlobalContext();
+    }
+
+    std::string targetNamespace = alias.empty() ? finalPath.stem().string() : alias;
+    std::string modVirtualVar = "v_" + targetNamespace;
+    std::replace(modVirtualVar.begin(), modVirtualVar.end(), '.', '_');
+
+    if (e.getGlobalVars().count(modVirtualVar) == 0) {
+        e.registerDeclaration(modVirtualVar);
+        e.emitGlobalDecl("VyneValue " + modVirtualVar + ";");
+    }
+
+    e.pushMainContext();
+    e.emit("// Virtual Module registration for " + targetNamespace);
+    e.emitBlockOpen("{");
+    std::string tempS = e.newTemp("mod_s");
+    e.emit("VyneStruct* " + tempS + " = (VyneStruct*)arena_alloc(sizeof(VyneStruct));");
+    e.emit(tempS + "->type_name = \"" + targetNamespace + "\";");
+    e.emit(tempS + "->field_count = 0;");
+    e.emit(tempS + "->fields = NULL;");
+    e.emit(tempS + "->methods = NULL;");
+    e.emit(tempS + "->method_count = 0;");
+    e.emit(modVirtualVar + ".type = V_STRUCT; " + modVirtualVar + ".as.strct = " + tempS + ";");
+
+    for (const auto& stmt : externalAst->statements) {
+        if (stmt && stmt->type() == NodeType::FUNCTION) {
+            auto* fn = static_cast<FunctionNode*>(stmt.get());
+            std::string fnOrigName = fn->getOriginalName();
+            std::string fnRealCName = "fn_" + (alias.empty() ? fnOrigName : (alias + "_" + fnOrigName));
+            std::replace(fnRealCName.begin(), fnRealCName.end(), '.', '_');
+
+            std::string wrapperName = "wrap_" + targetNamespace + "_" + fnOrigName;
+            std::replace(wrapperName.begin(), wrapperName.end(), '.', '_');
+
+            e.pushFunctionContext();
+            e.emitGlobalDecl("VyneValue " + wrapperName + "(int arg_count, VyneValue* args);");
+            e.emitBlockOpen("VyneValue " + wrapperName + "(int arg_count, VyneValue* args) {");
+            e.emit("if (arg_count > 0) {");
+            e.emit("    // args[0] 'self'");
+            e.emit("    return " + fnRealCName + "(arg_count - 1, args + 1);");
+            e.emit("}");
+            e.emit("return " + fnRealCName + "(arg_count, args);");
+            e.emitBlockClose();
+            e.popFunctionContext();
+
+            e.emit("vyne_register_method(\"" + targetNamespace + "\", \"" +
+                   fnOrigName + "\", " + wrapperName + ");");
+        }
+    }
+    e.emitBlockClose();
+    e.popMainContext();
+
+    e.setSourceDir(prevDir);
+}
+
+std::string ImportNode::getCExpr(C_Emitter& e) const {
+    compile(e);
+    return "vyne_null()";
+}
+

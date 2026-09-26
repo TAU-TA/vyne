@@ -1,0 +1,181 @@
+#include "detail/codegen_helpers.h"
+
+// Array construction, index access/assignment, ranges, and slicing.
+// Keep expressions that emit statements in evaluation order; see README.md.
+// ============================================================
+// ARRAY AND INDEX ACCESS
+// ============================================================
+
+std::string ArrayNode::getCExpr(C_Emitter& e) const {
+    VType elem = inferArrayElemType(this);
+    if (elem != VType::Unknown && !elements.empty()) {
+        std::string name = e.newTemp("arr");
+        std::string ctor = (elem == VType::Float64)
+            ? "vyne_array_f64_create"
+            : "vyne_array_i64_create";
+
+        e.emit(CType::arrayContainerName(elem) + " " + name + " = " +
+               ctor + "(" + std::to_string(elements.size()) + ");");
+
+        for (size_t i = 0; i < elements.size(); ++i) {
+            std::string raw = elements[i]->getCExpr(e);
+            std::string native = coerceToNative(e, elements[i].get(), raw, elem);
+            e.emit(name + ".data[" + std::to_string(i) + "] = " + native + ";");
+        }
+
+        CType ct;
+        ct.kind = CType::Kind::Array;
+        ct.args.push_back(CType::fromVType(elem));
+        e.declareNativeTemp(name, ct);
+        return name;
+    }
+
+    // Boxed fallback — unchanged except the per-element boxing uses
+    // boxTypedArray so a nested typed array literal still boxes correctly.
+    std::string temp = e.newTemp("arr");
+    int size = (int)elements.size();
+    e.emit("VyneValue " + temp + " = vyne_array_create(" +
+           std::to_string(size) + ");");
+    for (int i = 0; i < size; i++) {
+        std::string elemExpr = e.boxAny(elements[i]->getCExpr(e));
+        e.emit("vyne_array_set(" + temp + ", vyne_int(" +
+               std::to_string(i) + "), " + elemExpr + ");");
+    }
+    return temp;
+}
+
+void ArrayNode::compile(C_Emitter& e) const { getCExpr(e); }
+
+std::string IndexAccessNode::getCExpr(C_Emitter& e) const {
+    std::string bRaw = base->getCExpr(e);
+    const CType* bt = e.lookupType(bRaw);
+
+    if (bt && bt->hasShape()) {
+        VType elem = bt->args.empty() ? VType::Float64
+                                      : bt->args[0].toVType();
+        std::string rawIdx = index->getCExpr(e);
+        std::string idx = coerceToNative(e, index.get(), rawIdx, VType::Int64);
+
+        std::string name = e.newTemp("idx");
+        e.emit((elem == VType::Float64 ? "double " : "int64_t ") + name +
+               " = " + bRaw + "[" + idx + "];");
+        e.declareNativeTemp(name, CType::fromVType(elem));
+        return name;
+    }
+
+    if (bt && bt->kind == CType::Kind::Array && !bt->args.empty()) {
+        VType elem = bt->args[0].toVType();
+        std::string rawIdx = index->getCExpr(e);
+        std::string idx = coerceToNative(e, index.get(), rawIdx, VType::Int64);
+
+        std::string name = e.newTemp("idx");
+        e.emit((elem == VType::Float64 ? "double " : "int64_t ") + name +
+               " = " + bRaw + ".data[" + idx + "];");
+        e.declareNativeTemp(name, CType::fromVType(elem));
+        return name;
+    }
+
+    // Boxed path — unchanged.
+    std::string b = e.boxAny(bRaw);
+    std::string idx = e.boxAny(index->getCExpr(e));
+    std::string temp = e.newTemp("idx");
+    e.emit("VyneValue " + temp + " = vyne_index_get(" + b + ", " + idx + ");");
+    return temp;
+}
+
+void IndexAccessNode::compile(C_Emitter& e) const { getCExpr(e); }
+
+void IndexAssignmentNode::compile(C_Emitter& e) const {
+    std::string bRaw = base->getCExpr(e);
+    const CType* bt = e.lookupType(bRaw);
+
+    if (bt && bt->hasShape()) {
+        VType elem = bt->args.empty() ? VType::Float64
+                                      : bt->args[0].toVType();
+        std::string rawIdx = index->getCExpr(e);
+        std::string idx = coerceToNative(e, index.get(), rawIdx, VType::Int64);
+        std::string rawVal = rhs->getCExpr(e);
+        std::string val = coerceToNative(e, rhs.get(), rawVal, elem);
+        e.emit(bRaw + "[" + idx + "] = " + val + ";");
+        return;
+    }
+
+    if (bt && bt->kind == CType::Kind::Array && !bt->args.empty()) {
+        VType elem = bt->args[0].toVType();
+        std::string rawIdx = index->getCExpr(e);
+        std::string idx = coerceToNative(e, index.get(), rawIdx, VType::Int64);
+        std::string rawVal = rhs->getCExpr(e);
+        std::string val = coerceToNative(e, rhs.get(), rawVal, elem);
+        e.emit(bRaw + ".data[" + idx + "] = " + val + ";");
+        return;
+    }
+
+    // Boxed fallback — same as before, routed through boxTypedArray so a
+    // typed array literal on the RHS still boxes correctly.
+    std::string b = e.boxAny(bRaw);
+    std::string i = e.boxAny(index->getCExpr(e));
+    std::string r = e.boxAny(rhs->getCExpr(e));
+    e.emit("vyne_index_set(" + b + ", " + i + ", " + r + ");");
+}
+
+std::string IndexAssignmentNode::getCExpr(C_Emitter& e) const {
+    compile(e);
+    return "vyne_null()";
+}
+
+// ============================================================
+// RANGE
+// ============================================================
+
+std::string RangeNode::getCExpr(C_Emitter& e) const {
+    if (!left || !right) return "vyne_null()";
+    std::string l = e.boxAny(left->getCExpr(e));
+    std::string r = e.boxAny(right->getCExpr(e));
+    std::string temp = e.newTemp("rng");
+    e.emit("VyneValue " + temp + " = vyne_range_create(" + l + ", " + r + ");");
+    return temp;
+}
+
+void RangeNode::compile(C_Emitter& e) const { getCExpr(e); }
+
+std::string SliceNode::getCExpr(C_Emitter& e) const {
+    std::string bRaw = base->getCExpr(e);
+    const CType* bt = e.lookupType(bRaw);
+
+    if (bt && bt->kind == CType::Kind::Array && !bt->args.empty()) {
+        VType elem = bt->args[0].toVType();
+        std::string rawLo = low  ? low->getCExpr(e)  : "";
+        std::string rawHi = high ? high->getCExpr(e) : "";
+        std::string lo = low
+            ? coerceToNative(e, low.get(),  rawLo, VType::Int64)
+            : "0";
+        std::string hi = high
+            ? coerceToNative(e, high.get(), rawHi, VType::Int64)
+            : (bRaw + ".size");
+
+        std::string fn = (elem == VType::Float64)
+            ? "vyne_array_f64_slice"
+            : "vyne_array_i64_slice";
+        std::string name = e.newTemp("slc");
+        e.emit(CType::arrayContainerName(elem)+ " " + name + " = " +
+               fn + "(&" + bRaw + ", " + lo + ", " + hi + ");");
+
+        CType ct;
+        ct.kind = CType::Kind::Array;
+        ct.args.push_back(CType::fromVType(elem));
+        e.declareNativeTemp(name, ct);
+        return name;
+    }
+
+    // Boxed fallback — same as before, with boxTypedArray on the base.
+    std::string b  = e.boxAny(bRaw);
+    std::string lo = low  ? e.boxAny(low->getCExpr(e))  : "vyne_null()";
+    std::string hi = high ? e.boxAny(high->getCExpr(e)) : "vyne_null()";
+    std::string temp = e.newTemp("slc");
+    e.emit("VyneValue " + temp + " = vyne_slice_get(" +
+           b + ", " + lo + ", " + hi + ");");
+    return temp;
+}
+
+void SliceNode::compile(C_Emitter& e) const { getCExpr(e); }
+
