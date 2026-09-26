@@ -12,7 +12,7 @@ monolithic `codegen.cpp` alongside these files: that duplicates definitions.
 
 - `codegen.h`: shared/public dependencies for AST node C emission.
 - `detail/codegen_helpers.h`: translation-unit-local, stateless helpers for
-  native coercion, array-element inference, literal formatting and mangling.
+  native coercion, array-element inference and literal formatting.
 - `emitter.h`: output buffers, scopes, static type metadata and emission
   context. All per-compilation mutable state belongs to `C_Emitter`.
 - `ctype.h`: static type to C representation mapping.

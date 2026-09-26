@@ -3,12 +3,6 @@
 
 // Shared, translation-unit-local emission helpers from the original codegen.cpp.
 // These helpers do not retain mutable state; per-compilation state lives in C_Emitter.
-static inline std::string mangle(const std::string& s) {
-    std::string out = s;
-    std::replace(out.begin(), out.end(), '.', '_');
-    return out;
-}
-
 // ============================================================
 // LITERALS
 // ============================================================

@@ -486,6 +486,7 @@ public:
         sourceDir.clear();
         activeFunctionPrefix.clear();
         tryCleanupStack.clear();
+        deferCtx = {};
         regionStack.clear(); 
         currentReturnVar.clear();
         currentReturningVar.clear();
