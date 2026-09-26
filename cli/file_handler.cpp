@@ -176,7 +176,13 @@ int runFile(const std::string& filename, SymbolContainer& env, const std::string
                     << std::fixed << std::setprecision(2) << transpile_ms.count() << "ms\n";
 
             std::string compile_cmd = "gcc \"" + cFile + "\" -o \"" + exeName + "\""
-                                    " -I\"" + exeDir + "\" -O3 -w";
+                        " -I\"" + exeDir + "\" -O3 -w"
+#ifdef _WIN32
+                        " -Wl,--stack,67108864"
+#else
+                        " -Wl,-z,stacksize=67108864"
+#endif
+                        ;
 
             auto start_compile = std::chrono::high_resolution_clock::now();
             int compile_result = system(compile_cmd.c_str());
