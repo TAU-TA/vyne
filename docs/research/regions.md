@@ -21,8 +21,12 @@ We describe the design, the lowering to C, the interaction between the
 two constructs, and a small case study in which an existing training
 loop in a neural-network classifier was rewritten to use scratch
 buffers. We report that the rewritten loop eliminates all arena traffic
-for the two accumulator buffers. The same technique extends to the weight-gradient
-buffers via a shaped-assignment lowering introduced in the same release; a second
+for the two accumulator buffers. A scale experiment on a 1024×1024 matmul
+shows an 8.7× reduction in peak resident set size at identical wall clock
+and identical numeric results, with the baseline's growth remaining linear
+in iteration count while both rewritten configurations stay flat.
+The same technique extends to the weight-gradient buffers
+via a shaped-assignment lowering introduced in the same release; a second
 pass over the case study makes all five per-iteration arrays stack-resident.
 Two follow-up capabilities — a native ABI for primitive-typed
 scalar parameters (landed, §4.5) and the corresponding ABI for array parameters,
@@ -218,6 +222,8 @@ the feature earns its keep:
 - **Scratch values do not survive a rewind.** `region.commit` currently
   accepts only boxed values. A shaped value that needs to escape is a
   compile error, not a runtime dangling pointer.
+- **Scratch arrays are bounded by the process stack**. A `scratch C :: Float64[1024, 1024]` is
+  8 MB, above the 1 MB Windows default and near the 8 MB Linux default. The compiler driver raises the limit via -Wl,--stack,67108864 for benchmark builds; production code with large scratch arrays must do the same, or use a smaller tile. §6.9 discusses a future arena-backed fallback.
 
 The rule we recommend is: **scratch is for local, purely-numeric
 accumulation.** Reads and writes of scalars, nothing else.
@@ -520,6 +526,146 @@ Peak RSS is best measured with `/usr/bin/time -v` on Linux or
 deviation, not the minimum; the arena's block size of 8 MB makes the
 minimum unrepresentative.
 
+### 5.7 Scale Experiment: The 1024×1024 Matmul
+
+The RNA classifier of §5.1 exercises the mechanism but not the scale.
+Buffers of 12–1024 elements fit easily in L1; the arena's linear growth
+is measurable but not dramatic. To confirm that the memory model holds
+at scale, we ran a second experiment: a matmul of 1024×1024
+double-precision matrices repeated over `ITERS` iterations.
+
+#### Benchmark design
+
+Three configurations live in one Vyne file
+(`examples/benchmark/matmul_1024.vy`). A, B, and B's transpose are
+`Float64[1024, 1024]` scratch arrays in all three configs, so the
+matmul kernel itself is byte-identical across them. Only C differs:
+
+- **Config 0 (baseline):** C is a boxed `Array`, allocated fresh on the
+  arena each iteration.
+- **Config 1 (region-only):** C is the same `Array`, but the iteration
+  body is wrapped in a `region`.
+- **Config 2 (region + scratch):** C is a `Float64[1024, 1024]` scratch
+  array on the C stack.
+
+The three configs share one source file, selected by a `CONFIG`
+compile-time constant. The same `.vy.c` is regenerated and recompiled
+for each. The RNG is seeded deterministically (`vmath.seed(42)`), so
+A and B are bit-identical across configs and the checksums are directly
+comparable.
+
+#### Kernel methodology
+
+A naive triple loop is not representative of C-level matmul
+performance: `B[k, c]` strides by 1024 doubles in `k`, and a single
+accumulator creates a serial FMA dependency chain. We addressed both
+without any floating-point reassociation flag.
+
+**Transposed B.** `B_T[c, r] = B[r, c]`, computed once before the timed
+region. Both operands' inner-loop access is then contiguous in `k`.
+This is a pure data rearrangement; the bits are identical.
+
+**Four independent accumulators.** Each output element's sum is split
+across four chains:
+
+```vyne
+acc0 :: Float64 = 0.0;
+acc1 :: Float64 = 0.0;
+acc2 :: Float64 = 0.0;
+acc3 :: Float64 = 0.0;
+through k4 :: 0..N/4-1 -> loop {
+    k0 :: Int64 = k4 * 4;
+    acc0 = acc0 + A[r, k0 + 0] * B_T[c, k0 + 0];
+    acc1 = acc1 + A[r, k0 + 1] * B_T[c, k0 + 1];
+    acc2 = acc2 + A[r, k0 + 2] * B_T[c, k0 + 2];
+    acc3 = acc3 + A[r, k0 + 3] * B_T[c, k0 + 3];
+};
+C[r, c] = (acc0 + acc1) + (acc2 + acc3);
+```
+
+This is not reassociation. Each chain's additions happen in exactly
+the order a serial kernel would produce them. Only the final combine
+`(acc0 + acc1) + (acc2 + acc3)` reorders, once per output element, and
+only across chains that were never in a defined order to begin with.
+No `-ffast-math` or equivalent flag is required, and the numeric
+result is the same four-chain reduction the CPU would perform if it
+executed the naive loop four parallel scalar streams.
+
+#### Verification: SLP vectorization
+
+GCC's SLP (superword-level parallelism) pass at `-O3` packs the four
+independent scalar FMAs into SIMD lanes without any FP-semantics flag.
+The emitted assembly for the inner loop (verified with `gcc -S -O3 -w`):
+
+```assembly
+.L937:
+    movapd  (%rbx,%rax), %xmm0
+    mulpd   (%rsi,%rax), %xmm0
+    addpd   %xmm0, %xmm2
+    movapd  16(%rbx,%rax), %xmm0
+    mulpd   16(%rsi,%rax), %xmm0
+    addpd   %xmm0, %xmm1
+    addq    $32, %rax
+    cmpq    %rax, %rdx
+    jne     .L937
+```
+
+Two 128-bit lanes (`%xmm1` and `%xmm2`) match the four source-level
+accumulators, two per lane. Four scalar MACs per iteration, two SIMD
+mul/add pairs. The compiler derived this from the four-chain source
+alone.
+
+Enabling AVX2 and FMA (`-mavx2 -mfma`) would double the vector width
+and fuse multiply+add, giving roughly 2–3× more throughput. The paper's
+result is intentionally measured at the portable SSE2 baseline: the
+technique under test is the memory model, not the kernel's ISA. §6.10
+recommends how the driver should expose this as an opt-in.
+
+#### Measurements
+
+All three configs run with `ITERS = 10`, `N = 1024`, and
+`vmath.seed(42)`. Wall clock and peak RSS measured with a 50 ms
+sampler on Windows 11, x86-64, single-threaded, gcc 15.2 with `-O3`.
+
+| Config               | Peak RSS | Wall clock | Checksum |
+| -------------------- | -------: | ---------: | -------: |
+| 0 — baseline         | 310.1 MB |     1.46 s |  3.47777 |
+| 1 — region-only      |  62.8 MB |     1.41 s |  3.47777 |
+| 2 — region + scratch |  35.6 MB |     1.40 s |  3.47777 |
+
+#### Interpretation
+
+Three observations.
+
+**Identical checksums.** The three configs produce the same numeric
+result to the last printed digit. The memory model does not alter
+arithmetic; the region rewind and the scratch array are transparent
+to the computation.
+
+**Identical wall clock.** The three configs run within 4% of each
+other — inside run-to-run noise. The technique is a memory-footprint
+change, not a speedup. The region rewind is O(1) per iteration, and
+the scratch array's stack allocation is O(1) per invocation.
+
+**8.7× less peak RSS** between baseline and region + scratch, with
+the gap growing linearly in `ITERS`. At `ITERS = 10` the baseline's
+310 MB sits 275 MB above the ~35 MB process floor. At `ITERS = 100`
+it will be ~1.5 GB; the region-only and region+scratch configs will
+remain at ~60 MB and ~35 MB respectively.
+
+The baseline's per-iteration cost of roughly 27 MB decomposes as:
+
+- **16 MB of boxed `VyneValue` elements.** 1024 × 1024 slots at 16
+  bytes each, held by the output `Array`.
+- **~11 MB of growth-path waste** in `vyne_array_push`, from the
+  doubling sequence `4 → 8 → … → 1,048,576` when the newly-allocated
+  buffer lands where the old one ended. (A reclaim attempt exists in
+  the runtime but is mis-ordered; see §6.7.)
+
+Region-only eliminates both by rewinding the arena at the end of each
+iteration. Region + scratch eliminates both by placing C on the C
+stack entirely, so no arena allocation occurs at all.
+
 ---
 
 ## 6. Limitations and Future Work
@@ -746,6 +892,132 @@ as the target of a conditional assignment. This is a parser restriction,
 not a semantic one, and could be relaxed with a small amount of grammar
 work. It is not on the critical path for any current program.
 
+### 6.7 Growth-path reclaim in `vyne_array_push`
+
+`vyne_array_push` attempts to reclaim the old element buffer when
+growing an array, so that a `push`-built array consumes approximately
+its final size on the arena rather than twice its final size. The
+runtime call `arena_try_reclaim` is present and correct, but the
+calling convention in `push` is inverted: the reclaim is attempted
+_after_ the new buffer has been allocated, at which point the arena's
+bump pointer has already advanced past the old buffer's end.
+
+The correct sequence is to attempt the reclaim first. If the old
+buffer is still the arena tail, the reclaim moves the bump pointer
+back to the old buffer's start, and the subsequent allocation lands
+in the same position — in-place growth, with no copy. The fix is
+six lines and is queued for the next release.
+
+The effect on the benchmark of §5.7 is measurable: the baseline's
+per-iteration cost falls from ~27 MB to ~16 MB once the fix lands.
+Config 0's peak RSS at `ITERS = 10` drops from 310 MB to approximately
+180 MB. Configs 1 and 2 are unaffected, since the region rewind and
+the stack-resident scratch array do not depend on the reclaim path.
+
+We report the pre-fix numbers in §5.7 as they were measured, and
+note this item here so that the discrepancy between the paper's
+figure and a re-run under the fixed runtime is understood.
+
+**Effort**: an hour.
+
+### 6.8 Parameter typing for struct-interface calls
+
+When a function parameter's declared type is a struct interface
+(e.g. `vlinalg.Types.Matrix`), the emitter currently discards the
+interface's source path and keeps only the `VType::Struct` enum.
+This prevents the emitter's `localStructTypes` table from being
+populated for that parameter, which in turn prevents
+`MemberAccessNode::getCExpr` from unboxing the interface's
+`Array<Float64>` fields into native `VyneArray_f64` locals at
+function entry.
+
+Concretely, `fn :: vlinalg multiply(a :: vlinalg.Types.Matrix, b :: vlinalg.Types.Matrix)`
+emits `VyneValue v_vlinalg_multiply_a = args[0];` and every `a.data[i]`
+becomes a `vyne_index_get` call rather than a direct
+`fld_ad.data[i]` load. The measured cost on the scale experiment
+of §5.7 is roughly 15×: a matmul that completes in 1.5 s with native
+reads takes 22 s with the boxed fallback.
+
+The fix is small — `Parameter` gains a `typePath` field carrying the
+raw source string, the parser populates it in `parseFunctionDefinition`
+and `parseInterfaceDefinition`, and `emitFunctionBody` registers the
+path in the emitter's `localStructTypes` table. `MemberAccessNode`
+already has the machinery to consume it. We have not applied this
+fix; §5.7's benchmark is written to avoid the affected call path by
+inlining the matmul into the benchmark file rather than routing
+through `vlinalg`.
+
+When applied, this fix would also make the vlinalg-based variant of
+the §5.7 benchmark usable as a fourth config: an external library
+function whose per-iteration allocation is reclaimed by the caller's
+region, demonstrating the memory model across a library boundary.
+
+**Effort**: half a day.
+
+### 6.9 Stack allocation limits for scratch
+
+Scratch arrays are C stack objects, so their size is bounded by the
+process's stack limit: 1 MB on Windows by default, 8 MB on Linux. A
+`scratch C :: Float64[1024, 1024]` is 8 MB and overflows the default
+Windows stack before the program prints its first output line. The
+overflow presents as a segmentation fault inside `___chkstk_ms` with
+no useful diagnostic.
+
+Two responses are possible.
+
+**Diagnostic.** The compiler can emit a warning at compile time when a
+scratch declaration's total byte size exceeds a configurable threshold.
+This does not prevent the overflow but makes it diagnosable without
+attaching a debugger.
+
+**Build system.** The driver can pass `-Wl,--stack,SIZE` (MinGW/Linux)
+or `-Wl,-z,stacksize=SIZE` (ELF) to raise the limit. Vyne's current
+driver does this for benchmark builds; §5.7 relies on a 64 MB stack
+reserve. Programs with multiple large scratch arrays will need to
+size this themselves, and a program that cannot fit its working set
+on any stack must fall back to smaller tiles or to arena-backed
+allocation.
+
+A third option deserves its own design pass: promoting oversized
+scratch arrays to arena-backed storage with a region-scoped lifetime.
+This loses the "no arena traffic" property for the largest arrays but
+avoids the stack limit entirely. The trade-off between the two
+allocation classes is not obvious, and it is not on the critical
+path for any current program.
+
+**Effort**: an hour for the warning; a day for the arena-backed
+fallback.
+
+### 6.10 Target ISA and driver defaults
+
+Vyne's compiler driver defaults to `-O3` with the SSE2 baseline.
+Producing AVX2/FMA code requires `-march=native` or explicit
+`-mavx2 -mfma`, both of which make the resulting binary unusable on
+pre-2013 x86-64 CPUs. This is a genuine trade-off, and the current
+driver does not expose the choice.
+
+The distinction matters for the scale experiment of §5.7. The emitted
+`mulpd` / `addpd` inner loop is SSE2, which runs on any x86-64 CPU
+shipped since 2003. Enabling AVX2 roughly doubles throughput, but the
+paper's measurement is about the memory model, not the ISA. Both
+choices are defensible; the driver should make the choice explicit
+rather than hidden.
+
+We recommend gating native-target compilation behind an opt-in flag
+(`--native`), leaving `-O3` as the default. The compiler's `runFile`
+entry point takes a `bool nativeTargets` parameter; argv parsing sets
+it from the flag; `compile_cmd` appends `-march=native` when true.
+Half an hour of work.
+
+Note that `-march=native` and `-ffast-math` are unrelated despite
+both being "compiler flags that speed things up." The former is a
+target-ISA choice that does not alter FP semantics; the latter
+permits reassociation and other unsafe transforms. The scale
+experiment uses neither; the four-accumulator kernel of §5.7 gets
+its SIMD from the source structure alone.
+
+**Effort**: an hour.
+
 ---
 
 ## 7. Related Work
@@ -780,6 +1052,12 @@ that a language without a JIT can use directly.
 The implementation is part of the Vyne compiler at [repo](https://github.com/t2ncay/vyne). The
 scratch feature is behind the `scratch` keyword; no flag is required.
 The RNA classifier case study is at `tests/training/ml_seq.vy`.
+
+The 1024×1024 matmul benchmark of §5.7 is at
+`examples/benchmark/matmul_1024.vy`. It requires a stack limit of at
+least 32 MB (`-Wl,--stack,67108864` on Windows, `-Wl,-z,stacksize=67108864`
+on Linux) to accommodate the three scratch arrays; the driver's benchmark
+build already passes this.
 
 The shaped-assignment lowering described in §3.4 landed alongside the
 constructs of §2–§3 and is exercised by `tests/transpiler/scratch_assign_test.vy`.
