@@ -394,6 +394,57 @@ void AssignmentNode::compile(C_Emitter& e) const {
         return;
     }
 
+    // --- shape-typed scratch local: RHS must be copied element-wise,
+    //     because scratch lives as a raw C array, not a VyneArray struct ---
+    if (existing && existing->hasShape()) {
+        VType elem = existing->args.empty()
+                   ? VType::Float64
+                   : existing->args[0].toVType();
+        int64_t n  = existing->numElements();
+        const char* ctName = (elem == VType::Float64) ? "double" : "int64_t";
+
+        std::string src = rhs->getCExpr(e);
+        const CType* rt = e.lookupType(src);
+
+        if (rt && rt->hasShape() && !rt->args.empty() &&
+            rt->args[0].toVType() == elem) {
+            e.emit("memcpy(" + varName + ", " + src + ", " +
+                   std::to_string(n) + " * sizeof(" + ctName + "));");
+            return;
+        }
+
+        if (rt && rt->kind == CType::Kind::Array && !rt->args.empty() &&
+            rt->args[0].toVType() == elem) {
+            std::string k = e.newTemp("k");
+            e.emitBlockOpen("for (int64_t " + k + " = 0; " + k +
+                            " < " + std::to_string(n) + "; ++" + k + ") {");
+            e.emit(varName + "[" + k + "] = " + src + ".data[" + k + "];");
+            e.emitBlockClose();
+            return;
+        }
+
+        std::string srcVar = e.newTemp("src");
+        e.emit("VyneValue " + srcVar + " = " + e.boxAny(src) + ";");
+        e.emit("if (" + srcVar + ".type != V_ARRAY || " +
+               srcVar + ".as.arr->size != " + std::to_string(n) + ") {");
+        e.emit("    fprintf(stderr, \"shape mismatch assigning to " +
+               originalName + "\\n\"); exit(1);");
+        e.emit("}");
+        std::string k = e.newTemp("k");
+        e.emitBlockOpen("for (int64_t " + k + " = 0; " + k +
+                        " < " + std::to_string(n) + "; ++" + k + ") {");
+        std::string cell = srcVar + ".as.arr->elements[" + k + "]";
+        if (elem == VType::Float64) {
+            e.emit(varName + "[" + k + "] = ((" + cell + ").type == V_FLOAT64) "
+                   "? (" + cell + ").as.f64 : (double)(" + cell + ").as.i64;");
+        } else {
+            e.emit(varName + "[" + k + "] = ((" + cell + ").type == V_INT64) "
+                   "? (" + cell + ").as.i64 : (int64_t)(" + cell + ").as.f64;");
+        }
+        e.emitBlockClose();
+        return;
+    }
+
     if (existing && existing->kind == CType::Kind::Array &&
         !existing->args.empty()) {
         VType elem = existing->args[0].toVType();

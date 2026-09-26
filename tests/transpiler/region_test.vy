@@ -20,6 +20,7 @@
 
 ruleset { dynamic_casting };
 
+use lib "vlinalg/vlinalg.vy";
 module vmem;
 
 # ---------------------------------------------------------------------
@@ -50,7 +51,7 @@ out("-- 2 region flat --");
 r0 :: Int64 = vmem.total_allocated();
 
 through i :: 1..20 -> loop {
-    region scratch {
+    region arrays {
         xs :: Array<Int64> = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
         ys :: Array<Float64> = [1.0, 2.0, 3.0, 4.0, 5.0];
     };
@@ -73,7 +74,7 @@ out("-- 3 break --");
 br0 :: Int64 = vmem.total_allocated();
 
 through i :: 1..100 -> loop {
-    region scratch {
+    region training {
         xs :: Array<Int64> = [1, 2, 3, 4, 5, 6, 7, 8];
         if (i == 5) {
             break;
@@ -98,7 +99,7 @@ out("-- 4 continue --");
 cn0 :: Int64 = vmem.total_allocated();
 
 through i :: 1..20 -> loop {
-    region scratch {
+    region training {
         xs :: Array<Int64> = [1, 2, 3, 4, 5, 6, 7, 8];
         if (i == 10) {
             continue;
@@ -155,7 +156,7 @@ out("-- 6 commit --");
 last_msg :: String = "initial";
 
 through epoch :: 1..4 -> loop {
-    region scratch {
+    region training {
         xs :: Array<Int64> = [epoch, epoch + 10, epoch + 20];
         msg :: String = "epoch:" + string(epoch);
         last_msg = msg;
@@ -172,7 +173,7 @@ through epoch :: 1..4 -> loop {
 #     a local, rewinds the arena, and returns the local.
 # ---------------------------------------------------------------------
 fn answer() -> Int64 {
-    region scratch {
+    region training {
         xs :: Array<Int64> = [100, 200, 300];
         return 42;
     };
@@ -190,7 +191,7 @@ out(answer());
 #     rewinding; the array stays live for the caller.
 # ---------------------------------------------------------------------
 fn get_arr() -> Array {
-    region scratch {
+    region training {
         xs :: Array<Int64> = [7, 8, 9];
         return xs;
     };
@@ -205,7 +206,7 @@ out(get_arr());
 # 9. Return a String out of a region (non-primitive, arena-backed).
 # ---------------------------------------------------------------------
 fn get_msg() -> String {
-    region scratch {
+    region training {
         msg :: String = "hello-" + "world";
         return msg;
     };
@@ -214,3 +215,46 @@ fn get_msg() -> String {
 
 out("-- 9 return string --");
 out(get_msg());
+
+# ---------------------------------------------------------------------
+# 9. Shape-typed assignment from boxed sources
+#
+#   Case 1 — scratch = scratch        → memcpy
+#   Case 2 — scratch = typed array    → element-wise from .data[k]
+#   Case 3 — scratch = boxed VyneValue → runtime shape check + copy
+#
+# The producer of the boxed value is a plain Vyne function returning
+# Array. Its C signature is `VyneValue fn_...(int, VyneValue*)`, so the
+# call site hands the assignment a raw boxed value — exactly what Case 3
+# needs to exercise.
+# ---------------------------------------------------------------------
+
+fn make_arr() -> Array {
+    return [ 1.0,  2.0,  3.0,  4.0,
+             5.0,  6.0,  7.0,  8.0,
+             9.0, 10.0, 11.0, 12.0,
+            13.0, 14.0, 15.0, 16.0 ];
+}
+
+out("-- 9 shape assignment --");
+
+region shape_test {
+    scratch dW1 :: Float64[4, 4];
+    scratch tmp :: Float64[4, 4];
+
+    # Case 3: boxed source
+    dW1 = make_arr();
+    out(dW1[0, 0] + dW1[3, 3]);        # 1 + 16 = 17
+
+    # Case 1: scratch-to-scratch memcpy
+    tmp = dW1;
+    out(tmp[1, 1]);                    # 6
+
+    # Case 2: typed-array local → scratch
+    xs :: Array<Float64> = [16.0, 15.0, 14.0, 13.0,
+                            12.0, 11.0, 10.0,  9.0,
+                             8.0,  7.0,  6.0,  5.0,
+                             4.0,  3.0,  2.0,  1.0];
+    dW1 = xs;
+    out(dW1[0, 0] + dW1[3, 3]);        # 16 + 1 = 17
+};
