@@ -15,13 +15,13 @@
 # shows up in modern pipelines as a cheap prior before deep models.
 #
 # Requires:
-#   vbio/bio.vy       (the bio facade)
+#   vbio/vbio.vy       (the bio facade)
 #   vlinalg.vy        (monolithic or split facade — same API)
 #   vcolors.vy
 
 ruleset { dynamic_casting };
 
-use lib "vbio/bio.vy";
+use lib "vbio/vbio.vy";
 use lib "vlinalg/vlinalg.vy";
 use lib "vcolors.vy";
 
@@ -107,7 +107,7 @@ fn make_coding() -> String {
         idx = vmath.random(0, 19);
         prot = prot + AA_ALPHABET[idx];
     };
-    full = bio.reverse_translate(prot);   # 33 nt (30 + UAA stop)
+    full = vbio.reverse_translate(prot);   # 33 nt (30 + UAA stop)
     return trim(full, SEQ_LEN);
 }
 
@@ -125,7 +125,7 @@ fn make_random() -> String {
 # FEATURE EXTRACTION — 64-dim codon-usage vector
 # ======================================================================
 fn codon_features(seq :: String) -> Array {
-    counts = bio.codon_usage(seq);
+    counts = vbio.codon_usage(seq);
     n_codons = seq.size() / 3;
     total = float64(n_codons);
     if total < 1.0 { total = 1.0; }
@@ -212,8 +212,8 @@ through i :: 0..N_PER_CLASS-1 -> loop {
     Y_data.push(0.0);
 };
 
-X = vlinalg.Types.Matrix(N_SAMPLES, 64, X_flat);
-Y = vlinalg.Types.Matrix(N_SAMPLES, 1,  Y_data);
+X :: vlinalg.Types.Matrix = vlinalg.Types.Matrix(N_SAMPLES, 64, X_flat);
+Y :: vlinalg.Types.Matrix = vlinalg.Types.Matrix(N_SAMPLES, 1,  Y_data);
 
 out("  class 1 (structured) " + string(N_PER_CLASS));
 out("  class 0 (random)     " + string(N_PER_CLASS));
