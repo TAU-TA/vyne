@@ -531,7 +531,12 @@ std::unique_ptr<ASTNode> Parser::parseInterfaceDefinition() {
 
     auto node = std::make_unique<InterfaceNode>(interfaceName, std::move(members), std::move(methods));
     node->lineNumber = line;
-    node->setModuleName(namespacePart);
+    std::string fullModule = namespacePart;
+    if (!currentModuleName.empty() && !groupPath.empty() &&
+        namespacePart != currentModuleName) {
+        fullModule = currentModuleName + "." + namespacePart;
+    }
+    node->setModuleName(fullModule);
     node->setTypeParams(std::move(typeParams));
     return node;
 }
@@ -1601,10 +1606,15 @@ std::unique_ptr<ASTNode> Parser::parseGroupDefinition() {
 
     std::string oldGroupName = currentGroupName;
     std::vector<std::string> oldGroupPath = groupPath;
-    
+    std::string oldModuleName = currentModuleName;
+
     currentGroupName = groupName;
     groupPath.push_back(groupName);
-    
+
+    if (!targetModule.empty()) {
+        currentModuleName = targetModule;
+    }
+
     consume(VTokenType::Left_CB);
 
     std::vector<std::unique_ptr<ASTNode>> statements;
@@ -1616,13 +1626,13 @@ std::unique_ptr<ASTNode> Parser::parseGroupDefinition() {
         }
         statements.emplace_back(parseStatement());
     }
-    
+
     consume(VTokenType::Right_CB);
     consumeSemicolon();
 
-    // Restore old path
     currentGroupName = oldGroupName;
     groupPath = oldGroupPath;
+    currentModuleName = oldModuleName;
 
     auto node = std::make_unique<GroupNode>(groupName, std::move(statements), targetModule);
     node->lineNumber = line;
