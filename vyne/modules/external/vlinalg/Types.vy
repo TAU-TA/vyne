@@ -19,7 +19,7 @@ group Types :: vlinalg {
     interface Matrix {
         row  :: Int64,
         col  :: Int64,
-        data :: Array<Float64>,
+        data :: Array,
 
         # -----------------------------------------------------------
         # SHAPE / STRUCTURE
