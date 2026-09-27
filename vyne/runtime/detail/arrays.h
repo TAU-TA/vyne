@@ -211,12 +211,21 @@ static inline void vyne_array_clear(VyneValue arr_val) {
 static inline void vyne_array_place_all(VyneValue arr_val, VyneValue val, int64_t count) {
     if (arr_val.type != V_ARRAY || count < 0) return;
     VyneArray* arr = arr_val.as.arr;
+
     if (count > arr->capacity) {
         int new_cap = count < 4 ? 4 : (int)count;
+        VyneValue* old_elems = arr->elements;
+
+        // Reclaim FIRST. If the old buffer is the arena tail, the
+        // alloc below lands on the same address — in-place growth,
+        // no waste and no copy.
+        arena_try_reclaim(old_elems, sizeof(VyneValue) * arr->capacity);
+
         VyneValue* new_elems = (VyneValue*)arena_alloc(sizeof(VyneValue) * new_cap);
         arr->elements = new_elems;
         arr->capacity = new_cap;
     }
+
     for (int64_t i = 0; i < count; i++) arr->elements[i] = val;
     arr->size = (int)count;
 }

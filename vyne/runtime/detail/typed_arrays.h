@@ -40,9 +40,14 @@ static inline void vyne_array_f64_push(VyneArray_f64* a, double v) {
 static inline void vyne_array_i64_push(VyneArray_i64* a, int64_t v) {
     if (VYNE_UNLIKELY(a->size >= a->cap)) {
         int64_t new_cap = a->cap * 2;
+        int64_t* old_data = a->data;
+
+        arena_try_reclaim(old_data, sizeof(int64_t) * (size_t)a->cap);
+
         int64_t* new_data = (int64_t*)arena_alloc(sizeof(int64_t) * (size_t)new_cap);
-        memcpy(new_data, a->data, sizeof(int64_t) * (size_t)a->size);
-        arena_try_reclaim(a->data, sizeof(int64_t) * (size_t)a->cap);
+        if (new_data != old_data) {
+            memcpy(new_data, old_data, sizeof(int64_t) * (size_t)a->size);
+        }
         a->data = new_data;
         a->cap  = new_cap;
     }
