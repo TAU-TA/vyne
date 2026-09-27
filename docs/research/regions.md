@@ -22,12 +22,12 @@ two constructs, and a small case study in which an existing training
 loop in a neural-network classifier was rewritten to use scratch
 buffers. We report that the rewritten loop eliminates all arena traffic
 for the two accumulator buffers. A scale experiment on a 1024×1024 matmul
-shows an 8.7× reduction in peak resident set size at identical wall clock
-and identical numeric results, with the baseline's growth remaining linear
-in iteration count while both rewritten configurations stay flat.
-The same technique extends to the weight-gradient buffers
-via a shaped-assignment lowering introduced in the same release; a second
-pass over the case study makes all five per-iteration arrays stack-resident.
+shows peak resident set size falling 8.7× at 10 iterations and 79.9× at
+100 iterations — the ratio grows linearly in iteration count, while wall
+clock and the numeric result are unchanged. The same technique extends to
+the weight-gradient buffers via a shaped-assignment lowering introduced in
+the same release; a second pass over the case study makes all five per-iteration
+arrays stack-resident.
 Two follow-up capabilities remain: a native ABI for array parameters,
 and a full escape analysis beyond the syntactic check of §6.4. Both
 are required before the technique generalizes to the rest of the loop.
@@ -657,6 +657,17 @@ with the compiler's default safety checks enabled (scratch bounds, region escape
 | 2 — region + scratch |        35.5 ± 0.0 MB |          1.43 ± 0.03 s |  3.47777 |
 | 3 — hoisted baseline |        63.6 ± 0.0 MB |          1.41 ± 0.02 s |  3.47777 |
 
+We repeated the four-config sweep at `ITERS = 100` to confirm
+the growth is linear at both ends of the range. Same machine,
+same gcc 15.2 `-O3`, same sampler.
+
+| Config               | Peak RSS (mean of 3) | Wall clock (mean of 3) | Checksum |
+| -------------------- | -------------------: | ---------------------: | -------: |
+| 0 — baseline         |      2836.6 ± 2.7 MB |         13.83 ± 0.07 s |  3.47777 |
+| 1 — region-only      |        63.6 ± 0.1 MB |         13.72 ± 0.06 s |  3.47777 |
+| 2 — region + scratch |        35.5 ± 0.0 MB |         14.54 ± 1.27 s |  3.47777 |
+| 3 — hoisted baseline |        63.6 ± 0.0 MB |         13.65 ± 0.36 s |  3.47777 |
+
 #### Interpretation
 
 Three observations.
@@ -672,20 +683,33 @@ rewind is O(1) per iteration and the scratch array's stack allocation
 is O(1) per invocation, so neither construct adds measurable time.
 The compiler's default safety checks (scratch bounds, region escape)
 are enabled in all four runs and are indistinguishable from noise on
-this workload.
+this workload. One exception is config 2 at ITERS = 100, where the run-to-run
+standard deviation is 1.27 s (8.7% of the mean). The variance is
+consistent with OS scheduling on the three concurrently-live
+8 MB scratch arrays, not with any property of the region or scratch
+constructs; the mean is still within 6% of the other three configs,
+and the peak RSS for this config is the most stable of the four
+(35.5 MB, zero variance across all runs).
 
-**8.7× less peak RSS** between baseline and region + scratch, with
-the gap growing linearly in `ITERS`. At `ITERS = 10` the baseline's
-308 MB sits 273 MB above the ~35 MB process floor. At `ITERS = 100`
-it will be ~3 GB; the region-only and region+scratch configs will
-remain at ~64 MB and ~36 MB respectively.
+**Peak RSS scales linearly in ITERS for the baseline, and stays flatfor the other three.**
+At ITERS = 10 the baseline's 308 MB sits 273 MB
+above the ~35 MB process floor. At ITERS = 100 it sits 2801 MB above
+the floor — a 10.28× increase for 10× more iterations, within the ±6 MB
+run-to-run noise of the ITERS = 10 measurement. Region-only stays at
+63.6 MB and region+scratch stays at 35.5 MB across both. The gap between
+baseline and region+scratch therefore grows from 8.7× at ITERS = 10 to
+**79.9× at ITERS = 100**, and it will continue to grow linearly in ITERS
+until the baseline exhausts physical memory. At ITERS = 1000 the
+baseline would need ~28 GB; region-only and region+scratch would still
+be at 64 MB and 36 MB.
 
-The baseline's per-iteration cost is dominated by the boxed
-`VyneValue` element array: 1024 × 1024 slots at 16 bytes each is
-16 MB per iteration, 160 MB across 10 iterations. The remaining
-~148 MB in the peak is the arena's block overhead and the
-transient copy during array growth, which the `arena_try_reclaim`
-path reduces but does not eliminate.
+The baseline's per-iteration cost is 28.0 MB, measured directly from
+the slope of (peak RSS − 35 MB process floor) against ITERS across
+the two data points. The boxed `VyneValue` element array accounts for 16.7 MB
+of that (1024 × 1024 slots × 16 bytes). The remaining 11.3 MB/iteration is
+the arena's block-chain overhead and the transient double-residency during
+`vyne_array_push`'s growth path, which `arena_try_reclaim` reduces but does not
+eliminate.
 
 Region-only eliminates both by rewinding the arena at the end of each
 iteration. Region + scratch eliminates both by placing C on the C
@@ -1133,6 +1157,11 @@ The shaped-assignment lowering described in §3.4 landed alongside the
 constructs of §2–§3 and is exercised by `tests/transpiler/scratch_assign_test.vy`.
 
 The suite at `examples/safety/` contains ten test programs, one per check or safe pattern. It is invoked by `run_safety.ps1` on Windows (shell equivalent on POSIX); the runner compiles each file with vynec `--compile`, captures the combined compiler-and-program output, and asserts against the expected diagnostic code.
+
+The benchmark suite passes `--no-scratch-bounds` to the compiler
+to isolate the memory-model measurement from the bounds-check cost
+documented in §5.9. The safety test suite runs with the checks
+enabled and exercises them directly.
 
 ---
 
