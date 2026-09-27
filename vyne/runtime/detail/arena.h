@@ -119,10 +119,6 @@ static inline void arena_free_all(void) {
     g_arena_cur             = NULL;
     g_arena_end             = NULL;
     g_arena.total_allocated = 0;
-    g_arena.head            = NULL;
-    g_arena_cur             = NULL;
-    g_arena_end             = NULL;
-    g_arena.total_allocated = 0;
 
     // also free the commit arena if exists ( see the region part )
     ArenaBlock* cblock = g_commit_arena.head;
