@@ -99,12 +99,21 @@ std::string ScratchNode::getCExpr(C_Emitter&) const {
     throw std::runtime_error("scratch is a declaration, not an expression");
 }
 
+static std::string e_shapeStr(const CType& ct) {
+    std::string s;
+    for (size_t i = 0; i < ct.shape.size(); ++i) {
+        if (i) s += ", ";
+        s += std::to_string(ct.shape[i]);
+    }
+    return s;
+}
+
 static std::string scratchFlatIndex(C_Emitter& e,
                                     const CType& arrType,
                                     const std::vector<std::unique_ptr<ASTNode>>& idxNodes) {
     if ((int)idxNodes.size() != (int)arrType.shape.size()) {
         throw std::runtime_error(
-            "Shape Error: expected " + std::to_string(arrType.shape.size()) +
+            "Shape Error (VNE-071): expected " + std::to_string(arrType.shape.size()) +
             " index(es) for shape [" + [&]{
                 std::string s;
                 for (size_t i = 0; i < arrType.shape.size(); ++i) {
@@ -120,10 +129,31 @@ static std::string scratchFlatIndex(C_Emitter& e,
     std::string flat;
     for (size_t k = 0; k < idxNodes.size(); ++k) {
         std::string raw = idxNodes[k]->getCExpr(e);
-        std::string idx = coerceToNative(e, idxNodes[k].get(), raw, VType::Int64);
+        std::string idxExpr = coerceToNative(e, idxNodes[k].get(), raw, VType::Int64);
+
+        // Materialize into a temp, then bounds-check per dimension.
+        // The check is gated so a benchmark build can turn it off;
+        // see C_Emitter::isScratchBoundsEnabled.
+        std::string iv;
+        if (e.isScratchBoundsEnabled()) {
+            iv = e.newTemp("si");
+            e.emit("int64_t " + iv + " = " + idxExpr + ";");
+            e.emit("if (VYNE_UNLIKELY(" + iv + " < 0 || " + iv + " >= " +
+                   std::to_string(arrType.shape[k]) + ")) {");
+            e.emit("    fprintf(stderr, \"Runtime error (VNE-072): scratch index "
+                   "out of bounds: dim " + std::to_string(k) + " of shape [" +
+                   e_shapeStr(arrType) + "] got %lld at line " +
+                   std::to_string(idxNodes[k]->lineNumber) + "\\n\", (long long)" +
+                   iv + ");");
+            e.emit("    exit(1);");
+            e.emit("}");
+        } else {
+            iv = idxExpr;
+        }
+
         if (k) flat += " + ";
-        if (strides[k] == 1) flat += "(" + idx + ")";
-        else                 flat += "(" + idx + ") * " + std::to_string(strides[k]);
+        if (strides[k] == 1) flat += "(" + iv + ")";
+        else                 flat += "(" + iv + ") * " + std::to_string(strides[k]);
     }
     if (flat.empty()) flat = "0";
     return flat;

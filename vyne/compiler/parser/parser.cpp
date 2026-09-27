@@ -1459,6 +1459,14 @@ std::unique_ptr<ASTNode> Parser::parseVariableAssignment(
     std::string originalName = var->getOriginalName();
 
     VType varType = var->getStaticType();
+    // Re-assignment to an existing variable: the node itself carries
+    // Unknown because parseIdentifierExpr doesn't consult the symbol
+    // table. Look it up so the strict-mode check doesn't misfire.
+    if (varType == VType::Unknown) {
+        if (SymbolInfo* info = lookupSymbol(varId)) {
+            varType = info->type;
+        }
+    }
     bool isReference = var->isRefVar();
     std::string customTypeName = "";
 

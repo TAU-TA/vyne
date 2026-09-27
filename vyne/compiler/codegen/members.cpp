@@ -98,7 +98,8 @@ void MemberAssignmentNode::compile(C_Emitter& e) const {
             ? ("v_" + rs)
             : ("v_" + prefix + "_" + rs);
         int recvDepth = e.lookupLocalRegionDepth(rname);
-        if (recvDepth >= 0 && recvDepth < e.currentRegionDepth()) {
+        if (recvDepth < 0) recvDepth = 0;
+        if (recvDepth < e.currentRegionDepth()) {
             VType st = rhs->getStaticType();
             bool safe = (st == VType::Int64 || st == VType::Float64 ||
                          st == VType::Bool  || st == VType::Null);

@@ -51,14 +51,41 @@ std::string IndexAccessNode::getCExpr(C_Emitter& e) const {
     const CType* bt = e.lookupType(bRaw);
 
     if (bt && bt->hasShape()) {
+        if (bt->shape.size() != 1) {
+            throw std::runtime_error(
+                "Shape Error (VNE-071): single index on rank-" +
+                std::to_string(bt->shape.size()) + " shaped array (line " +
+                std::to_string(lineNumber) + ").");
+        }
+
         VType elem = bt->args.empty() ? VType::Float64
                                       : bt->args[0].toVType();
         std::string rawIdx = index->getCExpr(e);
         std::string idx = coerceToNative(e, index.get(), rawIdx, VType::Int64);
 
+        // Bounds check (VNE-072). Materialize the index once so the
+        // check and the load read the same value. Gated behind
+        // emitter::isScratchBoundsEnabled so a benchmark build can
+        // elide the check.
+        std::string iv;
+        if (e.isScratchBoundsEnabled()) {
+            iv = e.newTemp("si");
+            e.emit("int64_t " + iv + " = " + idx + ";");
+            e.emit("if (VYNE_UNLIKELY(" + iv + " < 0 || " + iv + " >= " +
+                   std::to_string(bt->shape[0]) + ")) {");
+            e.emit("    fprintf(stderr, \"Runtime error (VNE-072): scratch index "
+                   "out of bounds: dim 0 of shape [" +
+                   std::to_string(bt->shape[0]) + "] got %lld at line " +
+                   std::to_string(lineNumber) + "\\n\", (long long)" + iv + ");");
+            e.emit("    exit(1);");
+            e.emit("}");
+        } else {
+            iv = idx;
+        }
+
         std::string name = e.newTemp("idx");
         e.emit((elem == VType::Float64 ? "double " : "int64_t ") + name +
-               " = " + bRaw + "[" + idx + "];");
+               " = " + bRaw + "[" + iv + "];");
         e.declareNativeTemp(name, CType::fromVType(elem));
         return name;
     }
@@ -116,13 +143,37 @@ void IndexAssignmentNode::compile(C_Emitter& e) const {
     // --- End escape check --------------------------------------------
 
     if (bt && bt->hasShape()) {
+        if (bt->shape.size() != 1) {
+            throw std::runtime_error(
+                "Shape Error (VNE-071): single index on rank-" +
+                std::to_string(bt->shape.size()) + " shaped array (line " +
+                std::to_string(lineNumber) + ").");
+        }
+        
         VType elem = bt->args.empty() ? VType::Float64
                                       : bt->args[0].toVType();
         std::string rawIdx = index->getCExpr(e);
         std::string idx = coerceToNative(e, index.get(), rawIdx, VType::Int64);
         std::string rawVal = rhs->getCExpr(e);
         std::string val = coerceToNative(e, rhs.get(), rawVal, elem);
-        e.emit(bRaw + "[" + idx + "] = " + val + ";");
+
+        std::string iv;
+        if (e.isScratchBoundsEnabled()) {
+            iv = e.newTemp("si");
+            e.emit("int64_t " + iv + " = " + idx + ";");
+            e.emit("if (VYNE_UNLIKELY(" + iv + " < 0 || " + iv + " >= " +
+                   std::to_string(bt->shape[0]) + ")) {");
+            e.emit("    fprintf(stderr, \"Runtime error (VNE-072): scratch index "
+                   "out of bounds: dim 0 of shape [" +
+                   std::to_string(bt->shape[0]) + "] got %lld at line " +
+                   std::to_string(lineNumber) + "\\n\", (long long)" + iv + ");");
+            e.emit("    exit(1);");
+            e.emit("}");
+        } else {
+            iv = idx;
+        }
+        e.emit(bRaw + "[" + iv + "] = " + val + ";");
+        e.emit(bRaw + "[" + iv + "] = " + val + ";");
         return;
     }
 

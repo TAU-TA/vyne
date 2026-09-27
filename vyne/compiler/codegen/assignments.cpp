@@ -140,6 +140,28 @@ static void checkRegionEscape(C_Emitter& e,
         return;
     }
 
+    if (rhs->type() == NodeType::FUNCTION_CALL ||
+        rhs->type() == NodeType::METHOD_CALL) {
+
+        std::string name;
+        if (rhs->type() == NodeType::FUNCTION_CALL) {
+            name = static_cast<const FunctionCallNode*>(rhs)->getOriginalName();
+        } else {
+            name = static_cast<const MethodCallNode*>(rhs)->getMethodName();
+        }
+
+        auto primitiveReturn = [&](const std::string& n) -> bool {
+            const CType* retCt = e.getFunctionReturnType(n);
+            return retCt && retCt->isPrimitive();
+        };
+
+        if (primitiveReturn(name)) return;
+
+        std::string mangled = name;
+        std::replace(mangled.begin(), mangled.end(), '.', '_');
+        if (primitiveReturn(mangled)) return;
+    }
+
     // Variable RHS: safe if the source is also at a shallower depth,
     // or if it has been committed.
     if (rhs->type() == NodeType::VARIABLE) {
