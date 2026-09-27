@@ -28,6 +28,10 @@ use lib "vcolors.vy";
 module vmath;
 module vmem;
 
+# Deterministic RNG so all three configs of the §5.7 benchmark see
+# bit-identical A, B, and initial weights, and checksums are comparable.
+vmath.seed(42);
+
 # ======================================================================
 # CONFIG
 # ======================================================================
@@ -287,6 +291,15 @@ through epoch :: 1..EPOCHS -> loop {
         );
         dW1 = vlinalg.multiply(vlinalg.transpose(X), delta1);
 
+        # --- SGD weight updates, in place ---
+        # W1, W2, W3 were allocated before the region checkpoint, so
+        # mutating their .data arrays survives the rewind. A rebinding
+        # form (W1 = W1 - scale * dW1) would allocate a fresh matrix
+        # inside the region and dangle after rewind.
+        vlinalg.sgd_update_inplace(W1, dW1, scale);
+        vlinalg.sgd_update_inplace(W2, dW2, scale);
+        vlinalg.sgd_update_inplace(W3, dW3, scale);
+
         # --- db2 accumulation ---
         through c :: 0..HIDDEN2-1 -> loop {
             db2_buf[c] = 0.0;
@@ -359,8 +372,8 @@ through i :: 0..5 -> loop {
     p   = A3.data[idx];
     tag = "  random";
     if p > 0.5 { tag = "  struct"; }
-    out(tag + "  " + s + "   p(struct) = " + string(p));
+    out(tag + "  idx=" + string(idx) + "  " + s + "   p(struct) = " + string(p));
 };
 
 out("");
-out(vcolors.success("Done."));
+out(vcolors.green("Done."));
