@@ -13,4 +13,3 @@ use "Losses.vy";
 module vlinalg;
 
 deploy vlinalg;
-deploy vmath;
