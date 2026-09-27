@@ -25,7 +25,7 @@ vmath.seed(42);
 
 CONFIG :: Int64 = 2;
 N      :: Int64 = 1024;
-ITERS  :: Int64 = 10;
+ITERS  :: Int64 = 100;
 
 out("config=" + string(CONFIG) + " N=" + string(N) + " iters=" + string(ITERS));
 

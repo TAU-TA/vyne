@@ -11,7 +11,7 @@ int main(void) {
     VyneValue n_ret_0 = vmath_seed(vyne_int(42));
     v_CONFIG = 2;
     v_N = 1024;
-    v_ITERS = 10;
+    v_ITERS = 100;
     VyneValue str_1 = vyne_to_string(vyne_int(v_CONFIG));
     VyneValue bin_2 = vyne_binop(vyne_string_static("config="), str_1, 29);
     VyneValue bin_3 = vyne_binop(bin_2, vyne_string_static(" N="), 29);
