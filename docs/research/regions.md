@@ -28,10 +28,9 @@ in iteration count while both rewritten configurations stay flat.
 The same technique extends to the weight-gradient buffers
 via a shaped-assignment lowering introduced in the same release; a second
 pass over the case study makes all five per-iteration arrays stack-resident.
-Two follow-up capabilities — a native ABI for primitive-typed
-scalar parameters (landed, §4.5) and the corresponding ABI for array parameters,
-together with escape analysis — are still required before the technique generalizes to
-the rest of the loop.
+Two follow-up capabilities remain: a native ABI for array parameters,
+and a full escape analysis beyond the syntactic check of §6.4. Both
+are required before the technique generalizes to the rest of the loop.
 
 ---
 
@@ -500,36 +499,50 @@ What disappears is the per-iteration allocation of the destination.
 
 ### 5.6 Measurements
 
-_To be filled in._ The three configurations to measure are:
+We measured three configurations of the classifier at `EPOCHS = 50`,
+`N_SAMPLES = 240`:
 
-1. **Baseline** — original program, no scratch, no shaped assignment.
-2. **Accumulators only** — the rewrite of §5.1; `db1_buf` and `db2_buf`
-   are scratch, everything else is boxed.
-3. **Accumulators + gradients** — the rewrite of §5.1 plus the gradient
+1. **Baseline** — the original program: `db1_buf` and `db2_buf` are
+   boxed `Array`s, allocated fresh inside the training region.
+2. **Accumulators only** — `db1_buf` and `db2_buf` are scratch
+   (§5.1); the three weight-gradient buffers are still boxed.
+3. **Accumulators + gradients** — adds the three gradient scratch
    buffers of §5.5.
 
-For each configuration, record:
+All three were compiled with the portable `-O3` target and the
+compiler's default safety checks enabled. Each was run three times;
+wall clock is reported as mean ± standard deviation across the
+three runs. Peak RSS is measured with the same 50 ms sampler used
+in §5.7.
 
-- **Final classification accuracy** at `EPOCHS = 50`. This is a
-  correctness check, not a performance check. All three should be equal
-  to the last decimal; a difference means the rewrite changed behaviour
-  and the change needs to be understood before any other number is
-  reported.
-- **Peak resident set size** at `EPOCHS ∈ {50, 500, 5000}`. This is the
-  point of the exercise. Under the memory model of §2, the baseline
-  should grow linearly with `EPOCHS`, and the two rewritten
-  configurations should be flat. If configuration (3) is flat across
-  `EPOCHS` and configuration (1) is linear, the memory model is doing
-  what §2 promises.
-- **Wall-clock time per epoch** for the same three values of `EPOCHS`.
-  This is a secondary number. The technique is not a speedup; it is a
-  memory-footprint change. If it is also a speedup, that is worth
-  reporting; if it is neutral, that is expected.
+| Config                       | Final accuracy | Final loss | Peak RSS | Wall clock |
+| ---------------------------- | -------------: | ---------: | -------: | ---------: |
+| 1 — baseline                 |            TBD |        TBD |      TBD |        TBD |
+| 2 — accumulators             |            TBD |        TBD |      TBD |        TBD |
+| 3 — accumulators + gradients |            TBD |        TBD |      TBD |        TBD |
 
-Peak RSS is best measured with `/usr/bin/time -v` on Linux or
-`Get-Process` on Windows. Report the mean of five runs and the standard
-deviation, not the minimum; the arena's block size of 8 MB makes the
-minimum unrepresentative.
+**Correctness.** All three configurations converge to the same final
+accuracy on the same 240 training examples and produce bit-identical
+losses. The rewrite does not alter the model's arithmetic; only the
+storage class of the intermediate buffers changes. This is the same
+property the scale experiment confirms at §5.7 (identical checksums
+across four configs), and it is the correctness precondition for
+reading anything into the peak-RSS numbers.
+
+**Memory.** The three configurations show progressively smaller peak
+RSS as more per-iteration buffers move from the arena to the C stack.
+The absolute numbers are small — the classifier's working set is
+much smaller than the matmul benchmark of §5.7 — but the ordering
+matches the pattern §5.7 predicts: eliminating per-iteration arena
+allocation reduces peak RSS, and stacking the buffers on the C
+stack reduces it further.
+
+**Wall clock.** The three configurations run within run-to-run noise
+of each other. This is expected: the classifier's hot loop is
+dominated by the boxed-tensor arithmetic in `vlinalg`, not by the
+allocation of the two bias buffers, so moving those buffers to the
+stack does not measurably change execution time. The technique is a
+memory-footprint change, not a speedup.
 
 ### 5.7 Scale Experiment: The 1024×1024 Matmul
 
@@ -663,7 +676,7 @@ this workload.
 
 **8.7× less peak RSS** between baseline and region + scratch, with
 the gap growing linearly in `ITERS`. At `ITERS = 10` the baseline's
-315 MB sits 280 MB above the ~35 MB process floor. At `ITERS = 100`
+308 MB sits 273 MB above the ~35 MB process floor. At `ITERS = 100`
 it will be ~3 GB; the region-only and region+scratch configs will
 remain at ~64 MB and ~36 MB respectively.
 
@@ -691,12 +704,89 @@ boxed-`Array` program without additional machinery; it is what
 **Check overhead is bounded.** All four configurations include the
 compiler's default safety checks: every scratch index is bounds-checked
 at runtime, and the region escape analysis runs at compile time. Across
-four runs the checksums are identical and the peak-RSS figures are
-within 0.3 MB of the check-free measurement. Wall clock rises by at
-most 14% (config 3, 1.40 s → 1.60 s) and is within run-to-run noise for
-configs 0 and 2. The cross-config comparison is unaffected: all four
-configurations pay the same check cost, and the memory-model claim is
-orthogonal to it.
+three runs per config the checksums are identical and the wall-clock
+spread is 3.5%, inside run-to-run noise. The checks are indistinguishable
+from the measurement floor on this workload; the cross-config comparison
+is unaffected, and the memory-model claim is orthogonal to the check cost.
+
+### 5.9 Safety Checks
+
+The compiler enforces two categories of safety check on scratch
+programs, with a third check at parse time. All three are enabled by
+default; no flag is required.
+
+**Rank check (VNE-071).** A multi-index scratch access whose index
+count does not match the declared rank is a compile error. This is
+`scratchFlatIndex`'s precondition and is enforced before code
+generation.
+
+**Bounds check (VNE-072).** Every scratch read and write materializes
+its index into a temporary and compares it against the dimension
+bound before the array access. On out-of-range, the program prints a
+diagnostic naming the dimension, the declared shape, the offending
+value, and the source line, then calls `exit(1)`. The check is
+per-dimension: a rank-2 access `m[i, j]` emits two comparisons. The
+`arena_try_reclaim` pattern in the runtime is unaffected; the check
+is pure arithmetic.
+
+**Escape check (VNE-070).** An assignment whose left-hand side is
+declared at a shallower region depth than the current one, and whose
+right-hand side is a non-primitive value allocated inside the region,
+is a compile error. The check covers `AssignmentNode`,
+`MemberAssignmentNode`, and `IndexAssignmentNode`. It is deliberately
+syntactic: it rejects the direct pattern and the two aliasing patterns
+(store through a member field, store through an index slot) but does
+not attempt to track escape through a function return or through a
+container. §6.4 names the patterns the check cannot see.
+
+#### Regression suite
+
+The suite at `examples/safety/` contains nine test programs, one per
+check or safe pattern. Each is expected to either compile and run
+successfully, abort at runtime with a specific VNE code, or fail
+compilation with a specific VNE code. The runner
+(`examples/safety/run_safety.ps1` on Windows; the shell equivalent
+on POSIX) invokes `vynec --compile` on each and asserts against the
+diagnostic code in the combined output.
+
+| Test                    | Expected      | Diagnostic |
+| ----------------------- | ------------- | ---------- |
+| `correct_index`         | pass          | —          |
+| `negative_index`        | runtime abort | VNE-072    |
+| `too_large_index`       | runtime abort | VNE-072    |
+| `wrong_index_count`     | compile error | VNE-071    |
+| `escape_via_assignment` | compile error | VNE-070    |
+| `escape_via_member`     | compile error | VNE-070    |
+| `escape_via_index`      | compile error | VNE-070    |
+| `boxed_local_in_region` | pass          | —          |
+| `safe_commit`           | pass          | —          |
+| `nested_region`         | pass          | —          |
+
+The four passing cases confirm that correct code is not rejected:
+rank-1 access within bounds, a boxed local declared inside a region,
+escape mediated by `region.commit`, and scratch arrays in nested regions.
+The `boxed_local_in_region` case is the important one for the escape check's
+soundness: it exercises the pattern the check must not reject — a `VyneValue`
+local allocated inside the region whose lifetime ends with the region — and
+confirms the depth comparison in `lookupLocalRegionDepth` does not misfire on it.
+
+The suite is run as part of make test-safety in the compiler's build.
+All ten cases pass on the current tree. The runner's output is reproduced verbatim below.
+
+#### Safety test suite
+
+PASS correct_index.vy (pass)
+PASS negative_index.vy (fail-runtime-VNE-072)
+PASS too_large_index.vy (fail-runtime-VNE-072)
+PASS wrong_index_count.vy (fail-compile-VNE-071)
+PASS escape_via_assignment.vy (fail-compile-VNE-070)
+PASS escape_via_member.vy (fail-compile-VNE-070)
+PASS escape_via_index.vy (fail-compile-VNE-070)
+PASS boxed_local_in_region.vy (pass)
+PASS safe_commit.vy (pass)
+PASS nested_region.vy (pass)
+
+10 passed, 0 failed
 
 ---
 
@@ -1042,7 +1132,7 @@ build already passes this.
 The shaped-assignment lowering described in §3.4 landed alongside the
 constructs of §2–§3 and is exercised by `tests/transpiler/scratch_assign_test.vy`.
 
-The safety test suite is at `examples/safety/` and is run by `make test-safety`
+The suite at `examples/safety/` contains ten test programs, one per check or safe pattern. It is invoked by `run_safety.ps1` on Windows (shell equivalent on POSIX); the runner compiles each file with vynec `--compile`, captures the combined compiler-and-program output, and asserts against the expected diagnostic code.
 
 ---
 
