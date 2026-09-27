@@ -18,9 +18,6 @@
     "Programming Languages"
   ],
   "main": "./client/src/extension.js",
-  "activationEvents": [
-    "onLanguage:vyne"
-  ],
   "contributes": {
     "languages": [
       {
