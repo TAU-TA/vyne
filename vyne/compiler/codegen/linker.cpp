@@ -53,7 +53,7 @@ VyneLinker::parseFile(const std::string& canonicalPath,
     if (!std::filesystem::exists(canonicalPath) ||
         std::filesystem::is_directory(canonicalPath)) {
         throw std::runtime_error(
-            "Vyne Linker Error: import not found at: " + canonicalPath);
+            "VNE-005: import not found at: " + canonicalPath);
     }
 
     const std::string& source = FileUtils::readFile(canonicalPath);
@@ -108,8 +108,25 @@ void VyneLinker::visit(const std::string& canonicalPath,
         auto* imp = dynamic_cast<ImportNode*>(stmt.get());
         if (!imp) continue;
 
-        std::string subPath = canonicalize(
-            thisDir, imp->getFilePath(), imp->isExternImport());
+        std::string subPath;
+        try {
+            subPath = canonicalize(
+                thisDir, imp->getFilePath(), imp->isExternImport());
+        } catch (const std::filesystem::filesystem_error& ex) {
+            throw std::runtime_error(
+                "VNE-005: could not resolve import (line " +
+                std::to_string(imp->lineNumber) + "): '" +
+                imp->getFilePath() + "' — " + ex.what());
+        }
+
+        if (!std::filesystem::exists(subPath) ||
+            std::filesystem::is_directory(subPath)) {
+            throw std::runtime_error(
+                "VNE-005: unresolved import (line " +
+                std::to_string(imp->lineNumber) + "): '" +
+                imp->getFilePath() + "' not found at " + subPath);
+        }
+
         std::string subDir =
             std::filesystem::path(subPath).parent_path().string();
 
