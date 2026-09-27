@@ -277,9 +277,17 @@ std::unique_ptr<ASTNode> Parser::parseImportModule() {
         finalPath = std::filesystem::path(sourceDir) / cleanPath;
     }
 
-    if (std::filesystem::exists(finalPath)) {
-        collectTypesFromImport(finalPath);
+    if (!std::filesystem::exists(finalPath)) {
+        emitError(
+            "unresolved import: '" + cleanPath + "' not found at " +
+            finalPath.string(),
+            line, "VNE-005",
+            {"Check the import path spelling",
+             "Paths are resolved relative to the importing file",
+             "Searched from: " + sourceDir});
     }
+
+    collectTypesFromImport(finalPath);
 
     std::string alias = "";
     if (peekToken().type == VTokenType::As) {
