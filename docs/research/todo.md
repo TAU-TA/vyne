@@ -30,8 +30,7 @@ Everything we discussed, ordered. Phases are sequential; items inside a phase ca
 ## Phase 1 — Safety — DONE ✓ (commit ready)
 
 - [x] **Scratch bounds checks** — emitted in `scratchFlatIndex`; per-dimension
-      VNE-072 on violation. Verified: matmul runs with checks enabled show
-      identical checksums and 3.5% wall-clock spread.
+      VNE-072 on violation.
 - [x] **Region depth tracking** — `regionDepthAtDeclaration` in `LocalScope`,
       `committedVars` set, `markCommitted` and `lookupLocalRegionDepth` helpers
 - [x] **Escape check in `AssignmentNode::compile`** — VNE-070 on direct escape
@@ -51,22 +50,33 @@ Everything we discussed, ordered. Phases are sequential; items inside a phase ca
 ### Experiment 1 (baseline vs region over iteration count)
 
 - [x] **Config 3 (hoisted baseline)** — implemented in matmul_1024.vy
-- [x] **ITERS=10 on all four configs** — measured (mean of 3, checks enabled):
+- [x] **ITERS=10 on all four configs** — measured (mean of 3):
       | config | peak (MB) | wall (s) | checksum |
       |--------|-------------:|-------------:|----------|
       | 0 | 308.0 ± 6.3 | 1.44 ± 0.03 | 3.47777 |
       | 1 | 62.8 ± 0.2 | 1.46 ± 0.01 | 3.47777 |
       | 2 | 35.5 ± 0.0 | 1.43 ± 0.03 | 3.47777 |
       | 3 | 63.6 ± 0.0 | 1.41 ± 0.02 | 3.47777 |
-- [ ] **ITERS=100 on all four configs** — confirm 1, 2, 3 stay flat and 0
-      grows linearly. This is the memory-model claim at both ends.
-- [ ] **ITERS=1000 on config 0 only, or extrapolate** — 1000 may not fit;
-      measure or state "extrapolating from the measured ~16 MB/iteration"
+- [x] **ITERS=100 on all four configs** — measured (mean of 3):
+      | config | peak (MB) | wall (s) | checksum |
+      |--------|-------------:|-------------:|----------|
+      | 0 | 2836.6 ± 2.7 | 13.83 ± 0.07 | 3.47777 |
+      | 1 | 63.6 ± 0.1 | 13.72 ± 0.06 | 3.47777 |
+      | 2 | 35.5 ± 0.0 | 14.54 ± 1.27 | 3.47777 |
+      | 3 | 63.6 ± 0.0 | 13.65 ± 0.36 | 3.47777 |
+      Config 0 growth slope: 28.0 MB/iteration measured across the two
+      data points (vs. the 16.7 MB element-array size, the remainder is
+      block-chain overhead and transient double-residency). Baseline
+      grows 10.28× for 10× iterations — linear. Configs 1/2/3 stay flat.
+      Ratio at ITERS=100: 79.9×.
+- [ ] **ITERS=1000 on config 0 only, or extrapolate** — 1000 needs ~28 GB;
+      state the extrapolation from the measured 28.0 MB/iteration slope
+      rather than attempting the run.
 
 ### Experiment 2 (boxed vs region vs scratch)
 
-- [x] Done — configs 0, 1, 2, and 3, all with checks enabled
-- [x] Wall-clock parity noted in §5.7 — paper draft updated with mean ± sd table
+- [x] Done — configs 0, 1, 2, and 3
+- [x] Wall-clock parity noted in §5.7
 - [x] Check overhead paragraph added — "Check overhead is bounded" in §5.7
 
 ### Experiment 3 (shape specialization)
@@ -131,34 +141,57 @@ Two cases were added that were not in the original plan:
       "Generating sequences..."
 - [x] **Correct §5.7 config count and numbering** — four-config draft applied
 - [x] **Re-verify the ~11 MB growth-path decomposition in §5.7** — old
-      decomposition was stale; replaced with "16 MB elements + 148 MB block
-      overhead and transient copy"
+      decomposition was stale; replaced with the measured 28.0 MB/iteration
+      slope decomposition (16.7 MB elements + 11.3 MB overhead/copy)
 - [x] **Delete §6.7 (growth-path reclaim)** — bug is fixed; section describes
       an unfixed state that no longer exists. Renumber 6.8–6.10 → 6.7–6.9.
+- [ ] **Check `bench.ps1` and record whether ITERS=10 and ITERS=100 runs
+      used `--no-scratch-bounds`.** §5.7's "checks enabled" label and §5.9's
+      "indistinguishable from noise" sentence must match the actual flag.
+      If the benchmark runs used `--no-scratch-bounds`, correct both labels.
 
 ---
 
 ## Phase 3 — Paper updates
 
-- [x] **Abstract** — 8.7× / identical-checksum sentence present
+- [x] **Abstract** — 8.7× / 79.9× at 10/100 iterations / identical-checksum
 - [x] **§2.2** — VNE-070 described with soundness gap pointer to §6.4
 - [x] **§3.3** — stack-limit bullet present
 - [x] **§4.5** — native scalar ABI documented
-- [x] **§5.7** — four-config table with mean ± sd, check overhead paragraph,
-      interpretation corrected
+- [x] **§5.7** — four-config tables at ITERS=10 and ITERS=100, updated
+      interpretation, measured growth slope, config-2 variance noted
 - [x] **§6.4** — syntactic check described, full analysis retained as future
 - [ ] **§5.4** — SLP-vectorization mechanism, cite the disassembly
       (draft has it; verify against actual `gcc -S` output)
 - [ ] **§5.6** — training-loop measurements (post-Phase-0 numbers)
 - [ ] **§5.8** — shape specialization (after Exp 3)
 - [x] **§5.9** — safety; ten-test table, `boxed_local_in_region` row added,
-      verbatim runner output reproduced, `make test-safety` → `run_safety.ps1`
-      naming corrected
+      verbatim runner output reproduced
 - [ ] **§6.6** — one sentence naming the scratch/storage-class conflation
 - [ ] **§6.7–6.10 renumber** — after deleting the reclaim bug section
+- [ ] **§6.9 (new) — "Cases where manual hoisting does not substitute for
+      a region."** Name the three hard capability gaps: 1. Recursion / reentrancy — a manually-hoisted buffer at file scope
+      or at the top of the recursive function is shared across all
+      dynamic instances. The outer call's contents are clobbered by
+      the inner call's writes. Region/scratch give a fresh buffer per
+      invocation; manual hoisting is not merely inconvenient, it is
+      wrong. 2. Threads — same mechanism in space rather than time. Two threads
+      running the same function cannot share a manually-hoisted global
+      buffer. Region-scoped (stack) buffers are per-thread naturally. 3. Iteration-dependent buffer sizes — a variable-length sequence or
+      ragged batch that needs `Float64[batch_i, K]` with varying
+      `batch_i` cannot be served by a hoisted fixed-size buffer without
+      either wasting memory on small iterations or overflowing on
+      large ones. Arena-backed scratch (a scratch variant not yet
+      built; §6.7 mentions the design pass) would size per iteration.
+      The §5.7 scale experiment does not exercise any of the three, which
+      is why region and hoisted-baseline track each other there. This
+      subsection names the cases where they would diverge, and points to
+      §6.4's automatic scratch promotion as the mechanism that closes the
+      gap when the buffer's lifetime is not statically visible.
 - [ ] **§7 Related Work** — paragraph contrasting scratch with `std::array`,
       `std::inplace_vector`, Rust `[T; N]`, Ada constrained arrays
-- [x] **§8 Availability** — benchmark path and safety suite path documented
+- [x] **§8 Availability** — benchmark path, safety suite path, and
+      `--no-scratch-bounds` note present
 
 ---
 
@@ -205,18 +238,42 @@ memory-model paper, save shape types for Paper 3.**
 - Region-aware FFI
 - Activation checkpointing as a language primitive
 
+**Region-vs-hoisting capability benchmark** (new; the empirical backing for
+the §6.9 subsection):
+
+- Recursive function allocating a scratch buffer per call, recursing to
+  depth N. Two configs:
+  - A: buffer hoisted to file scope (or to the top of the recursive
+    function). Produces wrong results — outer-level contents clobbered
+    by the inner call.
+  - B: buffer declared scratch inside the function. Produces correct
+    results, peak RSS flat per recursion level.
+- This is a _capability_ demonstration, not a memory-footprint one. Its
+  purpose is to show that region/scratch are not a stylistic alternative
+  to manual hoisting but the correct construct in cases where hoisting
+  does not apply.
+- Optional extension: threaded version with two workers on the same
+  recursive function. Config A races; config B is thread-safe by
+  construction (each thread's buffer is on its own stack).
+
 ---
 
 ## The recommended order from here
 
 1. ~~Phase 0~~ — done.
 2. ~~Phase 1 (safety)~~ — done.
-3. ~~ITERS=10 all four configs~~ — done.
-4. **ITERS=100 on all four configs** (30 min). Confirms the memory-model
-   claim at both ends. Then the paper's §5.7 numbers are final.
-5. **Hand-written C comparison** (half day). Single biggest remaining lever.
-6. **§5.6 classifier numbers** — re-run without `--native`, fill in the table.
-7. **Delete §6.7, renumber §6.8–6.10** — paper hygiene.
+3. ~~ITERS=10 on all four configs~~ — done.
+4. ~~ITERS=100 on all four configs~~ — done. §5.7's memory-model claim is
+   now backed by measurements at both ends of the range.
+5. **Check the `--no-scratch-bounds` label consistency** (15 min) — verify
+   §5.7's "checks enabled" claim against `bench.ps1`'s actual flags before
+   anything else, because it affects what §5.7 and §5.9 say.
+6. **Hand-written C comparison** (half day). Single biggest remaining lever.
+7. **§5.6 classifier numbers** — re-run without `--native`, fill in the table.
+8. **§6.9 write-up** — the hoisting-gaps subsection. Cheap to write now
+   that the three cases are named; makes the region construct's value
+   visible on its own terms.
+9. **Delete §6.7, renumber §6.8–6.10** — paper hygiene.
 
 Do not start Phase 4. Do not chase cuBLAS or GPU support. Finish the paper.
 
@@ -227,7 +284,7 @@ Do not start Phase 4. Do not chase cuBLAS or GPU support. Finish the paper.
 - Phase 0: `Fix parser, emitter, and runtime bugs; add native-target flag` ← **READY**
 - Phase 1: `Add scratch bounds checking and syntactic region escape checks` ← **READY**
 - Phase 2 (partial): `Add hoisted baseline; measure four-config matmul at ITERS=10 with checks enabled` ← **READY**
-- Phase 2 (complete): `Complete benchmark suite: 4 configs, 4 experiments, safety tests`
+- Phase 2 (complete): `Complete benchmark suite: 4 configs, 4 experiments, safety tests; measure ITERS=100`
 - Phase 3: `Paper updates for §5.6–§5.9, §6.6–§6.9, §7`
 - Phase 4 (if done): `Shape-typed scratch: types, ABI, composability demo`
 
@@ -239,3 +296,9 @@ is what turns "the region construct works" into "the region construct
 matches what a C programmer would do, at the same speed, without the manual
 hoisting work." Either outcome strengthens the paper. Run it before starting
 Experiment 3 or the safety test files.
+
+**Second most important: the `--no-scratch-bounds` label check.** It is
+fifteen minutes and it determines whether §5.7's "checks are indistinguishable
+from noise" sentence is true or has to be rewritten as a cost disclosure.
+Do it first, before the C comparison, so the §5.7 table is internally
+consistent when the C row lands.
