@@ -85,6 +85,35 @@ void MemberAssignmentNode::compile(C_Emitter& e) const {
     // Any write invalidates all cached unboxes for this function.
     e.clearFieldCache();
 
+    // --- Region escape check ------------------------------------------
+    // If the receiver is a variable at a shallower region depth than
+    // the current one, and RHS is a non-primitive from a deeper region,
+    // we're writing a region-local pointer into outer memory.
+    if (e.hasRegion() && receiver->type() == NodeType::VARIABLE) {
+        auto* var = static_cast<VariableNode*>(receiver.get());
+        std::string rs = var->getOriginalName();
+        std::replace(rs.begin(), rs.end(), '.', '_');
+        std::string prefix = e.getActiveFunctionPrefix();
+        std::string rname = prefix.empty()
+            ? ("v_" + rs)
+            : ("v_" + prefix + "_" + rs);
+        int recvDepth = e.lookupLocalRegionDepth(rname);
+        if (recvDepth >= 0 && recvDepth < e.currentRegionDepth()) {
+            VType st = rhs->getStaticType();
+            bool safe = (st == VType::Int64 || st == VType::Float64 ||
+                         st == VType::Bool  || st == VType::Null);
+            if (!safe) {
+                throw std::runtime_error(
+                    "Escape Error (VNE-070): member assignment writes a "
+                    "region-local value into '" + var->getOriginalName() +
+                    "' (declared outside the region) at line " +
+                    std::to_string(lineNumber) + ".\n"
+                    "  The value would dangle after the region's rewind.");
+            }
+        }
+    }
+    // --- End escape check --------------------------------------------
+
     std::string val = e.boxAny(rhs->getCExpr(e));
 
     if (receiver->type() == NodeType::VARIABLE) {

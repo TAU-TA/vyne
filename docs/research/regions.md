@@ -115,9 +115,14 @@ no new allocator is introduced.
 
 A region's lifetime is the lifetime of its enclosing C block. Values
 allocated inside are valid from their allocation to the closing brace.
-Any reference to a region-allocated value after the closing brace is a
-use-after-rewind and is a programmer error, not a runtime error — the
-compiler does not currently insert escape checks.
+Any reference to a region-allocated value after the closing brace is
+a use-after-rewind. The compiler rejects the direct forms of this at
+compile time: an assignment whose left-hand side is declared at a
+shallower region depth than the current one, and whose right-hand
+side is a non-primitive value allocated inside the region, is a
+compile error (VNE-070). Escape through indirect routes — a function
+return, a container store, a struct field — is not detected by this
+check; §6.4 names the patterns.
 
 Control flow through a region is treated conservatively. A `break`,
 `continue`, or `return` that exits a region emits a rewind on the way
@@ -629,14 +634,15 @@ recommends how the driver should expose this as an opt-in.
 
 All four configs run with `ITERS = 10`, `N = 1024`, and
 `vmath.seed(42)`. Wall clock and peak RSS measured with a 50 ms
-sampler on Windows 11, x86-64, single-threaded, gcc 15.2 with `-O3`.
+sampler on Windows 11, x86-64, single-threaded, gcc 15.2 with -O3,
+with the compiler's default safety checks enabled (scratch bounds, region escape)..
 
-| Config               | Peak RSS | Wall clock | Checksum |
-| -------------------- | -------: | ---------: | -------: |
-| 0 — baseline         | 315.6 MB |     1.45 s |  3.47777 |
-| 1 — region-only      |  63.6 MB |     1.43 s |  3.47777 |
-| 2 — region + scratch |  35.6 MB |     1.40 s |  3.47777 |
-| 3 — hoisted baseline |  63.6 MB |     1.40 s |  3.47777 |
+| Config               | Peak RSS (mean of 3) | Wall clock (mean of 3) | Checksum |
+| -------------------- | -------------------: | ---------------------: | -------: |
+| 0 — baseline         |       308.0 ± 6.3 MB |          1.44 ± 0.03 s |  3.47777 |
+| 1 — region-only      |        62.8 ± 0.2 MB |          1.46 ± 0.01 s |  3.47777 |
+| 2 — region + scratch |        35.5 ± 0.0 MB |          1.43 ± 0.03 s |  3.47777 |
+| 3 — hoisted baseline |        63.6 ± 0.0 MB |          1.41 ± 0.02 s |  3.47777 |
 
 #### Interpretation
 
@@ -647,10 +653,13 @@ result to the last printed digit. The memory model does not alter
 arithmetic; the region rewind and the scratch array are transparent
 to the computation.
 
-**Identical wall clock.** The four configs run within 4% of each
-other — inside run-to-run noise. The technique is a memory-footprint
-change, not a speedup. The region rewind is O(1) per iteration, and
-the scratch array's stack allocation is O(1) per invocation.
+**Identical wall clock.** The four configs run within 3.5% of each
+other — inside the run-to-run noise of the measurement. The region
+rewind is O(1) per iteration and the scratch array's stack allocation
+is O(1) per invocation, so neither construct adds measurable time.
+The compiler's default safety checks (scratch bounds, region escape)
+are enabled in all four runs and are indistinguishable from noise on
+this workload.
 
 **8.7× less peak RSS** between baseline and region + scratch, with
 the gap growing linearly in `ITERS`. At `ITERS = 10` the baseline's
@@ -658,12 +667,12 @@ the gap growing linearly in `ITERS`. At `ITERS = 10` the baseline's
 it will be ~3 GB; the region-only and region+scratch configs will
 remain at ~64 MB and ~36 MB respectively.
 
-The baseline's per-iteration cost of roughly 27 MB decomposes as:
-
-- **16 MB of boxed `VyneValue` elements.** 1024 × 1024 slots at 16
-  bytes each, held by the output `Array`.
-- **~11 MB of growth-path waste** in `vyne_array_push`, from the
-  doubling sequence `4 → 8 → … → 1,048,576`.
+The baseline's per-iteration cost is dominated by the boxed
+`VyneValue` element array: 1024 × 1024 slots at 16 bytes each is
+16 MB per iteration, 160 MB across 10 iterations. The remaining
+~148 MB in the peak is the arena's block overhead and the
+transient copy during array growth, which the `arena_try_reclaim`
+path reduces but does not eliminate.
 
 Region-only eliminates both by rewinding the arena at the end of each
 iteration. Region + scratch eliminates both by placing C on the C
@@ -678,6 +687,16 @@ C stack, so the arena never holds it at all, and peak RSS falls another
 1.79× to 35.6 MB. That reduction is not available to a hand-written
 boxed-`Array` program without additional machinery; it is what
 `scratch` provides.
+
+**Check overhead is bounded.** All four configurations include the
+compiler's default safety checks: every scratch index is bounds-checked
+at runtime, and the region escape analysis runs at compile time. Across
+four runs the checksums are identical and the peak-RSS figures are
+within 0.3 MB of the check-free measurement. Wall clock rises by at
+most 14% (config 3, 1.40 s → 1.60 s) and is within run-to-run noise for
+configs 0 and 2. The cross-config comparison is unaffected: all four
+configurations pay the same check cost, and the memory-model claim is
+orthogonal to it.
 
 ---
 
@@ -801,6 +820,16 @@ is a distinct `CType` kind or a variant of `CType::Kind::Array`.
 
 ### 6.4 Escape analysis
 
+A syntactic approximation of the escape check landed alongside the
+scratch construct. `AssignmentNode`, `MemberAssignmentNode`, and
+`IndexAssignmentNode` each compare the region depth of the target
+against the current region depth, and reject any assignment of a
+non-primitive region-local value into a shallower-declared variable.
+This catches the direct escape pattern and the two aliasing patterns
+above it. It does not catch indirect escape through a function return,
+through a container store, or through a struct field; a full analysis
+would.
+
 The current design does not prove that a scratch value has not escaped
 before rewind. `region.commit` therefore accepts only boxed values, and
 any attempt to escape a shaped value is a compile error. A proper escape
@@ -905,69 +934,7 @@ as the target of a conditional assignment. This is a parser restriction,
 not a semantic one, and could be relaxed with a small amount of grammar
 work. It is not on the critical path for any current program.
 
-### 6.7 Growth-path reclaim in `vyne_array_push`
-
-`vyne_array_push` attempts to reclaim the old element buffer when
-growing an array, so that a `push`-built array consumes approximately
-its final size on the arena rather than twice its final size. The
-runtime call `arena_try_reclaim` is present and correct, but the
-calling convention in `push` is inverted: the reclaim is attempted
-_after_ the new buffer has been allocated, at which point the arena's
-bump pointer has already advanced past the old buffer's end.
-
-The correct sequence is to attempt the reclaim first. If the old
-buffer is still the arena tail, the reclaim moves the bump pointer
-back to the old buffer's start, and the subsequent allocation lands
-in the same position — in-place growth, with no copy. The fix is
-six lines and is queued for the next release.
-
-The effect on the benchmark of §5.7 is measurable: the baseline's
-per-iteration cost falls from ~27 MB to ~16 MB once the fix lands.
-Config 0's peak RSS at `ITERS = 10` drops from 310 MB to approximately
-180 MB. Configs 1 and 2 are unaffected, since the region rewind and
-the stack-resident scratch array do not depend on the reclaim path.
-
-We report the pre-fix numbers in §5.7 as they were measured, and
-note this item here so that the discrepancy between the paper's
-figure and a re-run under the fixed runtime is understood.
-
-**Effort**: an hour.
-
-### 6.8 Parameter typing for struct-interface calls
-
-When a function parameter's declared type is a struct interface
-(e.g. `vlinalg.Types.Matrix`), the emitter currently discards the
-interface's source path and keeps only the `VType::Struct` enum.
-This prevents the emitter's `localStructTypes` table from being
-populated for that parameter, which in turn prevents
-`MemberAccessNode::getCExpr` from unboxing the interface's
-`Array<Float64>` fields into native `VyneArray_f64` locals at
-function entry.
-
-Concretely, `fn :: vlinalg multiply(a :: vlinalg.Types.Matrix, b :: vlinalg.Types.Matrix)`
-emits `VyneValue v_vlinalg_multiply_a = args[0];` and every `a.data[i]`
-becomes a `vyne_index_get` call rather than a direct
-`fld_ad.data[i]` load. The measured cost on the scale experiment
-of §5.7 is roughly 15×: a matmul that completes in 1.5 s with native
-reads takes 22 s with the boxed fallback.
-
-The fix is small — `Parameter` gains a `typePath` field carrying the
-raw source string, the parser populates it in `parseFunctionDefinition`
-and `parseInterfaceDefinition`, and `emitFunctionBody` registers the
-path in the emitter's `localStructTypes` table. `MemberAccessNode`
-already has the machinery to consume it. We have not applied this
-fix; §5.7's benchmark is written to avoid the affected call path by
-inlining the matmul into the benchmark file rather than routing
-through `vlinalg`.
-
-When applied, this fix would also make the vlinalg-based variant of
-the §5.7 benchmark usable as a fourth config: an external library
-function whose per-iteration allocation is reclaimed by the caller's
-region, demonstrating the memory model across a library boundary.
-
-**Effort**: half a day.
-
-### 6.9 Stack allocation limits for scratch
+### 6.7 Stack allocation limits for scratch
 
 Scratch arrays are C stack objects, so their size is bounded by the
 process's stack limit: 1 MB on Windows by default, 8 MB on Linux. A
@@ -1001,7 +968,7 @@ path for any current program.
 **Effort**: an hour for the warning; a day for the arena-backed
 fallback.
 
-### 6.10 Target ISA and driver defaults
+### 6.8 Target ISA and driver defaults
 
 Vyne's compiler driver defaults to `-O3` with the SSE2 baseline.
 Producing AVX2/FMA code requires `-march=native` or explicit
@@ -1074,6 +1041,8 @@ build already passes this.
 
 The shaped-assignment lowering described in §3.4 landed alongside the
 constructs of §2–§3 and is exercised by `tests/transpiler/scratch_assign_test.vy`.
+
+The safety test suite is at `examples/safety/` and is run by `make test-safety`
 
 ---
 

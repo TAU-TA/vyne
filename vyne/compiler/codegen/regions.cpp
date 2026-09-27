@@ -80,9 +80,13 @@ void RegionCommitNode::compile(C_Emitter& e) const {
         cVar = "v_" + sanitized;
     }
 
-    std::string tmp = e.newTemp("commit");
-    e.emit("VyneValue " + tmp + " = vmem_runtime_commit(" + cVar + ");");
-    e.emit(cVar + " = " + tmp + ";");
+        std::string tmp = e.newTemp("commit");
+        e.emit("VyneValue " + tmp + " = vmem_runtime_commit(" + cVar + ");");
+        e.emit(cVar + " = " + tmp + ";");
+
+        // The variable now points into the commit arena, which survives
+        // region rewinds. Its effective depth is 0.
+        e.markCommitted(cVar);
 }
 
 std::string RegionCommitNode::getCExpr(C_Emitter& e) const {

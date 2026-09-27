@@ -89,6 +89,32 @@ void IndexAssignmentNode::compile(C_Emitter& e) const {
     std::string bRaw = base->getCExpr(e);
     const CType* bt = e.lookupType(bRaw);
 
+    // --- Region escape check ------------------------------------------
+    if (e.hasRegion() && base->type() == NodeType::VARIABLE) {
+        auto* var = static_cast<VariableNode*>(base.get());
+        std::string bs = var->getOriginalName();
+        std::replace(bs.begin(), bs.end(), '.', '_');
+        std::string prefix = e.getActiveFunctionPrefix();
+        std::string bname = prefix.empty()
+            ? ("v_" + bs)
+            : ("v_" + prefix + "_" + bs);
+        int baseDepth = e.lookupLocalRegionDepth(bname);
+        if (baseDepth >= 0 && baseDepth < e.currentRegionDepth()) {
+            VType st = rhs->getStaticType();
+            bool safe = (st == VType::Int64 || st == VType::Float64 ||
+                         st == VType::Bool  || st == VType::Null);
+            if (!safe) {
+                throw std::runtime_error(
+                    "Escape Error (VNE-070): index assignment writes a "
+                    "region-local value into '" + var->getOriginalName() +
+                    "' (declared outside the region) at line " +
+                    std::to_string(lineNumber) + ".\n"
+                    "  The value would dangle after the region's rewind.");
+            }
+        }
+    }
+    // --- End escape check --------------------------------------------
+
     if (bt && bt->hasShape()) {
         VType elem = bt->args.empty() ? VType::Float64
                                       : bt->args[0].toVType();

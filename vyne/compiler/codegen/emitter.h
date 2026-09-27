@@ -44,6 +44,7 @@ class C_Emitter {
     struct LocalScope {
         std::unordered_set<std::string>        names;
         std::unordered_map<std::string, CType> types;
+        std::unordered_map<std::string, int>   regionDepthAtDeclaration;
     };
     std::vector<LocalScope> localScopes = { LocalScope{} };
 
@@ -90,6 +91,7 @@ class C_Emitter {
     std::string currentReturningVar;
 
     std::vector<std::string> regionStack;
+    std::unordered_set<std::string> committedVars;
 
     int tempVarCount = 0;
 
@@ -159,10 +161,17 @@ public:
         }
     }
 
-    void declareLocal(const std::string& name, const CType& ct) {
+    // regionDepth defaults to the current region stack depth at the
+    // moment of declaration. Callers that want to override (e.g. for
+    // parameters, which are conceptually at depth 0) can pass an
+    // explicit value.
+    void declareLocal(const std::string& name, const CType& ct,
+                      int regionDepth = -1) {
         if (localScopes.empty()) localScopes.emplace_back();
         localScopes.back().names.insert(name);
         localScopes.back().types[name] = ct;
+        if (regionDepth < 0) regionDepth = (int)regionStack.size();
+        localScopes.back().regionDepthAtDeclaration[name] = regionDepth;
     }
     void declareGlobal(const std::string& name, const CType& ct) {
         globalVars.insert(name);
@@ -175,6 +184,24 @@ public:
             if (t != it->types.end()) return &t->second;
         }
         return nullptr;
+    }
+    // Effective region depth of a variable: 0 if committed (survives
+    // rewind), otherwise the depth at declaration. Returns -1 if the
+    // name is not a tracked local.
+    int lookupLocalRegionDepth(const std::string& name) const {
+        if (committedVars.count(name)) return 0;
+        for (auto it = localScopes.rbegin(); it != localScopes.rend(); ++it) {
+            auto r = it->regionDepthAtDeclaration.find(name);
+            if (r != it->regionDepthAtDeclaration.end()) return r->second;
+        }
+        return -1;
+    }
+
+    int currentRegionDepth() const { return (int)regionStack.size(); }
+
+    void markCommitted(const std::string& name) { committedVars.insert(name); }
+    bool isCommitted(const std::string& name) const {
+        return committedVars.count(name) > 0;
     }
     const CType* lookupGlobalType(const std::string& name) const {
         auto it = globalTypes.find(name);
@@ -240,6 +267,7 @@ public:
         fieldCache.clear();
         currentInterfaceType.clear();
         regionStack.clear();
+        committedVars.clear();
         nativeReturnType = CType{};
         localScopes.clear();
         localScopes.emplace_back();
@@ -519,6 +547,7 @@ public:
         tryCleanupStack.clear();
         deferCtx = {};
         regionStack.clear(); 
+        committedVars.clear();
         currentReturnVar.clear();
         currentReturningVar.clear();
         localScopes.clear();

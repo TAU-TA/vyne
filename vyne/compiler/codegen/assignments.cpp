@@ -91,6 +91,87 @@ static std::string nativeInit(C_Emitter& e, const ASTNode* rhs,
 }
 
 // ============================================================
+// Region escape check (Phase 1)
+// ------------------------------------------------------------
+// Rejects the pattern:
+//
+//     outer = <value allocated inside the current region>;
+//
+// where `outer` was declared at a shallower region depth than
+// the current one. The value would dangle after the region's
+// rewind.
+//
+// Safe cases:
+//   - RHS has a primitive static type (Int64/Float64/Bool/Null):
+//     copied by value, no arena involvement.
+//   - RHS is a variable declared at the same or shallower depth.
+//   - RHS is a variable that has been committed via region.commit.
+//   - LHS is a fresh declaration: it dies with the region, no leak.
+//
+// Unsafe cases (rejected):
+//   - Any other assignment where LHS is a live outer variable.
+//
+// This is deliberately syntactic. §6.4 of the paper names the
+// patterns the check cannot see (indirect escape through a
+// function return, escape through a container, etc.).
+// ============================================================
+
+static void checkRegionEscape(C_Emitter& e,
+                              const std::string& lhsVarName,
+                              const std::string& lhsDisplayName,
+                              const ASTNode* rhs,
+                              int lineNumber)
+{
+    if (!rhs) return;
+    if (!e.hasRegion()) return;
+
+    int lhsDepth = e.lookupLocalRegionDepth(lhsVarName);
+    // Globals and variables we can't find are treated as depth 0.
+    // A global declared at the top level is at depth 0 by definition.
+    if (lhsDepth < 0) lhsDepth = 0;
+
+    int curDepth = e.currentRegionDepth();
+    if (lhsDepth >= curDepth) return;  // LHS is as deep or deeper — safe
+
+    // Primitive RHS: copied by value, always safe to escape.
+    VType st = rhs->getStaticType();
+    if (st == VType::Int64 || st == VType::Float64 ||
+        st == VType::Bool  || st == VType::Null) {
+        return;
+    }
+
+    // Variable RHS: safe if the source is also at a shallower depth,
+    // or if it has been committed.
+    if (rhs->type() == NodeType::VARIABLE) {
+        auto* var = static_cast<const VariableNode*>(rhs);
+        std::string rs = var->getOriginalName();
+        std::replace(rs.begin(), rs.end(), '.', '_');
+        std::string prefix = e.getActiveFunctionPrefix();
+        std::string rname = prefix.empty()
+            ? ("v_" + rs)
+            : ("v_" + prefix + "_" + rs);
+        int rhsDepth = e.lookupLocalRegionDepth(rname);
+        if (rhsDepth >= 0 && rhsDepth <= lhsDepth) return;
+        // Not a tracked local — could be a global, or a name we lost.
+        // Treat unresolved as unsafe.
+    }
+
+    throw std::runtime_error(
+        "Escape Error (VNE-070): variable '" + lhsDisplayName +
+        "' is declared outside the current region (depth " +
+        std::to_string(lhsDepth) + ") but is being assigned a value "
+        "allocated inside a region (current depth " +
+        std::to_string(curDepth) + ") at line " +
+        std::to_string(lineNumber) + ".\n"
+        "  The value would dangle after the region's rewind.\n"
+        "  Fix one of these ways:\n"
+        "    - declare '" + lhsDisplayName + "' inside the region, or\n"
+        "    - copy the value out with region.commit(tmp) and assign "
+        "from tmp, or\n"
+        "    - move the assignment to before the region.");
+}
+
+// ============================================================
 // Shape-typed scratch store
 // ------------------------------------------------------------
 // Lower `scratch_dst = rhs` into an element-wise copy. Three
@@ -195,6 +276,29 @@ void AssignmentNode::compile(C_Emitter& e) const {
             "Compile Error: Reference variables are not supported by the C backend "
             "(line " + std::to_string(lineNumber) + "). Use the interpreter instead.");
     }
+
+    // --- Region escape check (Phase 1) --------------------------------
+    // Only checks reassignments to already-declared variables. A fresh
+    // declaration inside a region dies with the region, no leak.
+    {
+        std::string sanitized = originalName;
+        std::replace(sanitized.begin(), sanitized.end(), '.', '_');
+        std::string prefix = e.getActiveFunctionPrefix();
+        std::string bareName = "v_" + sanitized;
+        std::string localName = prefix.empty()
+            ? bareName
+            : ("v_" + prefix + "_" + sanitized);
+
+        bool isExisting = e.isLocalDeclared(localName) ||
+                          e.isGlobalDeclared(bareName);
+        bool useGlobalHere = e.getGlobalVars().count(bareName) > 0;
+
+        if (isExisting) {
+            std::string target = useGlobalHere ? bareName : localName;
+            checkRegionEscape(e, target, originalName, rhs.get(), lineNumber);
+        }
+    }
+    // --- end escape check ---------------------------------------------
 
     std::string sanitized = originalName;
     std::replace(sanitized.begin(), sanitized.end(), '.', '_');
