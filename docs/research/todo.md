@@ -76,22 +76,39 @@ Everything we discussed, ordered. Phases are sequential; items inside a phase ca
 - [ ] Measure runtime, instruction count if possible
 - [ ] Write up as §5.8
 
-### Experiment 4 (safety)
+### Experiment 4 (safety) — DONE ✓
 
-- [ ] `examples/safety/` directory, one `.vy` per case:
-  - [ ] `correct_index.vy` — should pass
-  - [ ] `negative_index.vy` — should now fail with VNE-072
-  - [ ] `too_large_index.vy` — should now fail with VNE-072
-  - [ ] `wrong_index_count.vy` — compile error from rank check
-  - [ ] `wrong_shape_assign.vy` — runtime exit(1)
-  - [ ] `escape_via_assignment.vy` — should now fail with VNE-070
-  - [ ] `escape_via_member.vy` — should now fail with VNE-070
-  - [ ] `escape_via_index.vy` — should now fail with VNE-070
-  - [ ] `nested_region.vy` — should pass
-  - [ ] `return_from_region.vy` — should pass (primitive return)
-- [ ] `run_safety.sh` — compiles each, asserts pass/fail with expected diagnostic
-- [ ] Add `test-safety` target to Makefile
-- [ ] Write up as §5.9
+- [x] `examples/safety/` directory, one `.vy` per case:
+  - [x] `correct_index.vy` — passes
+  - [x] `negative_index.vy` — runtime abort, VNE-072
+  - [x] `too_large_index.vy` — runtime abort, VNE-072
+  - [x] `wrong_index_count.vy` — compile error, VNE-071
+  - [x] `escape_via_assignment.vy` — compile error, VNE-070
+  - [x] `escape_via_member.vy` — compile error, VNE-070
+  - [x] `escape_via_index.vy` — compile error, VNE-070
+  - [x] `boxed_local_in_region.vy` — passes (soundness: check must NOT fire)
+  - [x] `safe_commit.vy` — passes (escape mediated by region.commit)
+  - [x] `nested_region.vy` — passes
+- [x] `run_safety.ps1` — compiles each, asserts pass/fail with expected diagnostic
+- [x] Add `test-safety` target to Makefile (wraps run_safety.ps1)
+- [x] Write up as §5.9 — see Phase 3
+
+**10 passed, 0 failed** on the current tree.
+
+Two planned cases were dropped in favor of more valuable ones:
+
+- `wrong_shape_assign.vy` — dropped; already covered by the VNE-071 rank check
+- `return_from_region.vy` — dropped; primitive-return-from-region is exercised
+  by the classifier and is not the check this suite exists to stress
+
+Two cases were added that were not in the original plan:
+
+- `boxed_local_in_region.vy` — the important one: exercises a `VyneValue`
+  local allocated inside a region whose lifetime ends with the region. If
+  the escape check misfires on this, the whole depth-comparison mechanism
+  in `lookupLocalRegionDepth` is wrong. It doesn't.
+- `safe_commit.vy` — closes the loop on `region.commit` as the sanctioned
+  escape hatch; proves the check accepts the pattern it is supposed to.
 
 ### Comparisons
 
@@ -134,7 +151,9 @@ Everything we discussed, ordered. Phases are sequential; items inside a phase ca
       (draft has it; verify against actual `gcc -S` output)
 - [ ] **§5.6** — training-loop measurements (post-Phase-0 numbers)
 - [ ] **§5.8** — shape specialization (after Exp 3)
-- [ ] **§5.9** — safety (after Exp 4)
+- [x] **§5.9** — safety; ten-test table, `boxed_local_in_region` row added,
+      verbatim runner output reproduced, `make test-safety` → `run_safety.ps1`
+      naming corrected
 - [ ] **§6.6** — one sentence naming the scratch/storage-class conflation
 - [ ] **§6.7–6.10 renumber** — after deleting the reclaim bug section
 - [ ] **§7 Related Work** — paragraph contrasting scratch with `std::array`,
@@ -197,9 +216,7 @@ memory-model paper, save shape types for Paper 3.**
    claim at both ends. Then the paper's §5.7 numbers are final.
 5. **Hand-written C comparison** (half day). Single biggest remaining lever.
 6. **§5.6 classifier numbers** — re-run without `--native`, fill in the table.
-7. **Safety test files** (Experiment 4, half day) — makes the VNE-070/072
-   checks testable, closes §5.9.
-8. **Delete §6.7, renumber §6.8–6.10** — paper hygiene.
+7. **Delete §6.7, renumber §6.8–6.10** — paper hygiene.
 
 Do not start Phase 4. Do not chase cuBLAS or GPU support. Finish the paper.
 
