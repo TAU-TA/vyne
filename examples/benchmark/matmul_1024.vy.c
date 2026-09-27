@@ -9,7 +9,7 @@ int64_t v_ITERS = 0;
 
 int main(void) {
     VyneValue n_ret_0 = vmath_seed(vyne_int(42));
-    v_CONFIG = 3;
+    v_CONFIG = 2;
     v_N = 1024;
     v_ITERS = 10;
     VyneValue str_1 = vyne_to_string(vyne_int(v_CONFIG));
@@ -39,400 +39,780 @@ int main(void) {
                 for (int64_t i_17 = lo_i_15; i_17 <= hi_i_16; ++i_17) {
                     int64_t v_c = i_17;
                     {
-                        VyneValue un_19 = vyne_unary(vyne_float(1), 30);
-                        VyneValue n_ret_18 = vmath_random_float(un_19, vyne_float(1));
-                        v_A[(v_r) * 1024 + (v_c)] = ((n_ret_18).type == V_FLOAT64) ? (n_ret_18).as.f64 : (double)(n_ret_18).as.i64;
+                        int64_t si_18 = v_r;
+                        if (VYNE_UNLIKELY(si_18 < 0 || si_18 >= 1024)) {
+                            fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 39\n", (long long)si_18);
+                            exit(1);
+                        }
+                        int64_t si_19 = v_c;
+                        if (VYNE_UNLIKELY(si_19 < 0 || si_19 >= 1024)) {
+                            fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 39\n", (long long)si_19);
+                            exit(1);
+                        }
                         VyneValue un_21 = vyne_unary(vyne_float(1), 30);
                         VyneValue n_ret_20 = vmath_random_float(un_21, vyne_float(1));
-                        v_B[(v_r) * 1024 + (v_c)] = ((n_ret_20).type == V_FLOAT64) ? (n_ret_20).as.f64 : (double)(n_ret_20).as.i64;
+                        v_A[(si_18) * 1024 + (si_19)] = ((n_ret_20).type == V_FLOAT64) ? (n_ret_20).as.f64 : (double)(n_ret_20).as.i64;
+                        int64_t si_22 = v_r;
+                        if (VYNE_UNLIKELY(si_22 < 0 || si_22 >= 1024)) {
+                            fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 40\n", (long long)si_22);
+                            exit(1);
+                        }
+                        int64_t si_23 = v_c;
+                        if (VYNE_UNLIKELY(si_23 < 0 || si_23 >= 1024)) {
+                            fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 40\n", (long long)si_23);
+                            exit(1);
+                        }
+                        VyneValue un_25 = vyne_unary(vyne_float(1), 30);
+                        VyneValue n_ret_24 = vmath_random_float(un_25, vyne_float(1));
+                        v_B[(si_22) * 1024 + (si_23)] = ((n_ret_24).type == V_FLOAT64) ? (n_ret_24).as.f64 : (double)(n_ret_24).as.i64;
                     }
                 }
             }
         }
-        int64_t bin_22 = v_N - 1;
-        int64_t lo_i_23 = 0;
-        int64_t hi_i_24 = bin_22;
-        for (int64_t i_25 = lo_i_23; i_25 <= hi_i_24; ++i_25) {
-            int64_t v_r = i_25;
+        int64_t bin_26 = v_N - 1;
+        int64_t lo_i_27 = 0;
+        int64_t hi_i_28 = bin_26;
+        for (int64_t i_29 = lo_i_27; i_29 <= hi_i_28; ++i_29) {
+            int64_t v_r = i_29;
             {
-                int64_t bin_26 = v_N - 1;
-                int64_t lo_i_27 = 0;
-                int64_t hi_i_28 = bin_26;
-                for (int64_t i_29 = lo_i_27; i_29 <= hi_i_28; ++i_29) {
-                    int64_t v_c = i_29;
+                int64_t bin_30 = v_N - 1;
+                int64_t lo_i_31 = 0;
+                int64_t hi_i_32 = bin_30;
+                for (int64_t i_33 = lo_i_31; i_33 <= hi_i_32; ++i_33) {
+                    int64_t v_c = i_33;
                     {
-                        double sid_30 = v_B[(v_r) * 1024 + (v_c)];
-                        v_B_T[(v_c) * 1024 + (v_r)] = sid_30;
+                        int64_t si_34 = v_c;
+                        if (VYNE_UNLIKELY(si_34 < 0 || si_34 >= 1024)) {
+                            fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 47\n", (long long)si_34);
+                            exit(1);
+                        }
+                        int64_t si_35 = v_r;
+                        if (VYNE_UNLIKELY(si_35 < 0 || si_35 >= 1024)) {
+                            fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 47\n", (long long)si_35);
+                            exit(1);
+                        }
+                        int64_t si_36 = v_r;
+                        if (VYNE_UNLIKELY(si_36 < 0 || si_36 >= 1024)) {
+                            fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 47\n", (long long)si_36);
+                            exit(1);
+                        }
+                        int64_t si_37 = v_c;
+                        if (VYNE_UNLIKELY(si_37 < 0 || si_37 >= 1024)) {
+                            fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 47\n", (long long)si_37);
+                            exit(1);
+                        }
+                        double sid_38 = v_B[(si_36) * 1024 + (si_37)];
+                        v_B_T[(si_34) * 1024 + (si_35)] = sid_38;
                     }
                 }
             }
         }
-        VyneValue bin_31 = vyne_bool(v_CONFIG == 0);
-        if (vyne_is_truthy(bin_31)) {
+        VyneValue bin_39 = vyne_bool(v_CONFIG == 0);
+        if (vyne_is_truthy(bin_39)) {
             {
-                int64_t lo_i_32 = 1;
-                int64_t hi_i_33 = v_ITERS;
-                for (int64_t i_34 = lo_i_32; i_34 <= hi_i_33; ++i_34) {
-                    int64_t v_iter = i_34;
+                int64_t lo_i_40 = 1;
+                int64_t hi_i_41 = v_ITERS;
+                for (int64_t i_42 = lo_i_40; i_42 <= hi_i_41; ++i_42) {
+                    int64_t v_iter = i_42;
                     {
-                        VyneValue arr_35 = vyne_array_create(0);
-                        VyneValue v_C = arr_35;
-                        int64_t bin_36 = v_N - 1;
-                        int64_t lo_i_37 = 0;
-                        int64_t hi_i_38 = bin_36;
-                        for (int64_t i_39 = lo_i_37; i_39 <= hi_i_38; ++i_39) {
-                            int64_t v_r = i_39;
+                        VyneValue arr_43 = vyne_array_create(0);
+                        VyneValue v_C = arr_43;
+                        int64_t bin_44 = v_N - 1;
+                        int64_t lo_i_45 = 0;
+                        int64_t hi_i_46 = bin_44;
+                        for (int64_t i_47 = lo_i_45; i_47 <= hi_i_46; ++i_47) {
+                            int64_t v_r = i_47;
                             {
-                                int64_t bin_40 = v_N - 1;
-                                int64_t lo_i_41 = 0;
-                                int64_t hi_i_42 = bin_40;
-                                for (int64_t i_43 = lo_i_41; i_43 <= hi_i_42; ++i_43) {
-                                    int64_t v_c = i_43;
+                                int64_t bin_48 = v_N - 1;
+                                int64_t lo_i_49 = 0;
+                                int64_t hi_i_50 = bin_48;
+                                for (int64_t i_51 = lo_i_49; i_51 <= hi_i_50; ++i_51) {
+                                    int64_t v_c = i_51;
                                     {
                                         double v_acc0 = 0;
                                         double v_acc1 = 0;
                                         double v_acc2 = 0;
                                         double v_acc3 = 0;
                                         if (4 == 0) { fprintf(stderr, "Runtime error: Division by zero!\n"); exit(1); }
-                                        int64_t bin_44 = v_N / 4;
-                                        int64_t bin_45 = bin_44 - 1;
-                                        int64_t lo_i_46 = 0;
-                                        int64_t hi_i_47 = bin_45;
-                                        for (int64_t i_48 = lo_i_46; i_48 <= hi_i_47; ++i_48) {
-                                            int64_t v_k4 = i_48;
+                                        int64_t bin_52 = v_N / 4;
+                                        int64_t bin_53 = bin_52 - 1;
+                                        int64_t lo_i_54 = 0;
+                                        int64_t hi_i_55 = bin_53;
+                                        for (int64_t i_56 = lo_i_54; i_56 <= hi_i_55; ++i_56) {
+                                            int64_t v_k4 = i_56;
                                             {
-                                                int64_t bin_49 = v_k4 * 4;
-                                                int64_t v_k0 = bin_49;
-                                                int64_t bin_50 = v_k0 + 0;
-                                                double sid_51 = v_A[(v_r) * 1024 + (bin_50)];
-                                                int64_t bin_52 = v_k0 + 0;
-                                                double sid_53 = v_B_T[(v_c) * 1024 + (bin_52)];
-                                                double bin_54 = sid_51 * sid_53;
-                                                double bin_55 = v_acc0 + bin_54;
-                                                v_acc0 = bin_55;
-                                                int64_t bin_56 = v_k0 + 1;
-                                                double sid_57 = v_A[(v_r) * 1024 + (bin_56)];
-                                                int64_t bin_58 = v_k0 + 1;
-                                                double sid_59 = v_B_T[(v_c) * 1024 + (bin_58)];
-                                                double bin_60 = sid_57 * sid_59;
-                                                double bin_61 = v_acc1 + bin_60;
-                                                v_acc1 = bin_61;
-                                                int64_t bin_62 = v_k0 + 2;
-                                                double sid_63 = v_A[(v_r) * 1024 + (bin_62)];
-                                                int64_t bin_64 = v_k0 + 2;
-                                                double sid_65 = v_B_T[(v_c) * 1024 + (bin_64)];
-                                                double bin_66 = sid_63 * sid_65;
-                                                double bin_67 = v_acc2 + bin_66;
-                                                v_acc2 = bin_67;
-                                                int64_t bin_68 = v_k0 + 3;
-                                                double sid_69 = v_A[(v_r) * 1024 + (bin_68)];
-                                                int64_t bin_70 = v_k0 + 3;
-                                                double sid_71 = v_B_T[(v_c) * 1024 + (bin_70)];
-                                                double bin_72 = sid_69 * sid_71;
-                                                double bin_73 = v_acc3 + bin_72;
-                                                v_acc3 = bin_73;
+                                                int64_t bin_57 = v_k4 * 4;
+                                                int64_t v_k0 = bin_57;
+                                                int64_t si_58 = v_r;
+                                                if (VYNE_UNLIKELY(si_58 < 0 || si_58 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 62\n", (long long)si_58);
+                                                    exit(1);
+                                                }
+                                                int64_t bin_59 = v_k0 + 0;
+                                                int64_t si_60 = bin_59;
+                                                if (VYNE_UNLIKELY(si_60 < 0 || si_60 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_60);
+                                                    exit(1);
+                                                }
+                                                double sid_61 = v_A[(si_58) * 1024 + (si_60)];
+                                                int64_t si_62 = v_c;
+                                                if (VYNE_UNLIKELY(si_62 < 0 || si_62 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 62\n", (long long)si_62);
+                                                    exit(1);
+                                                }
+                                                int64_t bin_63 = v_k0 + 0;
+                                                int64_t si_64 = bin_63;
+                                                if (VYNE_UNLIKELY(si_64 < 0 || si_64 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_64);
+                                                    exit(1);
+                                                }
+                                                double sid_65 = v_B_T[(si_62) * 1024 + (si_64)];
+                                                double bin_66 = sid_61 * sid_65;
+                                                double bin_67 = v_acc0 + bin_66;
+                                                v_acc0 = bin_67;
+                                                int64_t si_68 = v_r;
+                                                if (VYNE_UNLIKELY(si_68 < 0 || si_68 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 63\n", (long long)si_68);
+                                                    exit(1);
+                                                }
+                                                int64_t bin_69 = v_k0 + 1;
+                                                int64_t si_70 = bin_69;
+                                                if (VYNE_UNLIKELY(si_70 < 0 || si_70 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_70);
+                                                    exit(1);
+                                                }
+                                                double sid_71 = v_A[(si_68) * 1024 + (si_70)];
+                                                int64_t si_72 = v_c;
+                                                if (VYNE_UNLIKELY(si_72 < 0 || si_72 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 63\n", (long long)si_72);
+                                                    exit(1);
+                                                }
+                                                int64_t bin_73 = v_k0 + 1;
+                                                int64_t si_74 = bin_73;
+                                                if (VYNE_UNLIKELY(si_74 < 0 || si_74 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_74);
+                                                    exit(1);
+                                                }
+                                                double sid_75 = v_B_T[(si_72) * 1024 + (si_74)];
+                                                double bin_76 = sid_71 * sid_75;
+                                                double bin_77 = v_acc1 + bin_76;
+                                                v_acc1 = bin_77;
+                                                int64_t si_78 = v_r;
+                                                if (VYNE_UNLIKELY(si_78 < 0 || si_78 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 64\n", (long long)si_78);
+                                                    exit(1);
+                                                }
+                                                int64_t bin_79 = v_k0 + 2;
+                                                int64_t si_80 = bin_79;
+                                                if (VYNE_UNLIKELY(si_80 < 0 || si_80 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_80);
+                                                    exit(1);
+                                                }
+                                                double sid_81 = v_A[(si_78) * 1024 + (si_80)];
+                                                int64_t si_82 = v_c;
+                                                if (VYNE_UNLIKELY(si_82 < 0 || si_82 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 64\n", (long long)si_82);
+                                                    exit(1);
+                                                }
+                                                int64_t bin_83 = v_k0 + 2;
+                                                int64_t si_84 = bin_83;
+                                                if (VYNE_UNLIKELY(si_84 < 0 || si_84 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_84);
+                                                    exit(1);
+                                                }
+                                                double sid_85 = v_B_T[(si_82) * 1024 + (si_84)];
+                                                double bin_86 = sid_81 * sid_85;
+                                                double bin_87 = v_acc2 + bin_86;
+                                                v_acc2 = bin_87;
+                                                int64_t si_88 = v_r;
+                                                if (VYNE_UNLIKELY(si_88 < 0 || si_88 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 65\n", (long long)si_88);
+                                                    exit(1);
+                                                }
+                                                int64_t bin_89 = v_k0 + 3;
+                                                int64_t si_90 = bin_89;
+                                                if (VYNE_UNLIKELY(si_90 < 0 || si_90 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_90);
+                                                    exit(1);
+                                                }
+                                                double sid_91 = v_A[(si_88) * 1024 + (si_90)];
+                                                int64_t si_92 = v_c;
+                                                if (VYNE_UNLIKELY(si_92 < 0 || si_92 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 65\n", (long long)si_92);
+                                                    exit(1);
+                                                }
+                                                int64_t bin_93 = v_k0 + 3;
+                                                int64_t si_94 = bin_93;
+                                                if (VYNE_UNLIKELY(si_94 < 0 || si_94 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_94);
+                                                    exit(1);
+                                                }
+                                                double sid_95 = v_B_T[(si_92) * 1024 + (si_94)];
+                                                double bin_96 = sid_91 * sid_95;
+                                                double bin_97 = v_acc3 + bin_96;
+                                                v_acc3 = bin_97;
                                             }
                                         }
-                                        VyneValue m_recv_74 = v_C;
-                                        double bin_75 = v_acc0 + v_acc1;
-                                        double bin_76 = v_acc2 + v_acc3;
-                                        double bin_77 = bin_75 + bin_76;
-                                        vyne_array_push(m_recv_74, vyne_float(bin_77));
+                                        VyneValue m_recv_98 = v_C;
+                                        double bin_99 = v_acc0 + v_acc1;
+                                        double bin_100 = v_acc2 + v_acc3;
+                                        double bin_101 = bin_99 + bin_100;
+                                        vyne_array_push(m_recv_98, vyne_float(bin_101));
                                     }
                                 }
                             }
                         }
-                        VyneValue bin_78 = vyne_bool(v_iter == v_ITERS);
-                        if (vyne_is_truthy(bin_78)) {
+                        VyneValue bin_102 = vyne_bool(v_iter == v_ITERS);
+                        if (vyne_is_truthy(bin_102)) {
                             {
-                                VyneValue idx_80 = vyne_index_get(v_C, vyne_int(0));
-                                VyneValue str_79 = vyne_to_string(idx_80);
-                                VyneValue bin_81 = vyne_binop(vyne_string_static("checksum: "), str_79, 29);
-                                vyne_out(bin_81);
+                                VyneValue idx_104 = vyne_index_get(v_C, vyne_int(0));
+                                VyneValue str_103 = vyne_to_string(idx_104);
+                                VyneValue bin_105 = vyne_binop(vyne_string_static("checksum: "), str_103, 29);
+                                vyne_out(bin_105);
                             }
                         }
                     }
                 }
             }
         }
-        VyneValue bin_82 = vyne_bool(v_CONFIG == 1);
-        if (vyne_is_truthy(bin_82)) {
+        VyneValue bin_106 = vyne_bool(v_CONFIG == 1);
+        if (vyne_is_truthy(bin_106)) {
             {
-                int64_t lo_i_83 = 1;
-                int64_t hi_i_84 = v_ITERS;
-                for (int64_t i_85 = lo_i_83; i_85 <= hi_i_84; ++i_85) {
-                    int64_t v_iter = i_85;
+                int64_t lo_i_107 = 1;
+                int64_t hi_i_108 = v_ITERS;
+                for (int64_t i_109 = lo_i_107; i_109 <= hi_i_108; ++i_109) {
+                    int64_t v_iter = i_109;
                     {
                         // --- region: inner ---
-                        VyneValue vmem_cp_86 = vmem_runtime_checkpoint();
+                        VyneValue vmem_cp_110 = vmem_runtime_checkpoint();
                         {
-                            VyneValue arr_87 = vyne_array_create(0);
-                            VyneValue v_C = arr_87;
-                            int64_t bin_88 = v_N - 1;
-                            int64_t lo_i_89 = 0;
-                            int64_t hi_i_90 = bin_88;
-                            for (int64_t i_91 = lo_i_89; i_91 <= hi_i_90; ++i_91) {
-                                int64_t v_r = i_91;
+                            VyneValue arr_111 = vyne_array_create(0);
+                            VyneValue v_C = arr_111;
+                            int64_t bin_112 = v_N - 1;
+                            int64_t lo_i_113 = 0;
+                            int64_t hi_i_114 = bin_112;
+                            for (int64_t i_115 = lo_i_113; i_115 <= hi_i_114; ++i_115) {
+                                int64_t v_r = i_115;
                                 {
-                                    int64_t bin_92 = v_N - 1;
-                                    int64_t lo_i_93 = 0;
-                                    int64_t hi_i_94 = bin_92;
-                                    for (int64_t i_95 = lo_i_93; i_95 <= hi_i_94; ++i_95) {
-                                        int64_t v_c = i_95;
+                                    int64_t bin_116 = v_N - 1;
+                                    int64_t lo_i_117 = 0;
+                                    int64_t hi_i_118 = bin_116;
+                                    for (int64_t i_119 = lo_i_117; i_119 <= hi_i_118; ++i_119) {
+                                        int64_t v_c = i_119;
                                         {
                                             double v_acc0 = 0;
                                             double v_acc1 = 0;
                                             double v_acc2 = 0;
                                             double v_acc3 = 0;
                                             if (4 == 0) { fprintf(stderr, "Runtime error: Division by zero!\n"); exit(1); }
-                                            int64_t bin_96 = v_N / 4;
-                                            int64_t bin_97 = bin_96 - 1;
-                                            int64_t lo_i_98 = 0;
-                                            int64_t hi_i_99 = bin_97;
-                                            for (int64_t i_100 = lo_i_98; i_100 <= hi_i_99; ++i_100) {
-                                                int64_t v_k4 = i_100;
+                                            int64_t bin_120 = v_N / 4;
+                                            int64_t bin_121 = bin_120 - 1;
+                                            int64_t lo_i_122 = 0;
+                                            int64_t hi_i_123 = bin_121;
+                                            for (int64_t i_124 = lo_i_122; i_124 <= hi_i_123; ++i_124) {
+                                                int64_t v_k4 = i_124;
                                                 {
-                                                    int64_t bin_101 = v_k4 * 4;
-                                                    int64_t v_k0 = bin_101;
-                                                    int64_t bin_102 = v_k0 + 0;
-                                                    double sid_103 = v_A[(v_r) * 1024 + (bin_102)];
-                                                    int64_t bin_104 = v_k0 + 0;
-                                                    double sid_105 = v_B_T[(v_c) * 1024 + (bin_104)];
-                                                    double bin_106 = sid_103 * sid_105;
-                                                    double bin_107 = v_acc0 + bin_106;
-                                                    v_acc0 = bin_107;
-                                                    int64_t bin_108 = v_k0 + 1;
-                                                    double sid_109 = v_A[(v_r) * 1024 + (bin_108)];
-                                                    int64_t bin_110 = v_k0 + 1;
-                                                    double sid_111 = v_B_T[(v_c) * 1024 + (bin_110)];
-                                                    double bin_112 = sid_109 * sid_111;
-                                                    double bin_113 = v_acc1 + bin_112;
-                                                    v_acc1 = bin_113;
-                                                    int64_t bin_114 = v_k0 + 2;
-                                                    double sid_115 = v_A[(v_r) * 1024 + (bin_114)];
-                                                    int64_t bin_116 = v_k0 + 2;
-                                                    double sid_117 = v_B_T[(v_c) * 1024 + (bin_116)];
-                                                    double bin_118 = sid_115 * sid_117;
-                                                    double bin_119 = v_acc2 + bin_118;
-                                                    v_acc2 = bin_119;
-                                                    int64_t bin_120 = v_k0 + 3;
-                                                    double sid_121 = v_A[(v_r) * 1024 + (bin_120)];
-                                                    int64_t bin_122 = v_k0 + 3;
-                                                    double sid_123 = v_B_T[(v_c) * 1024 + (bin_122)];
-                                                    double bin_124 = sid_121 * sid_123;
-                                                    double bin_125 = v_acc3 + bin_124;
-                                                    v_acc3 = bin_125;
+                                                    int64_t bin_125 = v_k4 * 4;
+                                                    int64_t v_k0 = bin_125;
+                                                    int64_t si_126 = v_r;
+                                                    if (VYNE_UNLIKELY(si_126 < 0 || si_126 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 86\n", (long long)si_126);
+                                                        exit(1);
+                                                    }
+                                                    int64_t bin_127 = v_k0 + 0;
+                                                    int64_t si_128 = bin_127;
+                                                    if (VYNE_UNLIKELY(si_128 < 0 || si_128 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_128);
+                                                        exit(1);
+                                                    }
+                                                    double sid_129 = v_A[(si_126) * 1024 + (si_128)];
+                                                    int64_t si_130 = v_c;
+                                                    if (VYNE_UNLIKELY(si_130 < 0 || si_130 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 86\n", (long long)si_130);
+                                                        exit(1);
+                                                    }
+                                                    int64_t bin_131 = v_k0 + 0;
+                                                    int64_t si_132 = bin_131;
+                                                    if (VYNE_UNLIKELY(si_132 < 0 || si_132 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_132);
+                                                        exit(1);
+                                                    }
+                                                    double sid_133 = v_B_T[(si_130) * 1024 + (si_132)];
+                                                    double bin_134 = sid_129 * sid_133;
+                                                    double bin_135 = v_acc0 + bin_134;
+                                                    v_acc0 = bin_135;
+                                                    int64_t si_136 = v_r;
+                                                    if (VYNE_UNLIKELY(si_136 < 0 || si_136 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 87\n", (long long)si_136);
+                                                        exit(1);
+                                                    }
+                                                    int64_t bin_137 = v_k0 + 1;
+                                                    int64_t si_138 = bin_137;
+                                                    if (VYNE_UNLIKELY(si_138 < 0 || si_138 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_138);
+                                                        exit(1);
+                                                    }
+                                                    double sid_139 = v_A[(si_136) * 1024 + (si_138)];
+                                                    int64_t si_140 = v_c;
+                                                    if (VYNE_UNLIKELY(si_140 < 0 || si_140 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 87\n", (long long)si_140);
+                                                        exit(1);
+                                                    }
+                                                    int64_t bin_141 = v_k0 + 1;
+                                                    int64_t si_142 = bin_141;
+                                                    if (VYNE_UNLIKELY(si_142 < 0 || si_142 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_142);
+                                                        exit(1);
+                                                    }
+                                                    double sid_143 = v_B_T[(si_140) * 1024 + (si_142)];
+                                                    double bin_144 = sid_139 * sid_143;
+                                                    double bin_145 = v_acc1 + bin_144;
+                                                    v_acc1 = bin_145;
+                                                    int64_t si_146 = v_r;
+                                                    if (VYNE_UNLIKELY(si_146 < 0 || si_146 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 88\n", (long long)si_146);
+                                                        exit(1);
+                                                    }
+                                                    int64_t bin_147 = v_k0 + 2;
+                                                    int64_t si_148 = bin_147;
+                                                    if (VYNE_UNLIKELY(si_148 < 0 || si_148 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_148);
+                                                        exit(1);
+                                                    }
+                                                    double sid_149 = v_A[(si_146) * 1024 + (si_148)];
+                                                    int64_t si_150 = v_c;
+                                                    if (VYNE_UNLIKELY(si_150 < 0 || si_150 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 88\n", (long long)si_150);
+                                                        exit(1);
+                                                    }
+                                                    int64_t bin_151 = v_k0 + 2;
+                                                    int64_t si_152 = bin_151;
+                                                    if (VYNE_UNLIKELY(si_152 < 0 || si_152 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_152);
+                                                        exit(1);
+                                                    }
+                                                    double sid_153 = v_B_T[(si_150) * 1024 + (si_152)];
+                                                    double bin_154 = sid_149 * sid_153;
+                                                    double bin_155 = v_acc2 + bin_154;
+                                                    v_acc2 = bin_155;
+                                                    int64_t si_156 = v_r;
+                                                    if (VYNE_UNLIKELY(si_156 < 0 || si_156 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 89\n", (long long)si_156);
+                                                        exit(1);
+                                                    }
+                                                    int64_t bin_157 = v_k0 + 3;
+                                                    int64_t si_158 = bin_157;
+                                                    if (VYNE_UNLIKELY(si_158 < 0 || si_158 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_158);
+                                                        exit(1);
+                                                    }
+                                                    double sid_159 = v_A[(si_156) * 1024 + (si_158)];
+                                                    int64_t si_160 = v_c;
+                                                    if (VYNE_UNLIKELY(si_160 < 0 || si_160 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 89\n", (long long)si_160);
+                                                        exit(1);
+                                                    }
+                                                    int64_t bin_161 = v_k0 + 3;
+                                                    int64_t si_162 = bin_161;
+                                                    if (VYNE_UNLIKELY(si_162 < 0 || si_162 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_162);
+                                                        exit(1);
+                                                    }
+                                                    double sid_163 = v_B_T[(si_160) * 1024 + (si_162)];
+                                                    double bin_164 = sid_159 * sid_163;
+                                                    double bin_165 = v_acc3 + bin_164;
+                                                    v_acc3 = bin_165;
                                                 }
                                             }
-                                            VyneValue m_recv_126 = v_C;
-                                            double bin_127 = v_acc0 + v_acc1;
-                                            double bin_128 = v_acc2 + v_acc3;
-                                            double bin_129 = bin_127 + bin_128;
-                                            vyne_array_push(m_recv_126, vyne_float(bin_129));
+                                            VyneValue m_recv_166 = v_C;
+                                            double bin_167 = v_acc0 + v_acc1;
+                                            double bin_168 = v_acc2 + v_acc3;
+                                            double bin_169 = bin_167 + bin_168;
+                                            vyne_array_push(m_recv_166, vyne_float(bin_169));
                                         }
                                     }
                                 }
                             }
-                            VyneValue bin_130 = vyne_bool(v_iter == v_ITERS);
-                            if (vyne_is_truthy(bin_130)) {
+                            VyneValue bin_170 = vyne_bool(v_iter == v_ITERS);
+                            if (vyne_is_truthy(bin_170)) {
                                 {
-                                    VyneValue idx_132 = vyne_index_get(v_C, vyne_int(0));
-                                    VyneValue str_131 = vyne_to_string(idx_132);
-                                    VyneValue bin_133 = vyne_binop(vyne_string_static("checksum: "), str_131, 29);
-                                    vyne_out(bin_133);
+                                    VyneValue idx_172 = vyne_index_get(v_C, vyne_int(0));
+                                    VyneValue str_171 = vyne_to_string(idx_172);
+                                    VyneValue bin_173 = vyne_binop(vyne_string_static("checksum: "), str_171, 29);
+                                    vyne_out(bin_173);
                                 }
                             }
                         }
-                        vmem_runtime_rewind(vmem_cp_86);
+                        vmem_runtime_rewind(vmem_cp_110);
                     }
                 }
             }
         }
-        VyneValue bin_134 = vyne_bool(v_CONFIG == 2);
-        if (vyne_is_truthy(bin_134)) {
+        VyneValue bin_174 = vyne_bool(v_CONFIG == 2);
+        if (vyne_is_truthy(bin_174)) {
             {
-                int64_t lo_i_135 = 1;
-                int64_t hi_i_136 = v_ITERS;
-                for (int64_t i_137 = lo_i_135; i_137 <= hi_i_136; ++i_137) {
-                    int64_t v_iter = i_137;
+                int64_t lo_i_175 = 1;
+                int64_t hi_i_176 = v_ITERS;
+                for (int64_t i_177 = lo_i_175; i_177 <= hi_i_176; ++i_177) {
+                    int64_t v_iter = i_177;
                     {
                         // --- region: inner ---
-                        VyneValue vmem_cp_138 = vmem_runtime_checkpoint();
+                        VyneValue vmem_cp_178 = vmem_runtime_checkpoint();
                         {
                             double v_C[1048576];
-                            int64_t bin_139 = v_N - 1;
-                            int64_t lo_i_140 = 0;
-                            int64_t hi_i_141 = bin_139;
-                            for (int64_t i_142 = lo_i_140; i_142 <= hi_i_141; ++i_142) {
-                                int64_t v_r = i_142;
+                            int64_t bin_179 = v_N - 1;
+                            int64_t lo_i_180 = 0;
+                            int64_t hi_i_181 = bin_179;
+                            for (int64_t i_182 = lo_i_180; i_182 <= hi_i_181; ++i_182) {
+                                int64_t v_r = i_182;
                                 {
-                                    int64_t bin_143 = v_N - 1;
-                                    int64_t lo_i_144 = 0;
-                                    int64_t hi_i_145 = bin_143;
-                                    for (int64_t i_146 = lo_i_144; i_146 <= hi_i_145; ++i_146) {
-                                        int64_t v_c = i_146;
+                                    int64_t bin_183 = v_N - 1;
+                                    int64_t lo_i_184 = 0;
+                                    int64_t hi_i_185 = bin_183;
+                                    for (int64_t i_186 = lo_i_184; i_186 <= hi_i_185; ++i_186) {
+                                        int64_t v_c = i_186;
                                         {
                                             double v_acc0 = 0;
                                             double v_acc1 = 0;
                                             double v_acc2 = 0;
                                             double v_acc3 = 0;
                                             if (4 == 0) { fprintf(stderr, "Runtime error: Division by zero!\n"); exit(1); }
-                                            int64_t bin_147 = v_N / 4;
-                                            int64_t bin_148 = bin_147 - 1;
-                                            int64_t lo_i_149 = 0;
-                                            int64_t hi_i_150 = bin_148;
-                                            for (int64_t i_151 = lo_i_149; i_151 <= hi_i_150; ++i_151) {
-                                                int64_t v_k4 = i_151;
+                                            int64_t bin_187 = v_N / 4;
+                                            int64_t bin_188 = bin_187 - 1;
+                                            int64_t lo_i_189 = 0;
+                                            int64_t hi_i_190 = bin_188;
+                                            for (int64_t i_191 = lo_i_189; i_191 <= hi_i_190; ++i_191) {
+                                                int64_t v_k4 = i_191;
                                                 {
-                                                    int64_t bin_152 = v_k4 * 4;
-                                                    int64_t v_k0 = bin_152;
-                                                    int64_t bin_153 = v_k0 + 0;
-                                                    double sid_154 = v_A[(v_r) * 1024 + (bin_153)];
-                                                    int64_t bin_155 = v_k0 + 0;
-                                                    double sid_156 = v_B_T[(v_c) * 1024 + (bin_155)];
-                                                    double bin_157 = sid_154 * sid_156;
-                                                    double bin_158 = v_acc0 + bin_157;
-                                                    v_acc0 = bin_158;
-                                                    int64_t bin_159 = v_k0 + 1;
-                                                    double sid_160 = v_A[(v_r) * 1024 + (bin_159)];
-                                                    int64_t bin_161 = v_k0 + 1;
-                                                    double sid_162 = v_B_T[(v_c) * 1024 + (bin_161)];
-                                                    double bin_163 = sid_160 * sid_162;
-                                                    double bin_164 = v_acc1 + bin_163;
-                                                    v_acc1 = bin_164;
-                                                    int64_t bin_165 = v_k0 + 2;
-                                                    double sid_166 = v_A[(v_r) * 1024 + (bin_165)];
-                                                    int64_t bin_167 = v_k0 + 2;
-                                                    double sid_168 = v_B_T[(v_c) * 1024 + (bin_167)];
-                                                    double bin_169 = sid_166 * sid_168;
-                                                    double bin_170 = v_acc2 + bin_169;
-                                                    v_acc2 = bin_170;
-                                                    int64_t bin_171 = v_k0 + 3;
-                                                    double sid_172 = v_A[(v_r) * 1024 + (bin_171)];
-                                                    int64_t bin_173 = v_k0 + 3;
-                                                    double sid_174 = v_B_T[(v_c) * 1024 + (bin_173)];
-                                                    double bin_175 = sid_172 * sid_174;
-                                                    double bin_176 = v_acc3 + bin_175;
-                                                    v_acc3 = bin_176;
+                                                    int64_t bin_192 = v_k4 * 4;
+                                                    int64_t v_k0 = bin_192;
+                                                    int64_t si_193 = v_r;
+                                                    if (VYNE_UNLIKELY(si_193 < 0 || si_193 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 111\n", (long long)si_193);
+                                                        exit(1);
+                                                    }
+                                                    int64_t bin_194 = v_k0 + 0;
+                                                    int64_t si_195 = bin_194;
+                                                    if (VYNE_UNLIKELY(si_195 < 0 || si_195 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_195);
+                                                        exit(1);
+                                                    }
+                                                    double sid_196 = v_A[(si_193) * 1024 + (si_195)];
+                                                    int64_t si_197 = v_c;
+                                                    if (VYNE_UNLIKELY(si_197 < 0 || si_197 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 111\n", (long long)si_197);
+                                                        exit(1);
+                                                    }
+                                                    int64_t bin_198 = v_k0 + 0;
+                                                    int64_t si_199 = bin_198;
+                                                    if (VYNE_UNLIKELY(si_199 < 0 || si_199 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_199);
+                                                        exit(1);
+                                                    }
+                                                    double sid_200 = v_B_T[(si_197) * 1024 + (si_199)];
+                                                    double bin_201 = sid_196 * sid_200;
+                                                    double bin_202 = v_acc0 + bin_201;
+                                                    v_acc0 = bin_202;
+                                                    int64_t si_203 = v_r;
+                                                    if (VYNE_UNLIKELY(si_203 < 0 || si_203 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 112\n", (long long)si_203);
+                                                        exit(1);
+                                                    }
+                                                    int64_t bin_204 = v_k0 + 1;
+                                                    int64_t si_205 = bin_204;
+                                                    if (VYNE_UNLIKELY(si_205 < 0 || si_205 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_205);
+                                                        exit(1);
+                                                    }
+                                                    double sid_206 = v_A[(si_203) * 1024 + (si_205)];
+                                                    int64_t si_207 = v_c;
+                                                    if (VYNE_UNLIKELY(si_207 < 0 || si_207 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 112\n", (long long)si_207);
+                                                        exit(1);
+                                                    }
+                                                    int64_t bin_208 = v_k0 + 1;
+                                                    int64_t si_209 = bin_208;
+                                                    if (VYNE_UNLIKELY(si_209 < 0 || si_209 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_209);
+                                                        exit(1);
+                                                    }
+                                                    double sid_210 = v_B_T[(si_207) * 1024 + (si_209)];
+                                                    double bin_211 = sid_206 * sid_210;
+                                                    double bin_212 = v_acc1 + bin_211;
+                                                    v_acc1 = bin_212;
+                                                    int64_t si_213 = v_r;
+                                                    if (VYNE_UNLIKELY(si_213 < 0 || si_213 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 113\n", (long long)si_213);
+                                                        exit(1);
+                                                    }
+                                                    int64_t bin_214 = v_k0 + 2;
+                                                    int64_t si_215 = bin_214;
+                                                    if (VYNE_UNLIKELY(si_215 < 0 || si_215 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_215);
+                                                        exit(1);
+                                                    }
+                                                    double sid_216 = v_A[(si_213) * 1024 + (si_215)];
+                                                    int64_t si_217 = v_c;
+                                                    if (VYNE_UNLIKELY(si_217 < 0 || si_217 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 113\n", (long long)si_217);
+                                                        exit(1);
+                                                    }
+                                                    int64_t bin_218 = v_k0 + 2;
+                                                    int64_t si_219 = bin_218;
+                                                    if (VYNE_UNLIKELY(si_219 < 0 || si_219 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_219);
+                                                        exit(1);
+                                                    }
+                                                    double sid_220 = v_B_T[(si_217) * 1024 + (si_219)];
+                                                    double bin_221 = sid_216 * sid_220;
+                                                    double bin_222 = v_acc2 + bin_221;
+                                                    v_acc2 = bin_222;
+                                                    int64_t si_223 = v_r;
+                                                    if (VYNE_UNLIKELY(si_223 < 0 || si_223 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 114\n", (long long)si_223);
+                                                        exit(1);
+                                                    }
+                                                    int64_t bin_224 = v_k0 + 3;
+                                                    int64_t si_225 = bin_224;
+                                                    if (VYNE_UNLIKELY(si_225 < 0 || si_225 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_225);
+                                                        exit(1);
+                                                    }
+                                                    double sid_226 = v_A[(si_223) * 1024 + (si_225)];
+                                                    int64_t si_227 = v_c;
+                                                    if (VYNE_UNLIKELY(si_227 < 0 || si_227 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 114\n", (long long)si_227);
+                                                        exit(1);
+                                                    }
+                                                    int64_t bin_228 = v_k0 + 3;
+                                                    int64_t si_229 = bin_228;
+                                                    if (VYNE_UNLIKELY(si_229 < 0 || si_229 >= 1024)) {
+                                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_229);
+                                                        exit(1);
+                                                    }
+                                                    double sid_230 = v_B_T[(si_227) * 1024 + (si_229)];
+                                                    double bin_231 = sid_226 * sid_230;
+                                                    double bin_232 = v_acc3 + bin_231;
+                                                    v_acc3 = bin_232;
                                                 }
                                             }
-                                            double bin_177 = v_acc0 + v_acc1;
-                                            double bin_178 = v_acc2 + v_acc3;
-                                            double bin_179 = bin_177 + bin_178;
-                                            v_C[(v_r) * 1024 + (v_c)] = bin_179;
+                                            int64_t si_233 = v_r;
+                                            if (VYNE_UNLIKELY(si_233 < 0 || si_233 >= 1024)) {
+                                                fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 116\n", (long long)si_233);
+                                                exit(1);
+                                            }
+                                            int64_t si_234 = v_c;
+                                            if (VYNE_UNLIKELY(si_234 < 0 || si_234 >= 1024)) {
+                                                fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 116\n", (long long)si_234);
+                                                exit(1);
+                                            }
+                                            double bin_235 = v_acc0 + v_acc1;
+                                            double bin_236 = v_acc2 + v_acc3;
+                                            double bin_237 = bin_235 + bin_236;
+                                            v_C[(si_233) * 1024 + (si_234)] = bin_237;
                                         }
                                     }
                                 }
                             }
-                            VyneValue bin_180 = vyne_bool(v_iter == v_ITERS);
-                            if (vyne_is_truthy(bin_180)) {
+                            VyneValue bin_238 = vyne_bool(v_iter == v_ITERS);
+                            if (vyne_is_truthy(bin_238)) {
                                 {
-                                    double sid_182 = v_C[(0) * 1024 + (0)];
-                                    VyneValue str_181 = vyne_to_string(vyne_float(sid_182));
-                                    VyneValue bin_183 = vyne_binop(vyne_string_static("checksum: "), str_181, 29);
-                                    vyne_out(bin_183);
+                                    int64_t si_240 = 0;
+                                    if (VYNE_UNLIKELY(si_240 < 0 || si_240 >= 1024)) {
+                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 119\n", (long long)si_240);
+                                        exit(1);
+                                    }
+                                    int64_t si_241 = 0;
+                                    if (VYNE_UNLIKELY(si_241 < 0 || si_241 >= 1024)) {
+                                        fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 119\n", (long long)si_241);
+                                        exit(1);
+                                    }
+                                    double sid_242 = v_C[(si_240) * 1024 + (si_241)];
+                                    VyneValue str_239 = vyne_to_string(vyne_float(sid_242));
+                                    VyneValue bin_243 = vyne_binop(vyne_string_static("checksum: "), str_239, 29);
+                                    vyne_out(bin_243);
                                 }
                             }
                         }
-                        vmem_runtime_rewind(vmem_cp_138);
+                        vmem_runtime_rewind(vmem_cp_178);
                     }
                 }
             }
         }
-        VyneValue bin_184 = vyne_bool(v_CONFIG == 3);
-        if (vyne_is_truthy(bin_184)) {
+        VyneValue bin_244 = vyne_bool(v_CONFIG == 3);
+        if (vyne_is_truthy(bin_244)) {
             {
-                VyneValue arr_185 = vyne_array_create(0);
-                VyneValue v_C = arr_185;
-                int64_t bin_186 = v_N * v_N;
-                int64_t bin_187 = bin_186 - 1;
-                int64_t lo_i_188 = 0;
-                int64_t hi_i_189 = bin_187;
-                for (int64_t i_190 = lo_i_188; i_190 <= hi_i_189; ++i_190) {
-                    int64_t v_i = i_190;
+                VyneValue arr_245 = vyne_array_create(0);
+                VyneValue v_C = arr_245;
+                int64_t bin_246 = v_N * v_N;
+                int64_t bin_247 = bin_246 - 1;
+                int64_t lo_i_248 = 0;
+                int64_t hi_i_249 = bin_247;
+                for (int64_t i_250 = lo_i_248; i_250 <= hi_i_249; ++i_250) {
+                    int64_t v_i = i_250;
                     {
-                        VyneValue m_recv_191 = v_C;
-                        vyne_array_push(m_recv_191, vyne_float(0));
+                        VyneValue m_recv_251 = v_C;
+                        vyne_array_push(m_recv_251, vyne_float(0));
                     }
                 }
-                int64_t lo_i_192 = 1;
-                int64_t hi_i_193 = v_ITERS;
-                for (int64_t i_194 = lo_i_192; i_194 <= hi_i_193; ++i_194) {
-                    int64_t v_iter = i_194;
+                int64_t lo_i_252 = 1;
+                int64_t hi_i_253 = v_ITERS;
+                for (int64_t i_254 = lo_i_252; i_254 <= hi_i_253; ++i_254) {
+                    int64_t v_iter = i_254;
                     {
-                        int64_t bin_195 = v_N - 1;
-                        int64_t lo_i_196 = 0;
-                        int64_t hi_i_197 = bin_195;
-                        for (int64_t i_198 = lo_i_196; i_198 <= hi_i_197; ++i_198) {
-                            int64_t v_r = i_198;
+                        int64_t bin_255 = v_N - 1;
+                        int64_t lo_i_256 = 0;
+                        int64_t hi_i_257 = bin_255;
+                        for (int64_t i_258 = lo_i_256; i_258 <= hi_i_257; ++i_258) {
+                            int64_t v_r = i_258;
                             {
-                                int64_t bin_199 = v_N - 1;
-                                int64_t lo_i_200 = 0;
-                                int64_t hi_i_201 = bin_199;
-                                for (int64_t i_202 = lo_i_200; i_202 <= hi_i_201; ++i_202) {
-                                    int64_t v_c = i_202;
+                                int64_t bin_259 = v_N - 1;
+                                int64_t lo_i_260 = 0;
+                                int64_t hi_i_261 = bin_259;
+                                for (int64_t i_262 = lo_i_260; i_262 <= hi_i_261; ++i_262) {
+                                    int64_t v_c = i_262;
                                     {
                                         double v_acc0 = 0;
                                         double v_acc1 = 0;
                                         double v_acc2 = 0;
                                         double v_acc3 = 0;
                                         if (4 == 0) { fprintf(stderr, "Runtime error: Division by zero!\n"); exit(1); }
-                                        int64_t bin_203 = v_N / 4;
-                                        int64_t bin_204 = bin_203 - 1;
-                                        int64_t lo_i_205 = 0;
-                                        int64_t hi_i_206 = bin_204;
-                                        for (int64_t i_207 = lo_i_205; i_207 <= hi_i_206; ++i_207) {
-                                            int64_t v_k4 = i_207;
+                                        int64_t bin_263 = v_N / 4;
+                                        int64_t bin_264 = bin_263 - 1;
+                                        int64_t lo_i_265 = 0;
+                                        int64_t hi_i_266 = bin_264;
+                                        for (int64_t i_267 = lo_i_265; i_267 <= hi_i_266; ++i_267) {
+                                            int64_t v_k4 = i_267;
                                             {
-                                                int64_t bin_208 = v_k4 * 4;
-                                                int64_t v_k0 = bin_208;
-                                                int64_t bin_209 = v_k0 + 0;
-                                                double sid_210 = v_A[(v_r) * 1024 + (bin_209)];
-                                                int64_t bin_211 = v_k0 + 0;
-                                                double sid_212 = v_B_T[(v_c) * 1024 + (bin_211)];
-                                                double bin_213 = sid_210 * sid_212;
-                                                double bin_214 = v_acc0 + bin_213;
-                                                v_acc0 = bin_214;
-                                                int64_t bin_215 = v_k0 + 1;
-                                                double sid_216 = v_A[(v_r) * 1024 + (bin_215)];
-                                                int64_t bin_217 = v_k0 + 1;
-                                                double sid_218 = v_B_T[(v_c) * 1024 + (bin_217)];
-                                                double bin_219 = sid_216 * sid_218;
-                                                double bin_220 = v_acc1 + bin_219;
-                                                v_acc1 = bin_220;
-                                                int64_t bin_221 = v_k0 + 2;
-                                                double sid_222 = v_A[(v_r) * 1024 + (bin_221)];
-                                                int64_t bin_223 = v_k0 + 2;
-                                                double sid_224 = v_B_T[(v_c) * 1024 + (bin_223)];
-                                                double bin_225 = sid_222 * sid_224;
-                                                double bin_226 = v_acc2 + bin_225;
-                                                v_acc2 = bin_226;
-                                                int64_t bin_227 = v_k0 + 3;
-                                                double sid_228 = v_A[(v_r) * 1024 + (bin_227)];
-                                                int64_t bin_229 = v_k0 + 3;
-                                                double sid_230 = v_B_T[(v_c) * 1024 + (bin_229)];
-                                                double bin_231 = sid_228 * sid_230;
-                                                double bin_232 = v_acc3 + bin_231;
-                                                v_acc3 = bin_232;
+                                                int64_t bin_268 = v_k4 * 4;
+                                                int64_t v_k0 = bin_268;
+                                                int64_t si_269 = v_r;
+                                                if (VYNE_UNLIKELY(si_269 < 0 || si_269 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 142\n", (long long)si_269);
+                                                    exit(1);
+                                                }
+                                                int64_t bin_270 = v_k0 + 0;
+                                                int64_t si_271 = bin_270;
+                                                if (VYNE_UNLIKELY(si_271 < 0 || si_271 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_271);
+                                                    exit(1);
+                                                }
+                                                double sid_272 = v_A[(si_269) * 1024 + (si_271)];
+                                                int64_t si_273 = v_c;
+                                                if (VYNE_UNLIKELY(si_273 < 0 || si_273 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 142\n", (long long)si_273);
+                                                    exit(1);
+                                                }
+                                                int64_t bin_274 = v_k0 + 0;
+                                                int64_t si_275 = bin_274;
+                                                if (VYNE_UNLIKELY(si_275 < 0 || si_275 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_275);
+                                                    exit(1);
+                                                }
+                                                double sid_276 = v_B_T[(si_273) * 1024 + (si_275)];
+                                                double bin_277 = sid_272 * sid_276;
+                                                double bin_278 = v_acc0 + bin_277;
+                                                v_acc0 = bin_278;
+                                                int64_t si_279 = v_r;
+                                                if (VYNE_UNLIKELY(si_279 < 0 || si_279 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 143\n", (long long)si_279);
+                                                    exit(1);
+                                                }
+                                                int64_t bin_280 = v_k0 + 1;
+                                                int64_t si_281 = bin_280;
+                                                if (VYNE_UNLIKELY(si_281 < 0 || si_281 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_281);
+                                                    exit(1);
+                                                }
+                                                double sid_282 = v_A[(si_279) * 1024 + (si_281)];
+                                                int64_t si_283 = v_c;
+                                                if (VYNE_UNLIKELY(si_283 < 0 || si_283 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 143\n", (long long)si_283);
+                                                    exit(1);
+                                                }
+                                                int64_t bin_284 = v_k0 + 1;
+                                                int64_t si_285 = bin_284;
+                                                if (VYNE_UNLIKELY(si_285 < 0 || si_285 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_285);
+                                                    exit(1);
+                                                }
+                                                double sid_286 = v_B_T[(si_283) * 1024 + (si_285)];
+                                                double bin_287 = sid_282 * sid_286;
+                                                double bin_288 = v_acc1 + bin_287;
+                                                v_acc1 = bin_288;
+                                                int64_t si_289 = v_r;
+                                                if (VYNE_UNLIKELY(si_289 < 0 || si_289 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 144\n", (long long)si_289);
+                                                    exit(1);
+                                                }
+                                                int64_t bin_290 = v_k0 + 2;
+                                                int64_t si_291 = bin_290;
+                                                if (VYNE_UNLIKELY(si_291 < 0 || si_291 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_291);
+                                                    exit(1);
+                                                }
+                                                double sid_292 = v_A[(si_289) * 1024 + (si_291)];
+                                                int64_t si_293 = v_c;
+                                                if (VYNE_UNLIKELY(si_293 < 0 || si_293 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 144\n", (long long)si_293);
+                                                    exit(1);
+                                                }
+                                                int64_t bin_294 = v_k0 + 2;
+                                                int64_t si_295 = bin_294;
+                                                if (VYNE_UNLIKELY(si_295 < 0 || si_295 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_295);
+                                                    exit(1);
+                                                }
+                                                double sid_296 = v_B_T[(si_293) * 1024 + (si_295)];
+                                                double bin_297 = sid_292 * sid_296;
+                                                double bin_298 = v_acc2 + bin_297;
+                                                v_acc2 = bin_298;
+                                                int64_t si_299 = v_r;
+                                                if (VYNE_UNLIKELY(si_299 < 0 || si_299 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 145\n", (long long)si_299);
+                                                    exit(1);
+                                                }
+                                                int64_t bin_300 = v_k0 + 3;
+                                                int64_t si_301 = bin_300;
+                                                if (VYNE_UNLIKELY(si_301 < 0 || si_301 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_301);
+                                                    exit(1);
+                                                }
+                                                double sid_302 = v_A[(si_299) * 1024 + (si_301)];
+                                                int64_t si_303 = v_c;
+                                                if (VYNE_UNLIKELY(si_303 < 0 || si_303 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 0 of shape [1024, 1024] got %lld at line 145\n", (long long)si_303);
+                                                    exit(1);
+                                                }
+                                                int64_t bin_304 = v_k0 + 3;
+                                                int64_t si_305 = bin_304;
+                                                if (VYNE_UNLIKELY(si_305 < 0 || si_305 >= 1024)) {
+                                                    fprintf(stderr, "Runtime error (VNE-072): scratch index out of bounds: dim 1 of shape [1024, 1024] got %lld at line 0\n", (long long)si_305);
+                                                    exit(1);
+                                                }
+                                                double sid_306 = v_B_T[(si_303) * 1024 + (si_305)];
+                                                double bin_307 = sid_302 * sid_306;
+                                                double bin_308 = v_acc3 + bin_307;
+                                                v_acc3 = bin_308;
                                             }
                                         }
-                                        int64_t bin_233 = v_r * v_N;
-                                        int64_t bin_234 = bin_233 + v_c;
-                                        double bin_235 = v_acc0 + v_acc1;
-                                        double bin_236 = v_acc2 + v_acc3;
-                                        double bin_237 = bin_235 + bin_236;
-                                        vyne_index_set(v_C, vyne_int(bin_234), vyne_float(bin_237));
+                                        int64_t bin_309 = v_r * v_N;
+                                        int64_t bin_310 = bin_309 + v_c;
+                                        double bin_311 = v_acc0 + v_acc1;
+                                        double bin_312 = v_acc2 + v_acc3;
+                                        double bin_313 = bin_311 + bin_312;
+                                        vyne_index_set(v_C, vyne_int(bin_310), vyne_float(bin_313));
                                     }
                                 }
                             }
                         }
-                        VyneValue bin_238 = vyne_bool(v_iter == v_ITERS);
-                        if (vyne_is_truthy(bin_238)) {
+                        VyneValue bin_314 = vyne_bool(v_iter == v_ITERS);
+                        if (vyne_is_truthy(bin_314)) {
                             {
-                                VyneValue idx_240 = vyne_index_get(v_C, vyne_int(0));
-                                VyneValue str_239 = vyne_to_string(idx_240);
-                                VyneValue bin_241 = vyne_binop(vyne_string_static("checksum: "), str_239, 29);
-                                vyne_out(bin_241);
+                                VyneValue idx_316 = vyne_index_get(v_C, vyne_int(0));
+                                VyneValue str_315 = vyne_to_string(idx_316);
+                                VyneValue bin_317 = vyne_binop(vyne_string_static("checksum: "), str_315, 29);
+                                vyne_out(bin_317);
                             }
                         }
                     }
