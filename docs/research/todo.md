@@ -188,6 +188,17 @@ Two cases were added that were not in the original plan:
       subsection names the cases where they would diverge, and points to
       §6.4's automatic scratch promotion as the mechanism that closes the
       gap when the buffer's lifetime is not statically visible.
+- [ ] **§1 reframing — region and scratch are layered, not parallel.**
+      Current text: "Two constructs... address the problem from opposite
+      directions." Replace with: the region provides the lifetime
+      discipline, scratch provides the storage class, and the region
+      requirement on scratch is what makes scratch's safety story
+      trivial (slot reuse, peak reporting, escape checking, and frame
+      sizing all become tree walks instead of fixpoints). This reframing
+      is the load-bearing claim behind Phase 5's scratch resource-
+      management work; without it, those four capabilities look like
+      four separate features rather than four consequences of one design
+      choice.
 - [ ] **§7 Related Work** — paragraph contrasting scratch with `std::array`,
       `std::inplace_vector`, Rust `[T; N]`, Ada constrained arrays
 - [x] **§8 Availability** — benchmark path, safety suite path, and
