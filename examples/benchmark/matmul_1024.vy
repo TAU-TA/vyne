@@ -23,9 +23,9 @@ module vmem;
 
 vmath.seed(42);
 
-CONFIG :: Int64 = 2;
+CONFIG :: Int64 = 3;
 N      :: Int64 = 1024;
-ITERS  :: Int64 = 100;
+ITERS  :: Int64 = 10;
 
 out("config=" + string(CONFIG) + " N=" + string(N) + " iters=" + string(ITERS));
 
@@ -118,6 +118,36 @@ region outer {
                 };
                 if iter == ITERS { out("checksum: " + string(C[0, 0])); }
             };
+        };
+    }
+
+    if CONFIG == 3 {
+        # Hoisted baseline: one allocation outside the iteration loop,
+        # written in place. This is what a competent C programmer would
+        # do without a region system — the fairest non-region baseline.
+        # C is still a boxed Array (VyneValue elements), so per-element
+        # reads/writes still box, but there is no per-iteration alloc.
+        C :: Array = [];
+        through i :: 0..N*N-1 -> loop { C.push(0.0); };
+
+        through iter :: 1..ITERS -> loop {
+            through r :: 0..N-1 -> loop {
+                through c :: 0..N-1 -> loop {
+                    acc0 :: Float64 = 0.0;
+                    acc1 :: Float64 = 0.0;
+                    acc2 :: Float64 = 0.0;
+                    acc3 :: Float64 = 0.0;
+                    through k4 :: 0..N/4-1 -> loop {
+                        k0 :: Int64 = k4 * 4;
+                        acc0 = acc0 + A[r, k0 + 0] * B_T[c, k0 + 0];
+                        acc1 = acc1 + A[r, k0 + 1] * B_T[c, k0 + 1];
+                        acc2 = acc2 + A[r, k0 + 2] * B_T[c, k0 + 2];
+                        acc3 = acc3 + A[r, k0 + 3] * B_T[c, k0 + 3];
+                    };
+                    C[r * N + c] = (acc0 + acc1) + (acc2 + acc3);
+                };
+            };
+            if iter == ITERS { out("checksum: " + string(C[0])); }
         };
     }
 };

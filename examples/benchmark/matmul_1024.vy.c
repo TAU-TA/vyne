@@ -9,9 +9,9 @@ int64_t v_ITERS = 0;
 
 int main(void) {
     VyneValue n_ret_0 = vmath_seed(vyne_int(42));
-    v_CONFIG = 2;
+    v_CONFIG = 3;
     v_N = 1024;
-    v_ITERS = 100;
+    v_ITERS = 10;
     VyneValue str_1 = vyne_to_string(vyne_int(v_CONFIG));
     VyneValue bin_2 = vyne_binop(vyne_string_static("config="), str_1, 29);
     VyneValue bin_3 = vyne_binop(bin_2, vyne_string_static(" N="), 29);
@@ -335,6 +335,106 @@ int main(void) {
                             }
                         }
                         vmem_runtime_rewind(vmem_cp_138);
+                    }
+                }
+            }
+        }
+        VyneValue bin_184 = vyne_bool(v_CONFIG == 3);
+        if (vyne_is_truthy(bin_184)) {
+            {
+                VyneValue arr_185 = vyne_array_create(0);
+                VyneValue v_C = arr_185;
+                int64_t bin_186 = v_N * v_N;
+                int64_t bin_187 = bin_186 - 1;
+                int64_t lo_i_188 = 0;
+                int64_t hi_i_189 = bin_187;
+                for (int64_t i_190 = lo_i_188; i_190 <= hi_i_189; ++i_190) {
+                    int64_t v_i = i_190;
+                    {
+                        VyneValue m_recv_191 = v_C;
+                        vyne_array_push(m_recv_191, vyne_float(0));
+                    }
+                }
+                int64_t lo_i_192 = 1;
+                int64_t hi_i_193 = v_ITERS;
+                for (int64_t i_194 = lo_i_192; i_194 <= hi_i_193; ++i_194) {
+                    int64_t v_iter = i_194;
+                    {
+                        int64_t bin_195 = v_N - 1;
+                        int64_t lo_i_196 = 0;
+                        int64_t hi_i_197 = bin_195;
+                        for (int64_t i_198 = lo_i_196; i_198 <= hi_i_197; ++i_198) {
+                            int64_t v_r = i_198;
+                            {
+                                int64_t bin_199 = v_N - 1;
+                                int64_t lo_i_200 = 0;
+                                int64_t hi_i_201 = bin_199;
+                                for (int64_t i_202 = lo_i_200; i_202 <= hi_i_201; ++i_202) {
+                                    int64_t v_c = i_202;
+                                    {
+                                        double v_acc0 = 0;
+                                        double v_acc1 = 0;
+                                        double v_acc2 = 0;
+                                        double v_acc3 = 0;
+                                        if (4 == 0) { fprintf(stderr, "Runtime error: Division by zero!\n"); exit(1); }
+                                        int64_t bin_203 = v_N / 4;
+                                        int64_t bin_204 = bin_203 - 1;
+                                        int64_t lo_i_205 = 0;
+                                        int64_t hi_i_206 = bin_204;
+                                        for (int64_t i_207 = lo_i_205; i_207 <= hi_i_206; ++i_207) {
+                                            int64_t v_k4 = i_207;
+                                            {
+                                                int64_t bin_208 = v_k4 * 4;
+                                                int64_t v_k0 = bin_208;
+                                                int64_t bin_209 = v_k0 + 0;
+                                                double sid_210 = v_A[(v_r) * 1024 + (bin_209)];
+                                                int64_t bin_211 = v_k0 + 0;
+                                                double sid_212 = v_B_T[(v_c) * 1024 + (bin_211)];
+                                                double bin_213 = sid_210 * sid_212;
+                                                double bin_214 = v_acc0 + bin_213;
+                                                v_acc0 = bin_214;
+                                                int64_t bin_215 = v_k0 + 1;
+                                                double sid_216 = v_A[(v_r) * 1024 + (bin_215)];
+                                                int64_t bin_217 = v_k0 + 1;
+                                                double sid_218 = v_B_T[(v_c) * 1024 + (bin_217)];
+                                                double bin_219 = sid_216 * sid_218;
+                                                double bin_220 = v_acc1 + bin_219;
+                                                v_acc1 = bin_220;
+                                                int64_t bin_221 = v_k0 + 2;
+                                                double sid_222 = v_A[(v_r) * 1024 + (bin_221)];
+                                                int64_t bin_223 = v_k0 + 2;
+                                                double sid_224 = v_B_T[(v_c) * 1024 + (bin_223)];
+                                                double bin_225 = sid_222 * sid_224;
+                                                double bin_226 = v_acc2 + bin_225;
+                                                v_acc2 = bin_226;
+                                                int64_t bin_227 = v_k0 + 3;
+                                                double sid_228 = v_A[(v_r) * 1024 + (bin_227)];
+                                                int64_t bin_229 = v_k0 + 3;
+                                                double sid_230 = v_B_T[(v_c) * 1024 + (bin_229)];
+                                                double bin_231 = sid_228 * sid_230;
+                                                double bin_232 = v_acc3 + bin_231;
+                                                v_acc3 = bin_232;
+                                            }
+                                        }
+                                        int64_t bin_233 = v_r * v_N;
+                                        int64_t bin_234 = bin_233 + v_c;
+                                        double bin_235 = v_acc0 + v_acc1;
+                                        double bin_236 = v_acc2 + v_acc3;
+                                        double bin_237 = bin_235 + bin_236;
+                                        vyne_index_set(v_C, vyne_int(bin_234), vyne_float(bin_237));
+                                    }
+                                }
+                            }
+                        }
+                        VyneValue bin_238 = vyne_bool(v_iter == v_ITERS);
+                        if (vyne_is_truthy(bin_238)) {
+                            {
+                                VyneValue idx_240 = vyne_index_get(v_C, vyne_int(0));
+                                VyneValue str_239 = vyne_to_string(idx_240);
+                                VyneValue bin_241 = vyne_binop(vyne_string_static("checksum: "), str_239, 29);
+                                vyne_out(bin_241);
+                            }
+                        }
                     }
                 }
             }
