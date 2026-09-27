@@ -536,9 +536,9 @@ double-precision matrices repeated over `ITERS` iterations.
 
 #### Benchmark design
 
-Three configurations live in one Vyne file
+Four configurations live in one Vyne file
 (`examples/benchmark/matmul_1024.vy`). A, B, and B's transpose are
-`Float64[1024, 1024]` scratch arrays in all three configs, so the
+`Float64[1024, 1024]` scratch arrays in all four configs, so the
 matmul kernel itself is byte-identical across them. Only C differs:
 
 - **Config 0 (baseline):** C is a boxed `Array`, allocated fresh on the
@@ -547,8 +547,12 @@ matmul kernel itself is byte-identical across them. Only C differs:
   body is wrapped in a `region`.
 - **Config 2 (region + scratch):** C is a `Float64[1024, 1024]` scratch
   array on the C stack.
+- **Config 3 (hoisted baseline):** C is a boxed `Array`, allocated once
+  outside the iteration loop and written in place. This is what a
+  programmer would write by hand without a region system, and it is the
+  fairest non-region comparison.
 
-The three configs share one source file, selected by a `CONFIG`
+The four configs share one source file, selected by a `CONFIG`
 compile-time constant. The same `.vy.c` is regenerated and recompiled
 for each. The RNG is seeded deterministically (`vmath.seed(42)`), so
 A and B are bit-identical across configs and the checksums are directly
@@ -623,48 +627,57 @@ recommends how the driver should expose this as an opt-in.
 
 #### Measurements
 
-All three configs run with `ITERS = 10`, `N = 1024`, and
+All four configs run with `ITERS = 10`, `N = 1024`, and
 `vmath.seed(42)`. Wall clock and peak RSS measured with a 50 ms
 sampler on Windows 11, x86-64, single-threaded, gcc 15.2 with `-O3`.
 
 | Config               | Peak RSS | Wall clock | Checksum |
 | -------------------- | -------: | ---------: | -------: |
-| 0 — baseline         | 310.1 MB |     1.46 s |  3.47777 |
-| 1 — region-only      |  62.8 MB |     1.41 s |  3.47777 |
+| 0 — baseline         | 315.6 MB |     1.45 s |  3.47777 |
+| 1 — region-only      |  63.6 MB |     1.43 s |  3.47777 |
 | 2 — region + scratch |  35.6 MB |     1.40 s |  3.47777 |
+| 3 — hoisted baseline |  63.6 MB |     1.40 s |  3.47777 |
 
 #### Interpretation
 
 Three observations.
 
-**Identical checksums.** The three configs produce the same numeric
+**Identical checksums.** All four configs produce the same numeric
 result to the last printed digit. The memory model does not alter
 arithmetic; the region rewind and the scratch array are transparent
 to the computation.
 
-**Identical wall clock.** The three configs run within 4% of each
+**Identical wall clock.** The four configs run within 4% of each
 other — inside run-to-run noise. The technique is a memory-footprint
 change, not a speedup. The region rewind is O(1) per iteration, and
 the scratch array's stack allocation is O(1) per invocation.
 
 **8.7× less peak RSS** between baseline and region + scratch, with
 the gap growing linearly in `ITERS`. At `ITERS = 10` the baseline's
-310 MB sits 275 MB above the ~35 MB process floor. At `ITERS = 100`
-it will be ~1.5 GB; the region-only and region+scratch configs will
-remain at ~60 MB and ~35 MB respectively.
+315 MB sits 280 MB above the ~35 MB process floor. At `ITERS = 100`
+it will be ~3 GB; the region-only and region+scratch configs will
+remain at ~64 MB and ~36 MB respectively.
 
 The baseline's per-iteration cost of roughly 27 MB decomposes as:
 
 - **16 MB of boxed `VyneValue` elements.** 1024 × 1024 slots at 16
   bytes each, held by the output `Array`.
 - **~11 MB of growth-path waste** in `vyne_array_push`, from the
-  doubling sequence `4 → 8 → … → 1,048,576` when the newly-allocated
-  buffer lands where the old one ended. (A reclaim attempt exists in
-  the runtime but is mis-ordered; see §6.7.)
+  doubling sequence `4 → 8 → … → 1,048,576`.
 
 Region-only eliminates both by rewinding the arena at the end of each
 iteration. Region + scratch eliminates both by placing C on the C
 stack entirely, so no arena allocation occurs at all.
+
+Config 3 is the manual alternative to config 1: a hand-hoisted output
+buffer, allocated once and written in place, reaches the same 63.6 MB
+peak and the same wall clock as region-only. The region construct is
+therefore a transparent replacement for manual hoisting, not an
+additional cost. Config 2 goes further: the output buffer lives on the
+C stack, so the arena never holds it at all, and peak RSS falls another
+1.79× to 35.6 MB. That reduction is not available to a hand-written
+boxed-`Array` program without additional machinery; it is what
+`scratch` provides.
 
 ---
 
