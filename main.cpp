@@ -4,14 +4,16 @@
 #include "vyne/utils/file_utils.h"
 #include "editors/vscode/lsp/backend/src/lsp_server.h"
 #include <cstring>
+#include <string>
 
 int main(int argc, char* argv[]) {
     FileUtils::setExeDir(argv[0]);
     SymbolContainer env;
-    
-    uint32_t globalId = StringPool::instance().intern("global");
-    env[globalId] = {}; 
 
+    uint32_t globalId = StringPool::instance().intern("global");
+    env[globalId] = {};
+
+    // --- Sub-command entry points (unchanged) ------------------------
     if (argc > 1 && strcmp(argv[1], "--lsp") == 0) {
         return runLspServer(env);
     }
@@ -22,29 +24,44 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    if (argc > 1) {
-        std::string firstArg = argv[1];
-        
-        if (firstArg == "--verify") {
-            if (argc < 3) return 1;
-            return runFile(argv[2], env, "ast", /* enforceIntegrity = */ true);
-        }
+    // --- Flag scan ----------------------------------------------------
+    // Any order, any position, one filename. `--native` only affects
+    // the "c" (transpile) path: it appends `-march=native` to the gcc
+    // invocation that builds the emitted C. In "ast" (interpreter)
+    // mode it is accepted and ignored, so `--verify --native file.vy`
+    // doesn't error out on a meaningless combination.
+    //
+    // Unknown flags are ignored rather than rejected, matching the
+    // old permissive behavior (which silently no-op'd on them).
+    bool nativeIsa        = false;
+    bool enforceIntegrity = false;
+    std::string mode;
+    std::string filename;
 
-        if (argc == 3) {
-            std::string filename = argv[2];
-            if (firstArg == "--ast") return runFile(filename, env, "ast", false);
-            if (firstArg == "--c" || firstArg == "--compile") return runFile(filename, env, "c", false);
-        }
-        
-        if (firstArg.substr(0, 2) != "--") {
-            return runFile(firstArg, env, "ast", false);
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+
+        if (arg == "--native") {
+            nativeIsa = true;
+        } else if (arg == "--verify") {
+            enforceIntegrity = true;
+            mode = "ast";
+        } else if (arg == "--ast") {
+            mode = "ast";
+        } else if (arg == "--c" || arg == "--compile") {
+            mode = "c";
+        } else if (!arg.empty() && arg[0] != '-') {
+            if (filename.empty()) filename = arg;
         }
     }
-    
-    else {
+
+    if (filename.empty()) {
         std::string input;
         init_REPL(input, env);
+        return 0;
     }
 
-    return 0;
+    if (mode.empty()) mode = "ast";
+
+    return runFile(filename, env, mode, enforceIntegrity, nativeIsa);
 }
