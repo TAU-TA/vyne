@@ -93,6 +93,8 @@ class C_Emitter {
     std::vector<std::string> regionStack;
     std::unordered_set<std::string> committedVars;
 
+    bool scratchBoundsEnabled = true;
+
     int tempVarCount = 0;
 
 public:
@@ -158,6 +160,12 @@ public:
         } else {
             if (localScopes.empty()) localScopes.emplace_back();
             localScopes.back().names.insert(name);
+            // Record the region depth so the escape check can distinguish
+            // a local declared inside a region from one declared outside
+            // it. Without this, lookupLocalRegionDepth returns -1 for every
+            // boxed local and the check treats it as a depth-0 escape.
+            localScopes.back().regionDepthAtDeclaration[name] =
+                (int)regionStack.size();
         }
     }
 
@@ -452,6 +460,9 @@ public:
     void clearGroupPrefix() { groupPrefix.clear(); }
     const std::string& getGroupPrefix() const { return groupPrefix; }
 
+    void setScratchBoundsEnabled(bool v) { scratchBoundsEnabled = v; }
+    bool isScratchBoundsEnabled() const { return scratchBoundsEnabled; }
+
     void registerInterfaceDefaults(const std::string& name,
                                    std::vector<std::string> defaults) {
         interfaceDefaults[name] = std::move(defaults);
@@ -548,6 +559,7 @@ public:
         deferCtx = {};
         regionStack.clear(); 
         committedVars.clear();
+        scratchBoundsEnabled = true;
         currentReturnVar.clear();
         currentReturningVar.clear();
         localScopes.clear();

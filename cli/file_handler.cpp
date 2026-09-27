@@ -39,7 +39,8 @@ bool verifyIntegrity(const std::string& scriptPath) {
 int runFile(const std::string& filename, SymbolContainer& env,
             const std::string& mode,
             bool enforceIntegrity,
-            bool nativeIsa) {    
+            bool nativeIsa,
+            bool scratchBounds) {      
     if (enforceIntegrity && !verifyIntegrity(filename)) {
         return 1;
     }
@@ -135,6 +136,7 @@ int runFile(const std::string& filename, SymbolContainer& env,
 
             C_Emitter emitter;
             emitter.reset();
+            emitter.setScratchBoundsEnabled(scratchBounds);
 
             for (const auto& unit : units) {
                 emitter.markImported(unit.canonicalPath);
@@ -213,9 +215,7 @@ int runFile(const std::string& filename, SymbolContainer& env,
                     << "  "
                     << std::fixed << std::setprecision(2) << compile_ms.count() << "ms\n";
 
-            std::string run_cmd = (exeName.find('/') == std::string::npos &&
-                                exeName.find('\\') == std::string::npos)
-                                ? "./" + exeName : exeName;
+            std::string run_cmd = "\"" + exeName + "\"";
 
             std::cout << "\n";
             std::cout << CYAN << "  >> output" << RESET << "\n";

@@ -35,6 +35,7 @@ int main(int argc, char* argv[]) {
     // old permissive behavior (which silently no-op'd on them).
     bool nativeIsa        = false;
     bool enforceIntegrity = false;
+    bool scratchBounds    = true;
     std::string mode;
     std::string filename;
 
@@ -43,7 +44,10 @@ int main(int argc, char* argv[]) {
 
         if (arg == "--native") {
             nativeIsa = true;
-        } else if (arg == "--verify") {
+        } else if (arg == "--no-scratch-bounds") {
+            scratchBounds = false;
+        }
+        else if (arg == "--verify") {
             enforceIntegrity = true;
             mode = "ast";
         } else if (arg == "--ast") {
@@ -63,5 +67,5 @@ int main(int argc, char* argv[]) {
 
     if (mode.empty()) mode = "ast";
 
-    return runFile(filename, env, mode, enforceIntegrity, nativeIsa);
+    return runFile(filename, env, mode, enforceIntegrity, nativeIsa, scratchBounds);
 }
