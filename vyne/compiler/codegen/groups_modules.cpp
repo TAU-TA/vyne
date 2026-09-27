@@ -17,12 +17,28 @@ void GroupNode::compile(C_Emitter& e) const {
             auto* assign = static_cast<AssignmentNode*>(stmt.get());
             std::string mangled = "v_" + groupName + "_" + assign->getOriginalName();
             std::replace(mangled.begin(), mangled.end(), '.', '_');
-            e.emit("VyneValue " + mangled + ";");
+
+            CType declared = CType::fromVType(assign->getExpectedType());
+
+            if (declared.isPrimitive()) {
+                e.declareGlobal(mangled, declared);
+                e.emitGlobalDecl(declared.cTypeName() + " " + mangled + " = 0;");
+            } else {
+                e.registerDeclaration(mangled);
+                e.emitGlobalDecl("VyneValue " + mangled + ";");
+            }
+
             e.popGlobalContext();
             std::string val = assign->getRHS()->getCExpr(e);
-            e.emit(mangled + " = " + e.boxAny(val) + ";");
+            if (declared.isPrimitive()) {
+                std::string init = coerceToNative(
+                    e, assign->getRHS(), val, declared.toVType());
+                e.emit(mangled + " = " + init + ";");
+            } else {
+                e.emit(mangled + " = " + e.boxAny(val) + ";");
+            }
             e.pushGlobalContext();
-                } else if (stmt->type() == NodeType::FUNCTION) {
+        } else if (stmt->type() == NodeType::FUNCTION) {
             e.popGlobalContext();
             stmt->compile(e);
             e.pushGlobalContext();

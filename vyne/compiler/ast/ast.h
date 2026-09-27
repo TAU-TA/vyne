@@ -465,6 +465,8 @@ public:
 
     const std::string& getDeclaredTypeName() const { return declaredTypeName; }
     void setDeclaredTypeName(std::string n) { declaredTypeName = std::move(n); }
+
+    VType getExpectedType() const { return expectedType; }
 };
 
 class MemberAssignmentNode : public ASTNode {

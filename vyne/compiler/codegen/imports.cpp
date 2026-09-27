@@ -1,4 +1,5 @@
 #include "detail/codegen_helpers.h"
+#include "../../utils/file_utils.h" 
 
 // Imported module compilation and namespacing.
 // Keep expressions that emit statements in evaluation order; see README.md.
@@ -18,11 +19,23 @@ void ImportNode::compile(C_Emitter& e) const {
     } else {
         finalPath = std::filesystem::path(e.getSourceDir()) / cleanPath;
     }
-    finalPath = std::filesystem::weakly_canonical(finalPath);
+
+    try {
+        finalPath = std::filesystem::weakly_canonical(finalPath);
+    } catch (const std::filesystem::filesystem_error& ex) {
+        Vyne::DiagnosticEngine::setCurrentFile(filePath);
+        throw std::runtime_error(
+            "VNE-005: could not resolve import (line " +
+            std::to_string(lineNumber) + "): '" + cleanPath +
+            "' — " + ex.what());
+    }
 
     if (!std::filesystem::exists(finalPath) || std::filesystem::is_directory(finalPath)) {
-        throw std::runtime_error("Vyne Error: import '" + cleanPath +
-                                 "' not found at: " + finalPath.string());
+        Vyne::DiagnosticEngine::setCurrentFile(filePath);
+        throw std::runtime_error(
+            "VNE-005: unresolved import (line " + std::to_string(lineNumber) +
+            "): '" + cleanPath + "' not found at " + finalPath.string() +
+            "\n  searched from source dir: " + e.getSourceDir());
     }
 
     if (e.isAlreadyImported(finalPath.string()))
@@ -80,10 +93,26 @@ void ImportNode::compile(C_Emitter& e) const {
                 auto* assign = static_cast<AssignmentNode*>(stmt.get());
                 std::string mangled = "v_" + alias + "_" + assign->getOriginalName();
                 std::replace(mangled.begin(), mangled.end(), '.', '_');
-                e.emit("VyneValue " + mangled + ";");
+
+                CType declared = CType::fromVType(assign->getExpectedType());
+
+                if (declared.isPrimitive()) {
+                    e.declareGlobal(mangled, declared);
+                    e.emitGlobalDecl(declared.cTypeName() + " " + mangled + " = 0;");
+                } else {
+                    e.registerDeclaration(mangled);
+                    e.emitGlobalDecl("VyneValue " + mangled + ";");
+                }
+
                 e.popGlobalContext();
                 std::string val = assign->getRHS()->getCExpr(e);
-                e.emit(mangled + " = " + val + ";");
+                if (declared.isPrimitive()) {
+                    std::string init = coerceToNative(
+                        e, assign->getRHS(), val, declared.toVType());
+                    e.emit(mangled + " = " + init + ";");
+                } else {
+                    e.emit(mangled + " = " + e.boxAny(val) + ";");
+                }
                 e.pushGlobalContext();
             } else {
                 e.popGlobalContext();
