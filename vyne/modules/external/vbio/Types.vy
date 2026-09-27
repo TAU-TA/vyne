@@ -1,4 +1,4 @@
-# bio/Types.vy — core interface types.
+# vbio/Types.vy — core interface types.
 #
 # Keep this file dependency-free: every other module in bio/ imports from
 # here first. `seq` holds the raw character string; `name` is a label the
@@ -13,9 +13,9 @@ ruleset {
     dynamic_casting
 };
 
-module bio;
+module vbio;
 
-group Types :: bio {
+group Types :: vbio {
 
     interface DNA {
         seq  :: String,
@@ -59,17 +59,17 @@ group Types :: bio {
 
 # --- Factories ------------------------------------------------------------
 # Short constructors for callers who don't want to hand-write
-# `bio.Types.DNA(s, "unnamed")`. Named variants go through the interface
+# `vbio.Types.DNA(s, "unnamed")`. Named variants go through the interface
 # constructor directly.
 
-fn :: bio make_dna(seq :: String) -> bio.Types.DNA {
-    return bio.Types.DNA(seq, "unnamed");
+fn :: vbio make_dna(seq :: String) -> bio.Types.DNA {
+    return vbio.Types.DNA(seq, "unnamed");
 }
 
-fn :: bio make_rna(seq :: String) -> bio.Types.RNA {
-    return bio.Types.RNA(seq, "unnamed");
+fn :: vbio make_rna(seq :: String) -> bio.Types.RNA {
+    return vbio.Types.RNA(seq, "unnamed");
 }
 
-fn :: bio make_protein(seq :: String) -> bio.Types.Protein {
-    return bio.Types.Protein(seq, "unnamed");
+fn :: vbio make_protein(seq :: String) -> bio.Types.Protein {
+    return vbio.Types.Protein(seq, "unnamed");
 }

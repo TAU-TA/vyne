@@ -1,7 +1,7 @@
-# bio/Codon.vy — the genetic code.
+# vbio/Codon.vy — the genetic code.
 #
 # Uses mRNA codons (U instead of T). If your source is DNA, transcribe it
-# first (see bio/Sequence.vy). The codon table is a plain Map at module
+# first (see vbio/Sequence.vy). The codon table is a plain Map at module
 # scope, so it's built once at program start and shared.
 
 use "Types.vy";
@@ -10,13 +10,13 @@ ruleset {
     dynamic_casting
 };
 
-module bio;
+module vbio;
 
 # --- Codon table ----------------------------------------------------------
 # mRNA codon (3-char String) -> 1-letter amino acid code.
 # '*' marks a stop codon. Grouped by amino acid for readability.
 
-const bio_rna_codons :: Map = {
+const vbio_rna_codons :: Map = {
     # Phe
     "UUU": "F", "UUC": "F",
     # Leu
@@ -64,7 +64,7 @@ const bio_rna_codons :: Map = {
 # Canonical codon per amino acid, for reverse_translate.
 # Biased toward E. coli K-12 usage; change freely.
 
-const bio_aa_to_codon :: Map = {
+const vbio_aa_to_codon :: Map = {
     "A": "GCG", "R": "CGU", "N": "AAC", "D": "GAU",
     "C": "UGC", "Q": "CAG", "E": "GAA", "G": "GGC",
     "H": "CAC", "I": "AUU", "L": "CUG", "K": "AAA",
@@ -74,20 +74,20 @@ const bio_aa_to_codon :: Map = {
 
 # --- Accessors ------------------------------------------------------------
 
-fn :: bio codon_to_aa(codon :: String) -> String {
-    if bio_rna_codons.has(codon) {
-        return bio_rna_codons[codon];
+fn :: vbio codon_to_aa(codon :: String) -> String {
+    if vbio_rna_codons.has(codon) {
+        return vbio_rna_codons[codon];
     }
     return "X";
 }
 
-fn :: bio is_stop_codon(codon :: String) -> Bool {
-    return bio.codon_to_aa(codon) == "*";
+fn :: vbio is_stop_codon(codon :: String) -> Bool {
+    return vbio.codon_to_aa(codon) == "*";
 }
 
-fn :: bio codon_for(aa :: String) -> String {
-    if bio_aa_to_codon.has(aa) {
-        return bio_aa_to_codon[aa];
+fn :: vbio codon_for(aa :: String) -> String {
+    if vbio_aa_to_codon.has(aa) {
+        return vbio_aa_to_codon[aa];
     }
     return "NNN";
 }
@@ -97,25 +97,25 @@ fn :: bio codon_for(aa :: String) -> String {
 # a stop is ignored (as a ribosome would). If the trailing codon is short,
 # it is dropped (see the range bound n-3).
 
-fn :: bio translate(mrna :: String) -> bio.Types.Protein {
+fn :: vbio translate(mrna :: String) -> vbio.Types.Protein {
     n :: Int64 = mrna.size();
     acc :: String = "";
     i :: Int64 = 0;
     while i <= n - 3 {
         codon :: String = mrna[i] + mrna[i + 1] + mrna[i + 2];
-        aa    :: String = bio.codon_to_aa(codon);
+        aa    :: String = vbio.codon_to_aa(codon);
         if aa == "*" {
             break;
         }
         acc = acc + aa;
         i = i + 3;
     }
-    return bio.Types.Protein(acc, "translated");
+    return vbio.Types.Protein(acc, "translated");
 }
 
-fn :: bio translate_rna(r :: bio.Types.RNA) -> bio.Types.Protein {
-    p :: bio.Types.Protein = bio.translate(r.seq);
-    return bio.Types.Protein(p.seq, r.name + "_protein");
+fn :: vbio translate_rna(r :: vbio.Types.RNA) -> vbio.Types.Protein {
+    p :: vbio.Types.Protein = vbio.translate(r.seq);
+    return vbio.Types.Protein(p.seq, r.name + "_protein");
 }
 
 # --- Reverse translation --------------------------------------------------
@@ -123,17 +123,17 @@ fn :: bio translate_rna(r :: bio.Types.RNA) -> bio.Types.Protein {
 # UAA (a common choice). Not unique — many sequences encode the same
 # protein.
 
-fn :: bio reverse_translate(protein :: String) -> String {
+fn :: vbio reverse_translate(protein :: String) -> String {
     acc :: String = "";
     through i :: 0..protein.size()-1 -> loop {
-        acc = acc + bio.codon_for(protein[i]);
+        acc = acc + vbio.codon_for(protein[i]);
     };
     return acc + "UAA";
 }
 
 # --- Composition helpers --------------------------------------------------
 
-fn :: bio codon_usage(mrna :: String) -> Map {
+fn :: vbio codon_usage(mrna :: String) -> Map {
     counts :: Map = {};
     n :: Int64 = mrna.size();
     i :: Int64 = 0;
