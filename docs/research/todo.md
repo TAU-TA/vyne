@@ -116,7 +116,7 @@ Everything we discussed, ordered. Phases are sequential; items inside a phase ca
 - [x] **Re-verify the ~11 MB growth-path decomposition in §5.7** — old
       decomposition was stale; replaced with "16 MB elements + 148 MB block
       overhead and transient copy"
-- [ ] **Delete §6.7 (growth-path reclaim)** — bug is fixed; section describes
+- [x] **Delete §6.7 (growth-path reclaim)** — bug is fixed; section describes
       an unfixed state that no longer exists. Renumber 6.8–6.10 → 6.7–6.9.
 
 ---
