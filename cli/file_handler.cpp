@@ -36,7 +36,10 @@ bool verifyIntegrity(const std::string& scriptPath) {
     return true;
 }
 
-int runFile(const std::string& filename, SymbolContainer& env, const std::string& mode, bool enforceIntegrity) {
+int runFile(const std::string& filename, SymbolContainer& env,
+            const std::string& mode,
+            bool enforceIntegrity,
+            bool nativeIsa) {    
     if (enforceIntegrity && !verifyIntegrity(filename)) {
         return 1;
     }
@@ -175,12 +178,15 @@ int runFile(const std::string& filename, SymbolContainer& env, const std::string
                     << tokenCount << " tokens  "
                     << std::fixed << std::setprecision(2) << transpile_ms.count() << "ms\n";
 
-            std::string compile_cmd = "gcc \"" + cFile + "\" -o \"" + exeName + "\""
-                        " -I\"" + exeDir + "\" -O3 -w"
+            std::string compile_cmd = "gcc \"" + cFile + "\" -o \"" + exeName + "\"";
+            compile_cmd += " -I\"" + exeDir + "\" -O3 -w";
+            if (nativeIsa) {
+                compile_cmd += " -march=native";
+            }
 #ifdef _WIN32
-                        " -Wl,--stack,67108864"
+            compile_cmd += " -Wl,--stack,67108864";
 #else
-                        " -Wl,-z,stacksize=67108864"
+            compile_cmd += " -Wl,-z,stacksize=67108864";
 #endif
                         ;
 
@@ -203,7 +209,8 @@ int runFile(const std::string& filename, SymbolContainer& env, const std::string
             }
 
             std::cout << GREEN << "  compile  " << RESET
-                    << "  gcc -O3  "
+                    << "  gcc -O3" << (nativeIsa ? " -march=native" : "")
+                    << "  "
                     << std::fixed << std::setprecision(2) << compile_ms.count() << "ms\n";
 
             std::string run_cmd = (exeName.find('/') == std::string::npos &&
