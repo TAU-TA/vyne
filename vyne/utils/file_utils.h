@@ -5,6 +5,8 @@
 #include <stdexcept>
 #include <filesystem>
 
+#include "../runtime/diagnostics.h"
+
 namespace FileUtils {
     inline std::string exeDir = "."; 
 

@@ -278,21 +278,7 @@ std::unique_ptr<ASTNode> Parser::parseImportModule() {
     }
 
     if (std::filesystem::exists(finalPath)) {
-        std::string source = FileUtils::readFile(finalPath.string());
-        auto externTokens = tokenize(source);
-
-        for (size_t i = 0; i < externTokens.size(); ++i) {
-            if (externTokens[i].type == VTokenType::Interface) {
-                if (i + 1 < externTokens.size()) {
-                    std::string interfaceName = externTokens[i+1].name;
-                    if (i + 3 < externTokens.size() && externTokens[i+2].type == VTokenType::Extends) {
-                        std::string moduleName = externTokens[i+3].name;
-                        declaredTypes.insert(moduleName + "." + interfaceName);
-                    }
-                    declaredTypes.insert(interfaceName);
-                }
-            }
-        }
+        collectTypesFromImport(finalPath);
     }
 
     std::string alias = "";
@@ -308,6 +294,74 @@ std::unique_ptr<ASTNode> Parser::parseImportModule() {
     node->lineNumber = line;
     return node;
 }
+
+void Parser::collectTypesFromImport(const std::filesystem::path& finalPath) {
+    // Canonicalize so `./foo.vy` and `foo.vy` collapse to the same key.
+    std::string canonical;
+    try {
+        canonical = std::filesystem::weakly_canonical(finalPath).string();
+    } catch (const std::filesystem::filesystem_error&) {
+        return;
+    }
+
+    if (!importedTypeCache) {
+        importedTypeCache =
+            std::make_shared<std::unordered_map<
+                std::string, std::unordered_set<std::string>>>();
+    }
+    if (!parsingInProgress) {
+        parsingInProgress =
+            std::make_shared<std::unordered_set<std::string>>();
+    }
+
+    // Cache hit: hand the sibling the same types we gave earlier ones.
+    // This is the key difference from the old visited-set logic, which
+    // returned without merging anything on a repeat visit.
+    if (auto it = importedTypeCache->find(canonical);
+        it != importedTypeCache->end()) {
+        for (const auto& t : it->second) declaredTypes.insert(t);
+        return;
+    }
+
+    // Cycle guard: a → b → a. Bail out; the outer invocation will
+    // populate the cache once it finishes. Cycles are pathological
+    // in this language but shouldn't hang the compiler.
+    if (!parsingInProgress->insert(canonical).second) {
+        return;
+    }
+
+    std::string source;
+    try {
+        source = FileUtils::readFile(canonical);
+    } catch (const std::exception&) {
+        parsingInProgress->erase(canonical);
+        return;
+    }
+
+    auto tokens = tokenize(source);
+
+    Parser nested(std::move(tokens));
+    nested.setSourceDir(finalPath.parent_path().string());
+    nested.importedTypeCache  = importedTypeCache;   // share cache
+    nested.parsingInProgress  = parsingInProgress;   // share guard
+
+    SymbolContainer dummyEnv;
+    nested.parseProgram(dummyEnv);
+
+    parsingInProgress->erase(canonical);
+
+    // Cache the nested parser's transitive closure. Note this is
+    // *not* just what the file itself declared — the nested parse has
+    // already merged its own deps into its set, so the cache entry
+    // correctly represents "everything you get by importing this".
+    (*importedTypeCache)[canonical] = nested.declaredTypes;
+
+    for (const auto& t : nested.declaredTypes) {
+        declaredTypes.insert(t);
+    }
+}
+
+// -----------------------------------------------------------
 
 std::unique_ptr<ASTNode> Parser::parseInterfaceDefinition() {
     int line = peekToken().line;

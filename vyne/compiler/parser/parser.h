@@ -32,6 +32,21 @@ private:
 	std::vector<std::string> groupPath;
 	std::string sourceDir;
 
+	// Cache: canonical path → the declared-types set that parsing
+	// that file produced (including everything it transitively pulled in).
+	// Siblings consult this instead of re-parsing shared deps, and unlike
+	// a visited-set they still receive the harvested names.
+	std::shared_ptr<std::unordered_map<std::string,
+									std::unordered_set<std::string>>>
+		importedTypeCache
+		= std::make_shared<std::unordered_map<std::string,
+											std::unordered_set<std::string>>>();
+
+	// Cycle guard: canonical paths we are currently in the middle of
+	// parsing. Prevents `a → b → a` from recursing forever.
+	std::shared_ptr<std::unordered_set<std::string>> parsingInProgress
+		= std::make_shared<std::unordered_set<std::string>>();
+
 	void pushScope() { scopeStack.push_back({}); }
 	void popScope()  { scopeStack.pop_back(); }
 	void defineSymbol(uint32_t id, VType type, bool explicitType, int line, const std::string& name) {
@@ -80,6 +95,12 @@ private:
 
 	bool tryParseTypeArgs(std::vector<std::string>& out);
 	VType resolveArrayElementType(const std::string& typePath);
+
+	// Recursively parse `finalPath` and merge every interface name it
+	// declares (and transitively pulls in) into this parser's
+	// `declaredTypes`. Results are cached per canonical path so sibling
+	// imports still see each other's types.
+	void collectTypesFromImport(const std::filesystem::path& finalPath);
 
 	// --- Literal Workers ---
 	std::unique_ptr<ASTNode> parseStringLiteral();
