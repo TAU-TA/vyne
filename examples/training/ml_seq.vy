@@ -259,9 +259,9 @@ through epoch :: 1..EPOCHS -> loop {
         scratch db1_buf :: Float64[16];
 
         h  = forward(X, W1, b1, W2, b2, W3, b3);
-        A1 = h[0];
-        A2 = h[1];
-        A3 = h[2];
+        A1_local = h[0];
+        A2_local = h[1];
+        A3_local = h[2];
 
         # A3 is read *after* the loop (final_acc = accuracy(A3, Y, ...)).
         # A plain `region` rewinds the arena at its closing brace, which
@@ -269,25 +269,26 @@ through epoch :: 1..EPOCHS -> loop {
         # A3 into the commit arena so it survives the rewind.
         # Only the last iteration's A3 actually matters, so gate it.
         if epoch == EPOCHS {
-            region.commit(A3);
+            region.commit(A3_local);
+            A3 = A3_local;
         }
 
         # ---- backprop ----
-        delta3 = vlinalg.subtract(A3, Y);
-        dW3    = vlinalg.multiply(vlinalg.transpose(A2), delta3);
+        delta3 = vlinalg.subtract(A3_local, Y);
+        dW3    = vlinalg.multiply(vlinalg.transpose(A2_local), delta3);
 
         db3 = 0.0;
         through r :: 0..N_SAMPLES-1 -> loop { db3 = db3 + delta3.data[r]; };
 
         delta2 = vlinalg.hadamard(
             vlinalg.multiply(delta3, vlinalg.transpose(W3)),
-            vlinalg.tanh_prime(A2)
+            vlinalg.tanh_prime(A2_local)
         );
-        dW2 = vlinalg.multiply(vlinalg.transpose(A1), delta2);
+        dW2 = vlinalg.multiply(vlinalg.transpose(A1_local), delta2);
 
         delta1 = vlinalg.hadamard(
             vlinalg.multiply(delta2, vlinalg.transpose(W2)),
-            vlinalg.tanh_prime(A1)
+            vlinalg.tanh_prime(A1_local)
         );
         dW1 = vlinalg.multiply(vlinalg.transpose(X), delta1);
 
@@ -327,8 +328,8 @@ through epoch :: 1..EPOCHS -> loop {
 
         # ---- progress ----
         if epoch % PRINT_EVERY == 0 {
-            lossN = vlinalg.cross_entropy(A3, Y);
-            acc   = accuracy(A3, Y, N_SAMPLES);
+            lossN = vlinalg.cross_entropy(A3_local, Y);
+            acc   = accuracy(A3_local, Y, N_SAMPLES);
             out("  " + pad_left(string(epoch), 5) + "/" + string(EPOCHS)
                 + "  loss " + string(lossN)
                 + "  acc  " + pct(acc)
