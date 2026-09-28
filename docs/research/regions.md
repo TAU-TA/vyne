@@ -28,9 +28,13 @@ clock and the numeric result are unchanged. The same technique extends to
 the weight-gradient buffers via a shaped-assignment lowering introduced in
 the same release; a second pass over the case study makes all five per-iteration
 arrays stack-resident.
-Two follow-up capabilities remain: a native ABI for array parameters,
-and a full escape analysis beyond the syntactic check of §6.4. Both
-are required before the technique generalizes to the rest of the loop.
+The native array ABI of §4.6 extends the primitive dispatcher of
+§4.5 to functions taking `Array<Float64>` or `Array<Int64>`
+parameters, so that a Vyne function is callable with the raw
+`double\*` a C programmer would write by hand. One follow-up
+capability remains: a full escape analysis beyond the syntactic
+check of §6.4, which is required before the technique generalizes
+to the rest of the loop.
 
 ---
 
@@ -341,7 +345,7 @@ emitter additionally produces a second, unboxed C function whose
 signature is the direct C translation of the parameter and return
 types:
 
-````c
+```c
 // boxed (always emitted)
 VyneValue fn_add(int arg_count, VyneValue* args);
 
@@ -363,6 +367,52 @@ bias updates run over `N_SAMPLES = 240` training examples.
 Before the rewrite, two intermediate buffers — `db1_buf` (16 elements)
 and `db2_buf` (12 elements) — were declared as boxed `Array`s and
 allocated fresh on the arena at each iteration.
+
+### 4.6 Native array ABI
+
+Where §4.5 promotes primitive parameters to native C types, §4.6 does
+the same for `Array<Float64>` and `Array<Int64>`. The gate in
+`ProgramNode::compile` changed from requiring every parameter to be
+primitive to accepting a parameter whose declared type is `Array<T>`
+of a statically known element type. For each such parameter the native
+variant's signature gains a `T*` (element type `double` or `int64_t`),
+and the call site passes `.data` from the boxed `VyneArray_f64` or
+`VyneArray_i64`. Index accesses inside the native body lower to bare
+C indexing.
+
+The implementation touches five files:
+
+- `codegen/ctype.h` gains `CType::Kind::RawArrayPtr`, an unboxed `T*`
+  that carries its element type in `args[0]`. `isPrimitive()` returns
+  false for it, which is deliberate: any path that has not been
+  explicitly extended treats a raw-array-ptr as boxed and falls through
+  safely.
+- `codegen/program.cpp` populates `CType::args[0]` from
+  `Parameter::arrayElemType` and widens the native-variant gate.
+- `codegen/functions.cpp` emits `T*` in the native signature and
+  declares the parameter as `RawArrayPtr` in the function body's scope.
+- `codegen/collections.cpp` adds a `RawArrayPtr` branch to
+  `IndexAccessNode::getCExpr` and `IndexAssignmentNode::compile`,
+  emitting `a[i]` and `a[i] = v` instead of `vyne_index_get` /
+  `vyne_index_set`.
+- `codegen/function_calls.cpp` recognises a typed-array argument at
+  the call site and passes `.data` when its element kind matches the
+  parameter's. Any mismatch falls through to the boxed call.
+
+Array returns are not in the ABI; `retPrimitive` is unchanged, so a
+function whose return type is `Array` still only gets the boxed
+variant. Reference parameters are likewise excluded.
+
+**Verification.** The RNA classifier of §5 is byte-identical after the
+change: `ml_seq_config1.exe` reports the same final loss (0.226304),
+the same accuracy (99.5%), the same peak RSS (6.4 MB), the same wall
+clock (0.13 s), and the same per-sample predictions. The 1024×1024
+matmul of §5.7 produces the same checksum (3.47777). No existing
+measurement moved.
+
+**Safety.** Discussed in §6.2. The short version: the native path is
+unsound by design, in the sense that out-of-range indexing is UB
+rather than a diagnostic. The boxed path remains sound.
 
 ### 5.1 Rewrite
 
@@ -399,7 +449,9 @@ through epoch :: 1..EPOCHS -> loop {
         };
     };
 };
-````
+```
+
+---
 
 ### 5.2 Emitted code
 
@@ -447,8 +499,11 @@ The source side of each accumulation — `delta2.data[r * HIDDEN2 + c]` —
 still reads through a `VyneValue`-based tensor, because vlinalg
 currently returns boxed `VyneArray_f64`. Each inner-iteration read
 therefore still performs a runtime tag check and a union member access.
-Removing that cost requires shape-aware overloads on the linear-algebra
-library and is outside the scope of the current report.
+Removing that cost requires two things: a native ABI for `Array<T>`
+parameters (§4.6, implemented in the release following this report),
+and a way for `vlinalg` to declare its return type as a typed array
+rather than a boxed `VyneValue`. The first landed. The second is
+the shaped-`Array` type named in §6.6.
 
 The `forward` and `backprop` passes themselves are unchanged: they
 still produce and consume boxed tensors, and every intermediate value
@@ -887,36 +942,64 @@ introduced for primitives, with the array case adding `double\*` and
 
 ### 6.2 Native ABI for array parameters
 
-Distinct from borrowing a scratch array is the question of passing an
-ordinary `Array<Float64>` natively. Today, passing an `Array<Float64>`
-to a Vyne function boxes it, even though the emitter already knows the
-argument is a `VyneArray_f64` and could pass `(const double\*, int64_t)`
-directly. Extending §4.5's dispatcher to this case requires the native
-variant signature to reflect the array element type, and the argument
-coercion at the call site to produce `.data` and `.size` rather than a
-pointer to the container.
+**Implemented.** The dispatcher described here was extended to
+`Array<Float64>` and `Array<Int64>` parameters in the release following
+this report. The section below is retained as design rationale; the
+implementation status is stated in the last paragraph.
 
-This is the load-bearing step for numerical kernels. Without it, every
-loop that reads an array parameter pays a runtime tag check per element,
-and the C compiler cannot vectorize the loop body even when the element
-type is statically known. The primitive ABI in §4.5 is the prerequisite;
-the array case is the payoff. The two together are what would let a
-Vyne-defined `matmul` reach the same generated code that a C
-implementation would.
+Passing an `Array<Float64>` to a Vyne function historically boxed it:
+the caller built an `args[]` array on the arena, copied each argument
+in, and the callee unboxed at entry. Even though the emitter already
+knew the argument was a `VyneArray_f64`, the calling convention did not
+reflect that, so the callee could not inline the arithmetic.
 
-The distinction from §6.1 is worth stating explicitly. Borrow parameters
-are a language-level feature: the programmer writes `&` and the
-semantics of the call change. The native array ABI is a compiler-level
-optimization: the source code is unchanged, and the emitter chooses a
-narrower calling convention when the argument's static type permits it.
-Both are needed. Borrow parameters let scratch be passed into functions;
-the native array ABI lets ordinary `Array<Float64>` be passed without
-the boxing cost.
+The native array ABI is the fix. When every parameter is either
+primitive or a typed array of primitives, and the return type is
+primitive, the emitter produces a second, unboxed variant whose
+signature is the direct C translation of the parameters:
 
-**Effort**: moderate. The signature computation is mechanical once §4.5
-exists; the harder part is the interaction with deep-copy semantics,
-since Vyne arrays are passed by reference and the native path must
-preserve that.
+```c
+// boxed (always emitted)
+VyneValue fn_scale_add(int arg_count, VyneValue* args);
+
+// native (emitted when the function qualifies)
+double fn_scale_add_native(double* a, double* b, int64_t n);
+```
+
+The call site passes `.data` from the boxed container when the
+argument's static type is a matching typed array; otherwise it falls
+through to the boxed call. The native body sees `a` and `b` as raw
+`double\*` and emits bare C indexing — no `vyne_index_get`, no tag
+check, no per-element unboxing. This is what lets a Vyne-defined
+kernel reach the same generated code a C implementation produces, and
+it is the prerequisite for any external BLAS binding.
+
+**Distinction from §6.1**. Borrow parameters are a language-level
+feature: the programmer writes `&` and the semantics of the call
+change. The native array ABI is a compiler-level optimization: the
+source code is unchanged, and the emitter chooses a narrower calling
+convention when the argument's static type permits it. Both are
+needed. Borrow parameters let scratch be passed into functions; the
+native array ABI lets ordinary `Array<Float64>` be passed without the
+boxing cost.
+
+**Safety**. The native array ABI is deliberately less safe than the
+boxed path. Native-array indexing is not bounds-checked; a shape
+mismatch between caller and callee, or an out-of-range index, is
+undefined behavior rather than a VNE-072 diagnostic. This is the same
+trade-off C makes with `double\*` and Rust makes with raw pointers, and
+it is what makes vectorization possible. The boxed variant of every
+function still exists and is still checked; callers whose arguments
+do not match the native signature fall through to it. The mechanism
+that will eventually restore soundness to the native path is the
+range-refinement types of §6.6: an index typed `Int64<0..N-1>` into
+an `Array<Float64>` of runtime length N is provably in-bounds, and
+the check can be elided without losing safety.
+
+**Effort**. 3–5 days, as estimated. The signature computation is
+mechanical; the element-type propagation from the parser through
+`Parameter::arrayElemType` to `CType::args[0]` is the piece that
+needed care.
 
 ### 6.3 Scratch slicing and views
 
@@ -1247,6 +1330,13 @@ build already passes this.
 
 The shaped-assignment lowering described in §3.4 landed alongside the
 constructs of §2–§3 and is exercised by `tests/transpiler/scratch_assign_test.vy`.
+
+The native array ABI of §4.6 is exercised by
+`examples/array_abi_test.vy`, a small dot-product kernel that verifies
+the native variant receives a `double*` and that its body emits bare
+C indexing. The test compiles to two functions
+(`fn_scale_add` and `fn_scale_add_native`) and the call site in `main`
+invokes the native variant directly, passing `v_a.data` and `v_b.data`.
 
 The suite at `examples/safety/` contains ten test programs, one per check or safe pattern. It is invoked by `run_safety.ps1` on Windows (shell equivalent on POSIX); the runner compiles each file with vynec `--compile`, captures the combined compiler-and-program output, and asserts against the expected diagnostic code.
 
