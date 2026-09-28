@@ -32,7 +32,12 @@ void ProgramNode::compile(C_Emitter& e) const {
             }
 
             CType retCt = CType::fromVType(fn->getReturnType());
-            bool retPrimitive = retCt.isPrimitive();
+            if (fn->getReturnType() == VType::Array &&
+                fn->getReturnArrayElemType() != VType::Unknown) {
+                retCt.args.push_back(CType::fromVType(fn->getReturnArrayElemType()));
+            }
+            bool retNative = retCt.isPrimitive() ||
+                            (retCt.kind == CType::Kind::Array && !retCt.args.empty());
 
             // Conservative: reject functions with top-level defer or try/catch.
             bool hasDeferOrTry = false;
@@ -50,7 +55,7 @@ void ProgramNode::compile(C_Emitter& e) const {
                                         std::move(paramTypes));
             e.registerFunctionReturnType(fn->getOriginalName(), retCt);
 
-            if (allNativeCallable && retPrimitive && !hasDeferOrTry) {
+            if (allNativeCallable && retNative && !hasDeferOrTry) {
                 std::string mangled = fn->getOriginalName();
                 std::replace(mangled.begin(), mangled.end(), '.', '_');
                 if (!fn->getTargetModule().empty())

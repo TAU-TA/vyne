@@ -128,7 +128,11 @@ std::string FunctionCallNode::getCExpr(C_Emitter& e) const {
             e.getFunctionParamTypes(originalName);
         const CType* retCt = e.getFunctionReturnType(originalName);
 
-        if (nativeName && paramTypes && retCt && retCt->isPrimitive() &&
+        bool retIsNative = retCt && (retCt->isPrimitive() ||
+                             (retCt->kind == CType::Kind::Array &&
+                              !retCt->args.empty()));
+
+        if (nativeName && paramTypes && retIsNative &&
             paramTypes->size() == orderedArgs.size())
         {
             bool allMatch = true;
@@ -161,8 +165,6 @@ std::string FunctionCallNode::getCExpr(C_Emitter& e) const {
                     const CType& want = (*paramTypes)[i];
 
                     if (want.kind == CType::Kind::Array && !want.args.empty()) {
-                        // Pass the raw element buffer. No length — the callee
-                        // receives n as a separate Int64 parameter if it needs it.
                         argList += argCExprs[i] + ".data";
                     } else {
                         argList += coerceToNative(e, orderedArgs[i], argCExprs[i],
@@ -170,7 +172,15 @@ std::string FunctionCallNode::getCExpr(C_Emitter& e) const {
                     }
                 }
                 std::string nret = e.newTemp("nret");
-                e.emit(retCt->cTypeName() + " " + nret + " = fn_" +
+                std::string nretCName;
+                if (retCt->kind == CType::Kind::Array && !retCt->args.empty()) {
+                    VType elem = retCt->args[0].toVType();
+                    nretCName = (elem == VType::Float64)
+                        ? "VyneArray_f64" : "VyneArray_i64";
+                } else {
+                    nretCName = retCt->cTypeName();
+                }
+                e.emit(nretCName + " " + nret + " = fn_" +
                     *nativeName + "(" + argList + ");");
                 e.declareNativeTemp(nret, *retCt);
                 return nret;

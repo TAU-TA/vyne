@@ -171,9 +171,24 @@ std::string MethodCallNode::getCExpr(C_Emitter& e) const {
 
     // Array methods
     if (methodName == "push") {
+        // Typed array fast path: use vyne_array_f64_push / _i64_push,
+        // no per-element boxing.
+        const CType* rt = e.lookupType(recvRaw);
+        if (rt && rt->kind == CType::Kind::Array && !rt->args.empty()) {
+            VType elem = rt->args[0].toVType();
+            std::string pushFn = (elem == VType::Float64)
+                ? "vyne_array_f64_push" : "vyne_array_i64_push";
+            for (const auto& argNode : arguments) {
+                std::string rawVal = argNode->getCExpr(e);
+                std::string val = coerceToNative(e, argNode.get(), rawVal, elem);
+                e.emit(pushFn + "(&" + recvRaw + ", " + val + ");");
+            }
+            return recvRaw;
+        }
+        // Boxed fallback — unchanged.
         for (const auto& argNode : arguments) {
             e.emit("vyne_array_push(" + recv + ", " +
-                   e.boxAny(argNode->getCExpr(e)) + ");");
+                e.boxAny(argNode->getCExpr(e)) + ");");
         }
         return recv;
     }

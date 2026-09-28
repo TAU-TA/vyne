@@ -114,28 +114,28 @@ static void emitNativeFunctionBody(
     e.enterFunction(nativeName);         // prefix used for local resolution
     e.setNativeReturnType(returnType);   // tells ReturnNode to emit native
 
+    // Resolve the native return type name once.
+    std::string retCName;
+    if (returnType.kind == CType::Kind::Array && !returnType.args.empty()) {
+        VType elem = returnType.args[0].toVType();
+        retCName = (elem == VType::Float64) ? "VyneArray_f64" : "VyneArray_i64";
+    } else {
+        retCName = returnType.cTypeName();
+    }
+
     std::string paramList;
     for (size_t i = 0; i < parameters.size(); ++i) {
         if (i > 0) paramList += ", ";
         std::string pName = "v_" + nativeName + "_" + parameters[i].name;
         CType pt = CType::fromVType(parameters[i].type);
-
-        if (parameters[i].type == VType::Array &&
-            parameters[i].arrayElemType != VType::Unknown) {
-            VType elem = parameters[i].arrayElemType;
-            std::string elemC = (elem == VType::Float64) ? "double" : "int64_t";
-            paramList += elemC + "* " + pName;
-        } else {
-            paramList += pt.cTypeName() + " " + pName;
-        }
+        paramList += pt.cTypeName() + " " + pName;
     }
 
-    // (3) Forward declaration.
-    e.emitGlobalDecl(returnType.cTypeName() + " fn_" + nativeName +
-                     "(" + paramList + ");");
+    e.emitGlobalDecl(retCName + " fn_" + nativeName +
+                    "(" + paramList + ");");
 
     e.emit("// native variant of " + nativeName);
-    e.emitBlockOpen(returnType.cTypeName() + " fn_" + nativeName +
+    e.emitBlockOpen(retCName + " fn_" + nativeName +
                     "(" + paramList + ") {");
 
     for (size_t i = 0; i < parameters.size(); ++i) {
@@ -160,7 +160,18 @@ static void emitNativeFunctionBody(
         case CType::Kind::Float64: e.emit("return 0.0;");   break;
         case CType::Kind::Int64:   e.emit("return 0;");     break;
         case CType::Kind::Bool:    e.emit("return false;"); break;
-        default:                   e.emit("return 0;");     break;
+        case CType::Kind::Array:
+            if (!returnType.args.empty() &&
+                returnType.args[0].toVType() == VType::Float64) {
+                e.emit("return vyne_array_f64_create(0);");
+            } else if (!returnType.args.empty() &&
+                    returnType.args[0].toVType() == VType::Int64) {
+                e.emit("return vyne_array_i64_create(0);");
+            } else {
+                e.emit("VyneArray_f64 __empty = {NULL, 0, 0}; return __empty;");
+            }
+            break;
+        default: e.emit("return 0;"); break;
     }
 
     e.emitBlockClose();

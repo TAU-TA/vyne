@@ -350,22 +350,50 @@ void AssignmentNode::compile(C_Emitter& e) const {
         CType declared = CType::fromVType(expectedType);
 
         if (isDeclaration && declared.kind == CType::Kind::Array) {
+            // Element type source order: literal inference, then the declared
+            // Array<T> annotation on the assignment target.
             VType elem = inferArrayElemType(rhs.get());
+            if (elem == VType::Unknown) {
+                elem = getArrayElemType();
+            }
+
             if (elem != VType::Unknown) {
-                std::string val = rhs->getCExpr(e);
-                const CType* rt = e.lookupType(val);
-                if (rt && rt->kind == CType::Kind::Array && !rt->args.empty()) {
-                    if (!hasGlobal) {
+                // Fresh typed-array allocation from an empty literal:
+                //   x :: Array<Float64> = [];
+                // lowers to `vyne_array_f64_create(0)`.
+                if (rhs->type() == NodeType::ARRAY) {
+                    auto* arrRhs = static_cast<const ArrayNode*>(rhs.get());
+                    if (arrRhs->getElements().empty()) {
+                        std::string ctor = (elem == VType::Float64)
+                            ? "vyne_array_f64_create"
+                            : "vyne_array_i64_create";
                         CType arrType;
                         arrType.kind = CType::Kind::Array;
                         arrType.args.push_back(CType::fromVType(elem));
-                        e.declareGlobal(bareName, arrType);
-                        e.emitGlobalDecl(CType::arrayContainerName(elem) + " " +
-                                         bareName + ";");
+                        e.declareLocal(varName, arrType);
+                        e.emit(CType::arrayContainerName(elem) + " " + varName +
+                            " = " + ctor + "(0);");
+                        return;
                     }
-                    e.emit(bareName + " = " + val + ";");
+                }
+
+                std::string val = rhs->getCExpr(e);
+                const CType* rt = e.lookupType(val);
+                if (rt && rt->kind == CType::Kind::Array && !rt->args.empty() &&
+                    rt->args[0].toVType() == elem) {
+                    CType arrType;
+                    arrType.kind = CType::Kind::Array;
+                    arrType.args.push_back(CType::fromVType(elem));
+                    e.declareLocal(varName, arrType);
+                    e.emit(CType::arrayContainerName(elem) + " " + varName +
+                        " = " + val + ";");
                     return;
                 }
+
+                // RHS didn't produce a matching typed array — box it.
+                e.registerDeclaration(varName);
+                e.emit("VyneValue " + varName + " = " + e.boxAny(val) + ";");
+                return;
             }
         }
 
