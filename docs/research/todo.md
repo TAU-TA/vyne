@@ -122,9 +122,13 @@ Two cases were added that were not in the original plan:
 
 ### Comparisons
 
-- [ ] **Hand-written C equivalent** of config 3 — same hoist, hand-written,
-      measured under the same peak-RSS sampler. **This is now the single most
-      important item on the list.**
+- [x] **Hand-written C equivalent** — `examples/benchmark/matmul_1024_handc.c`.
+      This is a config-**2** equivalent, not config-3: it uses native `double`
+      arrays on the C stack, matching scratch's storage class, not config 3's
+      boxed `VyneValue` Array. Measured: peak RSS 35.4 MB, checksum 3.47777,
+      wall clock 13.11 / 13.61 / 18.53 s (middle run is a system-noise outlier,
+      same shape as config 2's ITERS=100 variance). Matches Vyne config 2 to
+      within measurement resolution on all three axes.
 - [ ] **NumPy reference** — time and memory for a 100-iteration loop,
       with and without `out=`
 - [ ] **Footnote in §5.7** — name the ISA/codegen gap; frame the comparison
@@ -160,6 +164,14 @@ Two cases were added that were not in the original plan:
 - [x] **§4.5** — native scalar ABI documented
 - [x] **§5.7** — four-config tables at ITERS=10 and ITERS=100, updated
       interpretation, measured growth slope, config-2 variance noted
+- [x] **§5.7 C row** — moved to sit next to config 2 (same storage class),
+      label changed from `hand-written, scratch` to `hand-written, native`
+- [x] **§5.7 C paragraph** — new interpretation paragraph after the config-3
+      discussion; frames the hand-written C as a config-2 equivalent, cites
+      the checksum match, the 0.3% peak-RSS difference, and the wall-clock
+      overlap within noise
+- [x] **§8 C file** — added `examples/benchmark/matmul_1024_handc.c` to
+      Availability with its compile line
 - [x] **§6.4** — syntactic check described, full analysis retained as future
 - [ ] **§5.4** — SLP-vectorization mechanism, cite the disassembly
       (draft has it; verify against actual `gcc -S` output)
@@ -276,15 +288,14 @@ the §6.9 subsection):
 3. ~~ITERS=10 on all four configs~~ — done.
 4. ~~ITERS=100 on all four configs~~ — done. §5.7's memory-model claim is
    now backed by measurements at both ends of the range.
-5. **Check the `--no-scratch-bounds` label consistency** (15 min) — verify
-   §5.7's "checks enabled" claim against `bench.ps1`'s actual flags before
-   anything else, because it affects what §5.7 and §5.9 say.
-6. **Hand-written C comparison** (half day). Single biggest remaining lever.
+5. ~~Check the `--no-scratch-bounds` label consistency~~ — pending, still
+   the first thing to do (affects §5.7 and §5.9 wording).
+6. ~~Hand-written C comparison~~ — done. §5.7 now compares Vyne against
+   hand-written C, not just against itself.
 7. **§5.6 classifier numbers** — re-run without `--native`, fill in the table.
-8. **§6.9 write-up** — the hoisting-gaps subsection. Cheap to write now
-   that the three cases are named; makes the region construct's value
-   visible on its own terms.
-9. **Delete §6.7, renumber §6.8–6.10** — paper hygiene.
+8. **§6.9 write-up** — the hoisting-gaps subsection.
+9. **§1 reframing** — layered, not parallel.
+10. **Delete §6.7, renumber §6.8–6.10** — paper hygiene.
 
 Do not start Phase 4. Do not chase cuBLAS or GPU support. Finish the paper.
 
@@ -301,15 +312,13 @@ Do not start Phase 4. Do not chase cuBLAS or GPU support. Finish the paper.
 
 ---
 
-**Current single most important item: the hand-written C comparison.**
-Without it, every number in §5.7 compares Vyne against Vyne. The C baseline
-is what turns "the region construct works" into "the region construct
-matches what a C programmer would do, at the same speed, without the manual
-hoisting work." Either outcome strengthens the paper. Run it before starting
-Experiment 3 or the safety test files.
-
-**Second most important: the `--no-scratch-bounds` label check.** It is
-fifteen minutes and it determines whether §5.7's "checks are indistinguishable
+**Current single most important item: the `--no-scratch-bounds` label check.**
+Fifteen minutes. It determines whether §5.7's "checks are indistinguishable
 from noise" sentence is true or has to be rewritten as a cost disclosure.
-Do it first, before the C comparison, so the §5.7 table is internally
-consistent when the C row lands.
+§5.7 is otherwise complete — the C row is in the table, the interpretation
+paragraph is written, §8 names the file — so this is the last thing standing
+between §5.7 and frozen.
+
+**Then: §5.6 classifier numbers, §6.9 hoisting-gaps, §1 reframing, §6.7
+renumber.** All four are paper edits, none require running code. Do them in
+one sitting and the draft is submission-ready.
