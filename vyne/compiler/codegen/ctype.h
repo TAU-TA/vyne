@@ -25,6 +25,7 @@ struct CType {
         Bool,
         Str,        // M1: still boxed (char* + length is a later milestone)
         Array,      // element type in args[0]
+        RawArrayPtr,// NEW: borrowed T* passed by the native ABI. Element type in args[0].
         Map,
         Struct,
         Module,
@@ -79,6 +80,10 @@ struct CType {
             case Kind::Int64:   return "int64_t";
             case Kind::Float64: return "double";
             case Kind::Bool:    return "bool";
+            case Kind::RawArrayPtr: {
+                if (args.empty()) return "void*";
+                return args[0].cTypeName() + "*";
+            }
             default:            return "VyneValue";
         }
     }

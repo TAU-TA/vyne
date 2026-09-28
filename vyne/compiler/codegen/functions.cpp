@@ -119,7 +119,15 @@ static void emitNativeFunctionBody(
         if (i > 0) paramList += ", ";
         std::string pName = "v_" + nativeName + "_" + parameters[i].name;
         CType pt = CType::fromVType(parameters[i].type);
-        paramList += pt.cTypeName() + " " + pName;
+
+        if (parameters[i].type == VType::Array &&
+            parameters[i].arrayElemType != VType::Unknown) {
+            VType elem = parameters[i].arrayElemType;
+            std::string elemC = (elem == VType::Float64) ? "double" : "int64_t";
+            paramList += elemC + "* " + pName;
+        } else {
+            paramList += pt.cTypeName() + " " + pName;
+        }
     }
 
     // (3) Forward declaration.
@@ -133,7 +141,16 @@ static void emitNativeFunctionBody(
     for (size_t i = 0; i < parameters.size(); ++i) {
         std::string pName = "v_" + nativeName + "_" + parameters[i].name;
         CType pt = CType::fromVType(parameters[i].type);
-        e.declareLocal(pName, pt);
+
+        if (parameters[i].type == VType::Array &&
+            parameters[i].arrayElemType != VType::Unknown) {
+            CType raw;
+            raw.kind = CType::Kind::RawArrayPtr;
+            raw.args.push_back(CType::fromVType(parameters[i].arrayElemType));
+            e.declareLocal(pName, raw);
+        } else {
+            e.declareLocal(pName, pt);
+        }
     }
 
     for (const auto& stmt : body)

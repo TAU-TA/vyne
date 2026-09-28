@@ -90,6 +90,18 @@ std::string IndexAccessNode::getCExpr(C_Emitter& e) const {
         return name;
     }
 
+    if (bt && bt->kind == CType::Kind::RawArrayPtr) {
+        VType elem = bt->args.empty() ? VType::Float64 : bt->args[0].toVType();
+        std::string rawIdx = index->getCExpr(e);
+        std::string idx = coerceToNative(e, index.get(), rawIdx, VType::Int64);
+
+        std::string name = e.newTemp("idx");
+        e.emit((elem == VType::Float64 ? "double " : "int64_t ") + name +
+            " = " + bRaw + "[" + idx + "];");
+        e.declareNativeTemp(name, CType::fromVType(elem));
+        return name;
+    }
+
     if (bt && bt->kind == CType::Kind::Array && !bt->args.empty()) {
         VType elem = bt->args[0].toVType();
         std::string rawIdx = index->getCExpr(e);
@@ -173,6 +185,16 @@ void IndexAssignmentNode::compile(C_Emitter& e) const {
             iv = idx;
         }
         e.emit(bRaw + "[" + iv + "] = " + val + ";");
+        return;
+    }
+
+    if (bt && bt->kind == CType::Kind::RawArrayPtr) {
+        VType elem = bt->args.empty() ? VType::Float64 : bt->args[0].toVType();
+        std::string rawIdx = index->getCExpr(e);
+        std::string idx = coerceToNative(e, index.get(), rawIdx, VType::Int64);
+        std::string rawVal = rhs->getCExpr(e);
+        std::string val = coerceToNative(e, rhs.get(), rawVal, elem);
+        e.emit(bRaw + "[" + idx + "] = " + val + ";");
         return;
     }
 

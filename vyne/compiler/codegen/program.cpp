@@ -13,13 +13,22 @@ void ProgramNode::compile(C_Emitter& e) const {
 
             std::vector<std::string> paramNames;
             std::vector<CType> paramTypes;
-            bool allPrimitive = true;
+            bool allNativeCallable = true;
 
             for (const auto& p : fn->getParameters()) {
                 paramNames.push_back(p.name);
                 CType ct = CType::fromVType(p.type);
+
+                // Carry the element type for Array<Float64> / Array<Int64> so the
+                // native dispatcher can match the argument's typed-array CType.
+                if (p.type == VType::Array && p.arrayElemType != VType::Unknown) {
+                    ct.args.push_back(CType::fromVType(p.arrayElemType));
+                }
                 paramTypes.push_back(ct);
-                if (!ct.isPrimitive() || p.isReference) allPrimitive = false;
+
+                bool paramOK = ct.isPrimitive() ||
+                            (ct.kind == CType::Kind::Array && !ct.args.empty());
+                if (!paramOK || p.isReference) allNativeCallable = false;
             }
 
             CType retCt = CType::fromVType(fn->getReturnType());
@@ -41,7 +50,7 @@ void ProgramNode::compile(C_Emitter& e) const {
                                         std::move(paramTypes));
             e.registerFunctionReturnType(fn->getOriginalName(), retCt);
 
-            if (allPrimitive && retPrimitive && !hasDeferOrTry) {
+            if (allNativeCallable && retPrimitive && !hasDeferOrTry) {
                 std::string mangled = fn->getOriginalName();
                 std::replace(mangled.begin(), mangled.end(), '.', '_');
                 if (!fn->getTargetModule().empty())

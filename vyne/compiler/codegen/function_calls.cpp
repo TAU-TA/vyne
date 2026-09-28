@@ -95,15 +95,19 @@ std::string FunctionCallNode::getCExpr(C_Emitter& e) const {
 
     std::vector<std::string> argCExprs;
     std::vector<VType>       argVTypes;
+    std::vector<const CType*> argCTypes;
     argCExprs.reserve(orderedArgs.size());
     argVTypes.reserve(orderedArgs.size());
+    argCTypes.reserve(orderedArgs.size());
 
     for (auto* a : orderedArgs) {
         std::string s = a->getCExpr(e);
-        const CType* ct = e.exprNativeType(s);
-        VType t = ct ? ct->toVType() : a->getStaticType();
+        const CType* fullCt = e.lookupType(s);
+        const CType* primCt = e.exprNativeType(s);
+        VType t = primCt ? primCt->toVType() : a->getStaticType();
         argCExprs.push_back(std::move(s));
         argVTypes.push_back(t);
+        argCTypes.push_back(fullCt);
     }
 
     int argSize = (int)orderedArgs.size();
@@ -128,23 +132,46 @@ std::string FunctionCallNode::getCExpr(C_Emitter& e) const {
             paramTypes->size() == orderedArgs.size())
         {
             bool allMatch = true;
-            for (size_t i = 0; i < argVTypes.size(); ++i) {
-                VType want = (*paramTypes)[i].toVType();
-                bool ok = (argVTypes[i] == want) ||
-                          (want == VType::Float64 && argVTypes[i] == VType::Int64);
-                if (!ok) { allMatch = false; break; }
+
+            for (size_t i = 0; i < orderedArgs.size(); ++i) {
+                const CType& want = (*paramTypes)[i];
+
+                if (want.kind == CType::Kind::Array && !want.args.empty()) {
+                    // Array-typed param: the argument must be a typed array
+                    // with a matching element kind. If it's a boxed Array,
+                    // fall through to the boxed call.
+                    const CType* have = argCTypes[i];
+                    if (!have || have->kind != CType::Kind::Array ||
+                        have->args.empty() ||
+                        have->args[0].toVType() != want.args[0].toVType()) {
+                        allMatch = false; break;
+                    }
+                } else {
+                    VType wantVT = want.toVType();
+                    bool ok = (argVTypes[i] == wantVT) ||
+                            (wantVT == VType::Float64 && argVTypes[i] == VType::Int64);
+                    if (!ok) { allMatch = false; break; }
+                }
             }
 
             if (allMatch) {
                 std::string argList;
                 for (size_t i = 0; i < orderedArgs.size(); ++i) {
                     if (i > 0) argList += ", ";
-                    argList += coerceToNative(e, orderedArgs[i], argCExprs[i],
-                                              (*paramTypes)[i].toVType());
+                    const CType& want = (*paramTypes)[i];
+
+                    if (want.kind == CType::Kind::Array && !want.args.empty()) {
+                        // Pass the raw element buffer. No length — the callee
+                        // receives n as a separate Int64 parameter if it needs it.
+                        argList += argCExprs[i] + ".data";
+                    } else {
+                        argList += coerceToNative(e, orderedArgs[i], argCExprs[i],
+                                                want.toVType());
+                    }
                 }
                 std::string nret = e.newTemp("nret");
                 e.emit(retCt->cTypeName() + " " + nret + " = fn_" +
-                       *nativeName + "(" + argList + ");");
+                    *nativeName + "(" + argList + ");");
                 e.declareNativeTemp(nret, *retCt);
                 return nret;
             }
