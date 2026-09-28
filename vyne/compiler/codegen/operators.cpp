@@ -27,8 +27,8 @@ std::string BinOpNode::getCExpr(C_Emitter& e) const {
     // Shape consistency check for `+` between two shaped arrays.
     // Same-shape scratch addition: lower to an element-wise loop.
     if (op == VTokenType::Add) {
-        const CType* lct = e.exprNativeType(l);
-        const CType* rct = e.exprNativeType(r);
+        const CType* lct = e.lookupAnyType(l);
+        const CType* rct = e.lookupAnyType(r);
         if (lct && rct && lct->hasShape() && rct->hasShape() &&
             lct->sameShape(*rct) && !lct->args.empty()) {
 

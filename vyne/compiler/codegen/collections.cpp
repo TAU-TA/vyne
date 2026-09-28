@@ -173,7 +173,6 @@ void IndexAssignmentNode::compile(C_Emitter& e) const {
             iv = idx;
         }
         e.emit(bRaw + "[" + iv + "] = " + val + ";");
-        e.emit(bRaw + "[" + iv + "] = " + val + ";");
         return;
     }
 
