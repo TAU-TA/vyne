@@ -384,10 +384,4 @@ TODO.md (Paper 1) is the priority. Nothing here starts until:
 · §1 is reframed (layered, not parallel).
 · Paper 1 is submitted.
 
-Then — and only then — pick Bet 1 or Bet 2. Not both. One.
-
 ---
-
-```
-
-```
