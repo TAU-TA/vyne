@@ -33,3 +33,4 @@ builtincall_test
 nul
 *.bak
 *.ps1
+vendor/openblas
