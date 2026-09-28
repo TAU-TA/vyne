@@ -16,13 +16,13 @@
 #
 # Requires:
 #   vbio/vbio.vy       (the bio facade)
-#   vlinalg.vy        (monolithic or split facade — same API)
+#   vlin/vlin.vy       (the linear-algebra facade)
 #   vcolors.vy
 
 ruleset { dynamic_casting };
 
 use lib "vbio/vbio.vy";
-use lib "vlinalg/vlinalg.vy";
+use lib "vlin/vlin.vy";
 use lib "vcolors.vy";
 
 module vmath;
@@ -127,14 +127,18 @@ fn make_random() -> String {
 
 # ======================================================================
 # FEATURE EXTRACTION — 64-dim codon-usage vector
+#
+# Returns Array<Float64> rather than Array: the typed return lets the
+# caller accumulate features into X_flat without unboxing each element,
+# and lets vlin.from_flat see a native buffer when we build the matrix.
 # ======================================================================
-fn codon_features(seq :: String) -> Array {
-    counts = vbio.codon_usage(seq);
+fn codon_features(seq :: String) -> Array<Float64> {
+    counts   = vbio.codon_usage(seq);
     n_codons = seq.size() / 3;
-    total = float64(n_codons);
+    total    = float64(n_codons);
     if total < 1.0 { total = 1.0; }
 
-    features :: Array = [];
+    features :: Array<Float64> = [];
     through i :: 0..63 -> loop {
         c = CODONS[i];
         v = 0.0;
@@ -150,9 +154,9 @@ fn codon_features(seq :: String) -> Array {
 # NETWORK
 # ======================================================================
 fn forward(X_in, W1, b1, W2, b2, W3, b3) -> Array {
-    A1 = vlinalg.apply_tanh(vlinalg.add_bias(vlinalg.multiply(X_in, W1), b1));
-    A2 = vlinalg.apply_tanh(vlinalg.add_bias(vlinalg.multiply(A1,   W2), b2));
-    A3 = vlinalg.apply_sigmoid(vlinalg.add_bias(vlinalg.multiply(A2, W3), b3));
+    A1 = vlin.apply_tanh   (vlin.add_bias(vlin.multiply(X_in, W1), b1));
+    A2 = vlin.apply_tanh   (vlin.add_bias(vlin.multiply(A1,   W2), b2));
+    A3 = vlin.apply_sigmoid(vlin.add_bias(vlin.multiply(A2,   W3), b3));
     return [A1, A2, A3];
 }
 
@@ -187,11 +191,20 @@ out("");
 
 # ======================================================================
 # DATA
+#
+# X_flat and Y_data are Array<Float64>, not Array. The typed container
+# means each push appends a double directly — no VyneValue boxing on
+# the write side and no unboxing on the read side later.
+#
+# These allocations are permanent: they live in the arena for the whole
+# program, and no region rewinds them. That's correct — they're the
+# training set. Their size (N_SAMPLES * 64 + N_SAMPLES doubles) is
+# fixed and small (~125 KB).
 # ======================================================================
 out("Generating sequences...");
 
-X_flat :: Array = [];
-Y_data :: Array = [];
+X_flat :: Array<Float64> = [];
+Y_data :: Array<Float64> = [];
 seqs   :: Array = [];
 
 # Class 1 — codon-structured RNA
@@ -216,92 +229,129 @@ through i :: 0..N_PER_CLASS-1 -> loop {
     Y_data.push(0.0);
 };
 
-X :: vlinalg.Types.Matrix = vlinalg.Types.Matrix(N_SAMPLES, 64, X_flat);
-Y :: vlinalg.Types.Matrix = vlinalg.Types.Matrix(N_SAMPLES, 1,  Y_data);
+X :: vlin.Types.Matrix = vlin.Types.Matrix(N_SAMPLES, 64, X_flat);
+Y :: vlin.Types.Matrix = vlin.Types.Matrix(N_SAMPLES, 1,  Y_data);
 
 out("  class 1 (structured) " + string(N_PER_CLASS));
 out("  class 0 (random)     " + string(N_PER_CLASS));
 out("");
 
 # ======================================================================
-# WEIGHTS
+# WEIGHTS AND BIASES
+#
+# All of these are allocated before the training loop and never
+# reassigned. `vlin.sgd_update_inplace` and the scalar bias loops
+# below write through their `.data` buffers, so the matrices and
+# arrays keep the same arena addresses across every region rewind.
+#
+# This is the load-bearing invariant of the memory strategy: a
+# region rewind drops everything allocated inside the region, and
+# nothing outside it — so anything that must survive an epoch has
+# to be allocated here, at top level, and mutated in place.
+#
+# b1, b2, b3 are declared Array<Float64>, not Array. Same reasoning
+# as X_flat: typed elements avoid a boxing round-trip on every
+# element of every bias-update loop.
 # ======================================================================
-W1 = vlinalg.xavier_init(64,      HIDDEN1);
-W2 = vlinalg.xavier_init(HIDDEN1, HIDDEN2);
-W3 = vlinalg.xavier_init(HIDDEN2, 1);
+W1 = vlin.xavier_init(64,      HIDDEN1);
+W2 = vlin.xavier_init(HIDDEN1, HIDDEN2);
+W3 = vlin.xavier_init(HIDDEN2, 1);
 
-b1 :: Array = [];
+b1 :: Array<Float64> = [];
 through j :: 0..HIDDEN1-1 -> loop { b1.push(0.0); };
 
-b2 :: Array = [];
+b2 :: Array<Float64> = [];
 through j :: 0..HIDDEN2-1 -> loop { b2.push(0.0); };
 
-b3 :: Array = [0.0];
+b3 :: Array<Float64> = [0.0];
 
 # ======================================================================
 # TRAINING
+#
+# Memory strategy in one paragraph:
+#
+#   The training loop wraps its body in `region train_step { ... }`.
+#   Every intermediate the forward pass and backprop allocate — the
+#   activations A1/A2/A3, the deltas, every product of a transpose
+#   and a matrix, every tanh_prime result — is allocated inside this
+#   region and freed at the closing rewind. Peak arena usage is
+#   therefore bounded by a single epoch's working set, not by the
+#   full run's cumulative allocation.
+#
+#   The only things that must survive each rewind are W1, W2, W3,
+#   b1, b2, b3, X, Y, and the loss/accuracy scalars. The first six
+#   are allocated above, outside the region, and mutated in place.
+#   The scalars are Float64 values, not references, so they cross
+#   the rewind boundary by value.
+#
+#   The two scratch arrays `db1_buf` and `db2_buf` live on the C
+#   stack — `scratch` lowers to a fixed-size local C array — so they
+#   cost nothing in the arena. They only have to be in scope at the
+#   point of use, which is why they're declared inside the region
+#   even though they don't need region lifetime.
+#
+# There is deliberately no `region.commit` here. The alternative to
+# the final forward pass below would be to commit A3 on the last
+# epoch, but that couples the escape machinery to the loop bound
+# (`if epoch == EPOCHS`) and breaks if EPOCHS is ever parameterized
+# or the loop exits early. Doing one forward pass after the loop is
+# cheaper to reason about and allocates a bounded, one-time amount.
 # ======================================================================
 scale = LR / float64(N_SAMPLES);
 
+# Initial loss. h0 allocates ~9 matrices at top level; they persist
+# until program end, which is fine — a single forward pass is small
+# relative to the training loop's total allocation.
 h0    = forward(X, W1, b1, W2, b2, W3, b3);
-loss0 = vlinalg.cross_entropy(h0[2], Y);
+loss0 = vlin.cross_entropy(h0[2], Y);
 
 out(vcolors.bold("Training:"));
 out("  initial loss  " + string(loss0));
 out("");
 
 lossN = loss0;
-A3    = h0[2];
 
 through epoch :: 1..EPOCHS -> loop {
-    region training {
+    region train_step {
+        # Per-epoch scratch. C stack, not arena.
         scratch db2_buf :: Float64[12];
         scratch db1_buf :: Float64[16];
 
+        # ---- forward ----
         h  = forward(X, W1, b1, W2, b2, W3, b3);
-        A1_local = h[0];
-        A2_local = h[1];
-        A3_local = h[2];
-
-        # A3 is read *after* the loop (final_acc = accuracy(A3, Y, ...)).
-        # A plain `region` rewinds the arena at its closing brace, which
-        # would leave v_A3 pointing at freed scratch. commit() deep-clones
-        # A3 into the commit arena so it survives the rewind.
-        # Only the last iteration's A3 actually matters, so gate it.
-        if epoch == EPOCHS {
-            region.commit(A3_local);
-            A3 = A3_local;
-        }
+        A1 = h[0];
+        A2 = h[1];
+        A3 = h[2];
 
         # ---- backprop ----
-        delta3 = vlinalg.subtract(A3_local, Y);
-        dW3    = vlinalg.multiply(vlinalg.transpose(A2_local), delta3);
+        delta3 = vlin.subtract(A3, Y);
+        dW3    = vlin.multiply(vlin.transpose(A2), delta3);
 
         db3 = 0.0;
         through r :: 0..N_SAMPLES-1 -> loop { db3 = db3 + delta3.data[r]; };
 
-        delta2 = vlinalg.hadamard(
-            vlinalg.multiply(delta3, vlinalg.transpose(W3)),
-            vlinalg.tanh_prime(A2_local)
+        delta2 = vlin.hadamard(
+            vlin.multiply(delta3, vlin.transpose(W3)),
+            vlin.tanh_prime(A2)
         );
-        dW2 = vlinalg.multiply(vlinalg.transpose(A1_local), delta2);
+        dW2 = vlin.multiply(vlin.transpose(A1), delta2);
 
-        delta1 = vlinalg.hadamard(
-            vlinalg.multiply(delta2, vlinalg.transpose(W2)),
-            vlinalg.tanh_prime(A1_local)
+        delta1 = vlin.hadamard(
+            vlin.multiply(delta2, vlin.transpose(W2)),
+            vlin.tanh_prime(A1)
         );
-        dW1 = vlinalg.multiply(vlinalg.transpose(X), delta1);
+        dW1 = vlin.multiply(vlin.transpose(X), delta1);
 
-        # --- SGD weight updates, in place ---
-        # W1, W2, W3 were allocated before the region checkpoint, so
-        # mutating their .data arrays survives the rewind. A rebinding
-        # form (W1 = W1 - scale * dW1) would allocate a fresh matrix
-        # inside the region and dangle after rewind.
-        vlinalg.sgd_update_inplace(W1, dW1, scale);
-        vlinalg.sgd_update_inplace(W2, dW2, scale);
-        vlinalg.sgd_update_inplace(W3, dW3, scale);
+        # ---- weight updates: in-place, weights live outside the region ----
+        # A rebinding form (W1 = W1 - scale * dW1) would allocate a fresh
+        # matrix inside the region; after the rewind that matrix is gone
+        # and W1 would dangle. The in-place update writes into the
+        # pre-existing .data buffer and survives.
+        vlin.sgd_update_inplace(W1, dW1, scale);
+        vlin.sgd_update_inplace(W2, dW2, scale);
+        vlin.sgd_update_inplace(W3, dW3, scale);
 
-        # --- db2 accumulation ---
+        # ---- bias gradient accumulation ----
         through c :: 0..HIDDEN2-1 -> loop {
             db2_buf[c] = 0.0;
             through r :: 0..N_SAMPLES-1 -> loop {
@@ -309,7 +359,6 @@ through epoch :: 1..EPOCHS -> loop {
             };
         };
 
-        # --- db1 accumulation ---
         through c :: 0..HIDDEN1-1 -> loop {
             db1_buf[c] = 0.0;
             through r :: 0..N_SAMPLES-1 -> loop {
@@ -317,19 +366,17 @@ through epoch :: 1..EPOCHS -> loop {
             };
         };
 
-        # --- SGD bias update, reading from scratch ---
-        through c :: 0..HIDDEN1-1 -> loop {
-            b1[c] = b1[c] - scale * db1_buf[c];
-        };
-        through c :: 0..HIDDEN2-1 -> loop {
-            b2[c] = b2[c] - scale * db2_buf[c];
-        };
+        # ---- bias updates: b1, b2, b3 live outside the region ----
+        through c :: 0..HIDDEN1-1 -> loop { b1[c] = b1[c] - scale * db1_buf[c]; };
+        through c :: 0..HIDDEN2-1 -> loop { b2[c] = b2[c] - scale * db2_buf[c]; };
         b3[0] = b3[0] - scale * db3;
 
         # ---- progress ----
+        # Every string built here is allocated inside the region and
+        # freed at rewind. lossN and acc are Float64, copied out by value.
         if epoch % PRINT_EVERY == 0 {
-            lossN = vlinalg.cross_entropy(A3_local, Y);
-            acc   = accuracy(A3_local, Y, N_SAMPLES);
+            lossN = vlin.cross_entropy(A3, Y);
+            acc   = accuracy(A3, Y, N_SAMPLES);
             out("  " + pad_left(string(epoch), 5) + "/" + string(EPOCHS)
                 + "  loss " + string(lossN)
                 + "  acc  " + pct(acc)
@@ -339,9 +386,17 @@ through epoch :: 1..EPOCHS -> loop {
 };
 
 # ======================================================================
-# FINAL REPORT
+# FINAL EVALUATION
+#
+# This is the payoff of dropping the commit: a single forward pass
+# outside any region produces an A3 that is guaranteed to still be
+# valid at the end of the program, with no coupling to EPOCHS and no
+# dependence on which iteration of the loop happened to run last.
 # ======================================================================
-final_acc = accuracy(A3, Y, N_SAMPLES);
+h_final  = forward(X, W1, b1, W2, b2, W3, b3);
+A3_final = h_final[2];
+
+final_acc = accuracy(A3_final, Y, N_SAMPLES);
 
 out("");
 out(vcolors.bold("Training complete."));
@@ -359,7 +414,7 @@ out("");
 through i :: 0..5 -> loop {
     idx = i;
     s   = seqs[idx];
-    p   = A3.data[idx];
+    p   = A3_final.data[idx];
     tag = "  random";
     if p > 0.5 { tag = "  struct"; }
     out(tag + "  " + s + "   p(struct) = " + string(p));
@@ -370,7 +425,7 @@ out("");
 through i :: 0..5 -> loop {
     idx = N_PER_CLASS + i;
     s   = seqs[idx];
-    p   = A3.data[idx];
+    p   = A3_final.data[idx];
     tag = "  random";
     if p > 0.5 { tag = "  struct"; }
     out(tag + "  idx=" + string(idx) + "  " + s + "   p(struct) = " + string(p));
