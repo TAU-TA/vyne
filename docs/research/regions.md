@@ -487,15 +487,15 @@ array on the C stack. The saved cost is that every subsequent use of
 element once — is a native `double` load, and the arrays themselves
 no longer allocate on the arena per iteration.
 
-The three gradient buffers are the largest allocations in the loop
-(1024 + 192 + 12 = 1228 elements, versus 28 for the bias buffers).
-Promoting them to scratch is the single biggest reduction in arena
-traffic that this technique can deliver on this program without
-modifying `vlinalg` itself. The reduction is bounded by the same
-boundary §5.4 names: the source of each copy is still a boxed
-tensor, and the result of `dW1` in the SGD update is still read
-through the arena because `sgd_update_inplace` takes boxed arguments.
-What disappears is the per-iteration allocation of the destination.
+The three gradient buffers are the largest allocations the loop's own
+code performs (1228 elements, versus 28 for the bias buffers). Promoting
+them to scratch removes 44× more bytes of per-iteration arena traffic than
+§5.1's rewrite does. That reduction is still below the peak-RSS floor of this
+program (§5.6): the forward and backprop intermediates allocate roughly 60 KB
+per iteration, and the gradient buffers, even at 1228 elements, are about 10 KB.
+The largest-allocation claim is therefore true of the loop's own buffers and not
+of the loop's total arena traffic. §5.7 provides the scale at which the same technique
+produces a measurable peak-RSS effect.
 
 ### 5.6 Measurements
 
@@ -517,9 +517,9 @@ in §5.7.
 
 | Config                       | Final accuracy | Final loss | Peak RSS | Wall clock |
 | ---------------------------- | -------------: | ---------: | -------: | ---------: |
-| 1 — baseline                 |            TBD |        TBD |      TBD |        TBD |
-| 2 — accumulators             |            TBD |        TBD |      TBD |        TBD |
-| 3 — accumulators + gradients |            TBD |        TBD |      TBD |        TBD |
+| 1 — baseline                 |          99.5% |   0.226304 |   6.4 MB |     0.13 s |
+| 2 — accumulators             |          99.5% |   0.226304 |   6.3 MB |     0.12 s |
+| 3 — accumulators + gradients |          99.5% |   0.226304 |   6.3 MB |     0.14 s |
 
 **Correctness.** All three configurations converge to the same final
 accuracy on the same 240 training examples and produce bit-identical
@@ -529,20 +529,30 @@ property the scale experiment confirms at §5.7 (identical checksums
 across four configs), and it is the correctness precondition for
 reading anything into the peak-RSS numbers.
 
-**Memory.** The three configurations show progressively smaller peak
-RSS as more per-iteration buffers move from the arena to the C stack.
-The absolute numbers are small — the classifier's working set is
-much smaller than the matmul benchmark of §5.7 — but the ordering
-matches the pattern §5.7 predicts: eliminating per-iteration arena
-allocation reduces peak RSS, and stacking the buffers on the C
-stack reduces it further.
+**Memory**. Peak RSS is indistinguishable across the three configurations
+(6.4, 6.3, 6.3 MB). The classifier's working set is dominated by the forward-
+and backprop-pass intermediates, which allocate roughly 60 KB per iteration;
+the bias buffers contribute under 1% of allocated bytes and the gradient
+buffers roughly 10 KB. Moving either set to the C stack removes their arena
+traffic — §5.2 shows the absence of arena_alloc in the emitted code for the
+accumulators — but the removal is below the sampler's ±0.1 MB resolution at
+this scale. The peak-RSS effect of the scratch storage class is exhibited at
+scale in §5.7, where the buffers dominate the arena.
 
-**Wall clock.** The three configurations run within run-to-run noise
-of each other. This is expected: the classifier's hot loop is
-dominated by the boxed-tensor arithmetic in `vlinalg`, not by the
-allocation of the two bias buffers, so moving those buffers to the
-stack does not measurably change execution time. The technique is a
-memory-footprint change, not a speedup.
+**Wall clock**. The three configurations run within run-to-run noise of
+each other (0.13–0.14 s). The classifier's hot loop is dominated by the
+boxed-tensor arithmetic in `vlinalg`, not by the allocation of the small
+per-iteration buffers; moving those buffers to the stack does not measurably
+change execution time. The technique is a memory-footprint change at the scale
+§5.7 exercises, not a speedup at the scale of this classifier.
+
+**What the classifier measures**. The classifier's contribution is not a
+performance number but a correctness one. All three configurations produce
+bit-identical loss (0.702889 initial, 0.226304 final) and bit-identical
+per-sample predictions, which is the evidence that the shaped-assignment
+lowering of §3.4 and the scratch indexing of §3.2 compile to arithmetic
+that is byte-for-byte the arithmetic of the boxed path. The memory-model
+claim of §2–§3 is measured at §5.7.
 
 ### 5.7 Scale Experiment: The 1024×1024 Matmul
 
@@ -648,7 +658,8 @@ recommends how the driver should expose this as an opt-in.
 All four configs run with `ITERS = 10`, `N = 1024`, and
 `vmath.seed(42)`. Wall clock and peak RSS measured with a 50 ms
 sampler on Windows 11, x86-64, single-threaded, gcc 15.2 with -O3,
-with the compiler's default safety checks enabled (scratch bounds, region escape)..
+with the compiler's default safety checks disabled for the benchmark;
+see §5.9 for the cost when enabled.
 
 | Config               | Peak RSS (mean of 3) | Wall clock (mean of 3) | Checksum |
 | -------------------- | -------------------: | ---------------------: | -------: |
@@ -1069,70 +1080,6 @@ know its destination at parse time — `if c { scratch_a } else { scratch_b } = 
 as the target of a conditional assignment. This is a parser restriction,
 not a semantic one, and could be relaxed with a small amount of grammar
 work. It is not on the critical path for any current program.
-
-### 6.7 Stack allocation limits for scratch
-
-Scratch arrays are C stack objects, so their size is bounded by the
-process's stack limit: 1 MB on Windows by default, 8 MB on Linux. A
-`scratch C :: Float64[1024, 1024]` is 8 MB and overflows the default
-Windows stack before the program prints its first output line. The
-overflow presents as a segmentation fault inside `___chkstk_ms` with
-no useful diagnostic.
-
-Two responses are possible.
-
-**Diagnostic.** The compiler can emit a warning at compile time when a
-scratch declaration's total byte size exceeds a configurable threshold.
-This does not prevent the overflow but makes it diagnosable without
-attaching a debugger.
-
-**Build system.** The driver can pass `-Wl,--stack,SIZE` (MinGW/Linux)
-or `-Wl,-z,stacksize=SIZE` (ELF) to raise the limit. Vyne's current
-driver does this for benchmark builds; §5.7 relies on a 64 MB stack
-reserve. Programs with multiple large scratch arrays will need to
-size this themselves, and a program that cannot fit its working set
-on any stack must fall back to smaller tiles or to arena-backed
-allocation.
-
-A third option deserves its own design pass: promoting oversized
-scratch arrays to arena-backed storage with a region-scoped lifetime.
-This loses the "no arena traffic" property for the largest arrays but
-avoids the stack limit entirely. The trade-off between the two
-allocation classes is not obvious, and it is not on the critical
-path for any current program.
-
-**Effort**: an hour for the warning; a day for the arena-backed
-fallback.
-
-### 6.8 Target ISA and driver defaults
-
-Vyne's compiler driver defaults to `-O3` with the SSE2 baseline.
-Producing AVX2/FMA code requires `-march=native` or explicit
-`-mavx2 -mfma`, both of which make the resulting binary unusable on
-pre-2013 x86-64 CPUs. This is a genuine trade-off, and the current
-driver does not expose the choice.
-
-The distinction matters for the scale experiment of §5.7. The emitted
-`mulpd` / `addpd` inner loop is SSE2, which runs on any x86-64 CPU
-shipped since 2003. Enabling AVX2 roughly doubles throughput, but the
-paper's measurement is about the memory model, not the ISA. Both
-choices are defensible; the driver should make the choice explicit
-rather than hidden.
-
-We recommend gating native-target compilation behind an opt-in flag
-(`--native`), leaving `-O3` as the default. The compiler's `runFile`
-entry point takes a `bool nativeTargets` parameter; argv parsing sets
-it from the flag; `compile_cmd` appends `-march=native` when true.
-Half an hour of work.
-
-Note that `-march=native` and `-ffast-math` are unrelated despite
-both being "compiler flags that speed things up." The former is a
-target-ISA choice that does not alter FP semantics; the latter
-permits reassociation and other unsafe transforms. The scale
-experiment uses neither; the four-accumulator kernel of §5.7 gets
-its SIMD from the source structure alone.
-
-**Effort**: an hour.
 
 ---
 
