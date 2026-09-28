@@ -139,7 +139,9 @@ void IndexAssignmentNode::compile(C_Emitter& e) const {
             : ("v_" + prefix + "_" + bs);
         int baseDepth = e.lookupLocalRegionDepth(bname);
         if (baseDepth >= 0 && baseDepth < e.currentRegionDepth()) {
-            VType st = rhs->getStaticType();
+            // Same resolution strategy as checkRegionEscape in
+            // assignments.cpp: emitter table first, AST fallback.
+            VType st = resolveRHSKind(e, rhs.get());
             bool safe = (st == VType::Int64 || st == VType::Float64 ||
                          st == VType::Bool  || st == VType::Null);
             if (!safe) {

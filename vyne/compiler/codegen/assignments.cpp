@@ -134,7 +134,7 @@ static void checkRegionEscape(C_Emitter& e,
     if (lhsDepth >= curDepth) return;  // LHS is as deep or deeper — safe
 
     // Primitive RHS: copied by value, always safe to escape.
-    VType st = rhs->getStaticType();
+    VType st = resolveRHSKind(e, rhs);
     if (st == VType::Int64 || st == VType::Float64 ||
         st == VType::Bool  || st == VType::Null) {
         return;

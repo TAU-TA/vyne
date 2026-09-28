@@ -72,3 +72,96 @@ static std::string coerceToNative(C_Emitter& e, const ASTNode* node,
     return expr;
 }
 
+// Resolve the "kind" of an RHS expression without emitting any code.
+// The emitter's static type table is authoritative for variables and
+// typed-array index reads; the AST is a fallback for literals. BinOps
+// are handled syntactically because the AST's own getStaticType() only
+// resolves when every leaf is statically typed, which is rare inside a
+// region.
+//
+// Returns VType::Unknown when nothing can prove the kind; callers
+// must treat Unknown as unsafe (fail closed).
+static VType resolveRHSKind(C_Emitter& e, const ASTNode* rhs) {
+    if (!rhs) return VType::Null;
+
+    // --- Literals ------------------------------------------------
+    switch (rhs->type()) {
+        case NodeType::NUMBER:
+        case NodeType::BOOLEAN:
+            return rhs->getStaticType();
+        case NodeType::NULLTYPE:
+            return VType::Null;
+        default: break;
+    }
+
+    // --- Variables: emitter's type table is authoritative --------
+    if (rhs->type() == NodeType::VARIABLE) {
+        auto* var = static_cast<const VariableNode*>(rhs);
+        std::string n = var->getOriginalName();
+        std::replace(n.begin(), n.end(), '.', '_');
+        std::string prefix = e.getActiveFunctionPrefix();
+        if (!prefix.empty()) {
+            if (const CType* ct = e.lookupType("v_" + prefix + "_" + n))
+                return ct->toVType();
+        }
+        if (const CType* ct = e.lookupType("v_" + n))
+            return ct->toVType();
+        return VType::Unknown;
+    }
+
+    // --- Index reads on typed arrays / scratch -------------------
+    if (rhs->type() == NodeType::INDEX_ACCESS) {
+        auto* ia = static_cast<const IndexAccessNode*>(rhs);
+        const ASTNode* baseNode = ia->getBase();
+        if (!baseNode || baseNode->type() != NodeType::VARIABLE)
+            return VType::Unknown;
+        auto* bv = static_cast<const VariableNode*>(baseNode);
+        std::string b = bv->getOriginalName();
+        std::replace(b.begin(), b.end(), '.', '_');
+        std::string prefix = e.getActiveFunctionPrefix();
+        const CType* bct = nullptr;
+        if (!prefix.empty())
+            bct = e.lookupType("v_" + prefix + "_" + b);
+        if (!bct) bct = e.lookupType("v_" + b);
+        if (!bct) return VType::Unknown;
+        if (bct->kind == CType::Kind::Array && !bct->args.empty())
+            return bct->args[0].toVType();
+        if (bct->hasShape() && !bct->args.empty())
+            return bct->args[0].toVType();
+        return VType::Unknown;
+    }
+
+    // --- Binary operations ---------------------------------------
+    // `BinOpNode::op` is a public field (see ast.h). We read it
+    // directly rather than adding a getOp() accessor.
+    if (rhs->type() == NodeType::BINARY_OP) {
+        auto* bop = static_cast<const BinOpNode*>(rhs);
+        switch (bop->op) {
+            case VTokenType::Double_Equals:
+            case VTokenType::Not_Equal:
+            case VTokenType::Greater:
+            case VTokenType::Smaller:
+            case VTokenType::Greater_Or_Equal:
+            case VTokenType::Smaller_Or_Equal:
+            case VTokenType::And:
+            case VTokenType::Or:
+                return VType::Bool;
+            case VTokenType::Substract:
+            case VTokenType::Multiply:
+            case VTokenType::Division:
+            case VTokenType::Floor_Divide:
+            case VTokenType::Modulo:
+            case VTokenType::Power:
+                // These operators are numeric-only in Vyne: the interpreter
+                // raises on non-numeric operands, and the runtime's binop
+                // dispatch only reaches them through the float or int branch.
+                // A `+` never appears here because it is overloaded for
+                // strings and arrays; it falls to the default below.
+                return VType::Float64;
+            default:
+                return VType::Unknown;
+        }
+    }
+
+    return VType::Unknown;
+}
