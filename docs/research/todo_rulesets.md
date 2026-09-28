@@ -610,7 +610,3 @@ problem in the current `--no-scratch-bounds` design. Three days of work,
 mostly in files that haven't been touched since Phase 1.
 
 ---
-
-```
-
-```

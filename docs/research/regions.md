@@ -1201,15 +1201,4 @@ the `-Wl,--stack,67108864` flag that the four 8 MB stack arrays require.
 - Hallenberg, N., Elsman, M., Tofte, M. _Combining Region Inference
   and Region-Based Memory Management._ TOPLAS 24(4), 2002.
 
-````
-
 ---
-
-```
-
-```
-
-```
-
-```
-````
