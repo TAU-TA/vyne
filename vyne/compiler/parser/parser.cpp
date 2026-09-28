@@ -346,12 +346,28 @@ void Parser::collectTypesFromImport(const std::filesystem::path& finalPath) {
         return;
     }
 
+    struct DiagContextGuard {
+        std::string savedFile;
+        std::string savedSource;
+        DiagContextGuard() {
+            savedFile   = Vyne::DiagnosticEngine::getCurrentFile();
+            savedSource = Vyne::DiagnosticEngine::getSourceText();
+        }
+        ~DiagContextGuard() {
+            Vyne::DiagnosticEngine::setCurrentFile(savedFile);
+            Vyne::DiagnosticEngine::setSourceText(savedSource);
+        }
+    } diagGuard;
+
+    Vyne::DiagnosticEngine::setCurrentFile(finalPath.filename().string());
+    Vyne::DiagnosticEngine::setSourceText(source);
+
     auto tokens = tokenize(source);
 
     Parser nested(std::move(tokens));
     nested.setSourceDir(finalPath.parent_path().string());
-    nested.importedTypeCache  = importedTypeCache;   // share cache
-    nested.parsingInProgress  = parsingInProgress;   // share guard
+    nested.importedTypeCache  = importedTypeCache;
+    nested.parsingInProgress  = parsingInProgress;
 
     SymbolContainer dummyEnv;
     nested.parseProgram(dummyEnv);
@@ -485,12 +501,12 @@ std::unique_ptr<ASTNode> Parser::parseInterfaceDefinition() {
             consume(VTokenType::Right_Parenthese);
             
             VType retType = VType::Unknown;
-            VType retArrayElem = VType::Unknown;   // M4-C1
+            VType retArrayElem = VType::Unknown;
             if (peekToken().type == VTokenType::Arrow) {
                 consume(VTokenType::Arrow);
-                Token typeTok = consume(VTokenType::Identifier);
-                retType = resolveType(typeTok.name);
-                retArrayElem = resolveArrayElementType(typeTok.name);   // M4-C1
+                std::string typePath = parseTypePath();
+                retType = resolveType(typePath);
+                retArrayElem = resolveArrayElementType(typePath);
             }
             
             consume(VTokenType::Left_CB);
