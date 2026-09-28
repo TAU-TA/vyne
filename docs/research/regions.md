@@ -227,7 +227,7 @@ the feature earns its keep:
   accepts only boxed values. A shaped value that needs to escape is a
   compile error, not a runtime dangling pointer.
 - **Scratch arrays are bounded by the process stack**. A `scratch C :: Float64[1024, 1024]` is
-  8 MB, above the 1 MB Windows default and near the 8 MB Linux default. The compiler driver raises the limit via -Wl,--stack,67108864 for benchmark builds; production code with large scratch arrays must do the same, or use a smaller tile. §6.9 discusses a future arena-backed fallback.
+  8 MB, above the 1 MB Windows default and near the 8 MB Linux default. The compiler driver raises the limit via -Wl,--stack,67108864 for benchmark builds; production code with large scratch arrays must do the same, or use a smaller tile. §6.7 discusses a future arena-backed fallback.
 
 The rule we recommend is: **scratch is for local, purely-numeric
 accumulation.** Reads and writes of scalars, nothing else.
@@ -649,9 +649,10 @@ alone.
 
 Enabling AVX2 and FMA (`-mavx2 -mfma`) would double the vector width
 and fuse multiply+add, giving roughly 2–3× more throughput. The paper's
-result is intentionally measured at the portable SSE2 baseline: the
-technique under test is the memory model, not the kernel's ISA. §6.10
-recommends how the driver should expose this as an opt-in.
+result is intentionally measured at the portable SSE2 baseline: the technique
+under test is the memory model, not the kernel's ISA. Exposing AVX2 and FMA as
+an opt-in build mode is straightforward future work and is orthogonal to the
+memory-model claim.
 
 #### Measurements
 
@@ -659,7 +660,7 @@ All four configs run with `ITERS = 10`, `N = 1024`, and
 `vmath.seed(42)`. Wall clock and peak RSS measured with a 50 ms
 sampler on Windows 11, x86-64, single-threaded, gcc 15.2 with -O3,
 with the compiler's default safety checks disabled for the benchmark;
-see §5.9 for the cost when enabled.
+see §5.8 for the cost when enabled.
 
 | Config               | Peak RSS (mean of 3) | Wall clock (mean of 3) | Checksum |
 | -------------------- | -------------------: | ---------------------: | -------: |
@@ -693,12 +694,11 @@ to the computation.
 other — inside the run-to-run noise of the measurement. The region
 rewind is O(1) per iteration and the scratch array's stack allocation
 is O(1) per invocation, so neither construct adds measurable time.
-The compiler's default safety checks (scratch bounds, region escape)
-are enabled in all four runs and are indistinguishable from noise on
-this workload. One exception is config 2 at ITERS = 100, where the run-to-run
-standard deviation is 1.27 s (8.7% of the mean). The variance is
-consistent with OS scheduling on the three concurrently-live
-8 MB scratch arrays, not with any property of the region or scratch
+The safety checks that §5.8 documents were disabled for these measurements;
+§5.8 gives the checks' own numbers with them enabled. One exception is config
+2 at ITERS = 100..., where the run-to-run standard deviation is 1.27s
+(8.7% of the mean). The variance is consistent with OS scheduling on the three
+concurrently-live 8 MB scratch arrays, not with any property of the region or scratch
 constructs; the mean is still within 6% of the other three configs,
 and the peak RSS for this config is the most stable of the four
 (35.5 MB, zero variance across all runs).
@@ -753,20 +753,12 @@ outlier in each program's three-run set is attributable to OS scheduling
 on three concurrently-live 8 MB stack arrays, not to any property of
 either program. Vyne's `scratch` construct is therefore a transparent
 lowering to the C stack array a C programmer would write by hand, with
-the additional guarantees of §5.9 — compile-time bounds checking,
+the additional guarantees of §5.8 — compile-time bounds checking,
 region-scoped lifetime, escape analysis — intact. The construct's value
 is not that it is faster than C; it is that it is identical to C while
 being safer.
 
-**Check overhead is bounded.** All four configurations include the
-compiler's default safety checks: every scratch index is bounds-checked
-at runtime, and the region escape analysis runs at compile time. Across
-three runs per config the checksums are identical and the wall-clock
-spread is 3.5%, inside run-to-run noise. The checks are indistinguishable
-from the measurement floor on this workload; the cross-config comparison
-is unaffected, and the memory-model claim is orthogonal to the check cost.
-
-### 5.9 Safety Checks
+### 5.8 Safety Checks
 
 The compiler enforces two categories of safety check on scratch
 programs, with a third check at parse time. All three are enabled by
@@ -1081,6 +1073,137 @@ as the target of a conditional assignment. This is a parser restriction,
 not a semantic one, and could be relaxed with a small amount of grammar
 work. It is not on the critical path for any current program.
 
+**A naming conflation**. All three limitations above share a root:
+`scratch` is doing two jobs at once. It declares a storage class
+(stack-resident, non-arena) and it declares a shape (dims known at
+compile time, statically indexable). The two are orthogonal — a value
+could have a static shape and still live on the arena, and a value could
+live on the stack without a declared shape. Conflating them makes the current
+design smaller, but it also means the arena-backed `scratch` variant that
+§3.3's stack-limit bullet wants cannot be expressed in the source language
+at all: there is no syntax for "shape-typed but arena-resident." The natural
+fix is to separate the two axes — `scratch` for the storage class, `Shape`
+as a type constructor — which is the same type-system change that §6.2 and
+the first two limitations want. All four close together, if the type system
+ever learns to distinguish shape from storage.
+
+### 6.7 Cases where manual hoisting does not substitute for a region
+
+Section §5.7 measures a flat loop, and in that loop the hand-hoisted
+baseline (config 3) tracks the region-only configuration (config 1) to
+within measurement noise. It would be reasonable to read that result
+as saying the region is a stylistic convenience — that a programmer who
+hoists their output buffer out of the loop has already captured whatever
+a region would give them, and that the region construct earns its place
+only by making the hoisting automatic. The reading is wrong in three
+cases, each common enough to matter. In these cases manual hoisting is
+not merely less convenient than a region; it is either incorrect or
+impossible, and the region is the only construct that expresses the
+intended lifetime.
+
+**Recursion.** A buffer hoisted to file scope, or to any scope that
+outlives a single invocation of the function that uses it, is shared
+across every dynamic instance of that function. Under recursion, the
+inner call's writes clobber the outer call's intermediate state, and the
+outer call resumes with a buffer that no longer holds its own values:
+
+```vyne
+# WRONG under recursion: single shared buffer
+buf :: Array = [];
+
+fn process(n :: Int64) {
+    through i :: 0..1023 -> loop { buf[i] = buf[i] + compute(i, n); };
+    if n > 1 { process(n - 1); }
+    # the buffer written above has been overwritten by the recursive call
+}
+```
+
+The C programmer's answer to this is a stack array declared inside the
+function body, which gets a fresh copy per call for free. Vyne before
+`scratch` had no stack arrays; the only local allocation was on the
+arena, and the arena accumulates. So a Vyne programmer had exactly two
+options: hoist a boxed `Array`, which is wrong; or manually checkpoint
+and rewind the arena around each recursive call, which is what a region
+does. The correct form is a scratch buffer inside a region, and the
+construct expresses precisely the lifetime the algorithm needs:
+
+```vyne
+fn process(n :: Int64) {
+    region body {
+        scratch buf :: Float64[1024];
+        through i :: 0..1023 -> loop { buf[i] = buf[i] + compute(i, n); };
+        if n > 1 { process(n - 1); }
+    };
+}
+```
+
+Each invocation gets its own buffer on its own stack frame; the rewind
+at the end of the body reclaims any arena allocation the body performed,
+including that of the recursive call's own region.
+
+This is not hypothetical. The test at
+`examples/benchmark/recursion_capability.vy` runs the same recursive
+check in three configurations: a buffer hoisted to file scope, a boxed
+`Array` declared inside a region, and a scratch buffer declared inside a
+region. Each invocation writes its own depth into the buffer, recurses,
+then reads the buffer back and asks whether it still sees its own value.
+At depth 8, the hoisted configuration returns 1 — only the innermost
+call's write survives, every outer write is clobbered — while both
+region-scoped configurations return 8. The test is a capability
+demonstration, not a memory measurement: it produces a boolean-shaped
+result, and no peak-RSS or wall-clock number is attached to it. The
+point is that the hoisted form is not merely slower than the region
+form; it is incorrect, and it is incorrect for a reason the region
+system exists to eliminate. The two region-scoped configurations —
+boxed `Array` and `scratch` — both produce the correct result, which
+is the sense in which the region construct and the scratch storage
+class are orthogonal: the region provides the per-invocation lifetime,
+the storage class is chosen independently.
+
+**Concurrent execution.** The same mechanism recurs in space rather
+than in time. A buffer hoisted to file scope and shared across threads
+running the same function is a data race by construction; no amount of
+care with respect to the language's allocation model will make it
+thread-safe. A scratch buffer is on the calling thread's stack, so it is
+per-thread without any additional discipline. Vyne has no threading
+model today, so this is a forward-looking observation rather than a
+measured claim. The design point is that the region discipline composes
+with threads by construction, while manual hoisting does not.
+
+**Iteration-dependent buffer sizes.** A loop body that needs
+`Float64[batch_i, K]` with `batch_i` varying per iteration cannot be
+served by a hoisted fixed-size buffer without either wasting memory on
+small iterations or overflowing on large ones. Reallocating a boxed
+`Array` per iteration accumulates on the arena without a region; hoisting
+a boxed `Array` sized to the maximum wastes the difference on every small
+iteration. `scratch` does not close this gap either, because the current
+implementation restricts dimensions to integer literals (Section §4.2).
+The natural fit is a boxed `Array` allocated inside a region — arena-backed,
+sized per iteration, reclaimed at the rewind — and this is the shape that
+a future arena-backed scratch variant would automate. §3.3's concern about
+scratch arrays exceeding the process stack is answered by the same
+extension: a scratch declaration whose storage class is chosen by the
+compiler at each site (stack when the size is small and statically
+bounded, arena plus region otherwise) subsumes both problems under one
+construct. We do not build it here; the design pass is named as future
+work.
+
+These three cases are why the region is not decorative. In a flat loop
+the region is transparent — §5.7 shows that the hand-hoisted and
+region-only configurations are indistinguishable on every measured axis —
+and the rewind's cost is below the noise floor. But the transparency is
+a property of the flat loop, not a general equivalence. The region's
+contribution is the lifetime discipline it makes expressible; scratch's
+contribution is the storage class that discipline can be applied to.
+§6.4's automatic scratch promotion is the mechanism that would close the
+gap from the other side.
+
+We do not claim measured numbers for the concurrency and variable-size
+cases above; they are forward-looking design notes. The recursion case
+is a capability demonstration backed by the three-configuration test at
+`examples/benchmark/recursion_capability.vy`, and its result is stated
+in the subsection.
+
 ---
 
 ## 7. Related Work
@@ -1129,13 +1252,18 @@ The suite at `examples/safety/` contains ten test programs, one per check or saf
 
 The benchmark suite passes `--no-scratch-bounds` to the compiler
 to isolate the memory-model measurement from the bounds-check cost
-documented in §5.9. The safety test suite runs with the checks
+documented in §5.8. The safety test suite runs with the checks
 enabled and exercises them directly.
 
 The hand-written C baseline of §5.7 is at
 `examples/benchmark/matmul_1024_handc.c`. It compiles with the same
 `gcc -O3` invocation the Vyne driver uses for the benchmark, including
 the `-Wl,--stack,67108864` flag that the four 8 MB stack arrays require.
+
+The recursion capability demonstration of §6.7 is at
+`examples/benchmark/recursion_capability.vy`. It is compiled three times
+with `CONFIG` set to 0, 1, and 2 to exercise the hoisted, boxed-region,
+and scratch-region forms respectively.
 
 ---
 

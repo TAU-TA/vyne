@@ -16,11 +16,9 @@ Everything we discussed, ordered. Phases are sequential; items inside a phase ca
 - [x] **Same class of bug in `groups_modules.cpp`** — verified
 - [x] **Same class in `imports.cpp`** — verified
 - [x] **Parser import recursion fix** — verified (shared cache + cycle guard)
-- [x] **Loud failure on missing import** — VNE-005 in parser and linker;
-      confirmed by run: `./vynec.exe /tmp/bad.vy` → VNE-005 with line number
+- [x] **Loud failure on missing import** — VNE-005 in parser and linker
 - [x] **Parameter `typePath` propagation** — verified end-to-end
-- [x] **`-march=native` behind `--native` flag** — verified; compile line
-      prints "gcc -O3 -march=native" only when flag is passed
+- [x] **`-march=native` behind `--native` flag** — verified
 - [x] **Duplicate reset block in `arena_free_all`** — bonus, removed
 
 **Commit:** `Fix parser, emitter, and runtime bugs; add native-target flag`
@@ -31,15 +29,13 @@ Everything we discussed, ordered. Phases are sequential; items inside a phase ca
 
 - [x] **Scratch bounds checks** — emitted in `scratchFlatIndex`; per-dimension
       VNE-072 on violation.
-- [x] **Region depth tracking** — `regionDepthAtDeclaration` in `LocalScope`,
-      `committedVars` set, `markCommitted` and `lookupLocalRegionDepth` helpers
-- [x] **Escape check in `AssignmentNode::compile`** — VNE-070 on direct escape
+- [x] **Region depth tracking** — `regionDepthAtDeclaration`, `committedVars`,
+      `markCommitted`, `lookupLocalRegionDepth`
+- [x] **Escape check in `AssignmentNode::compile`** — VNE-070
 - [x] **Escape check in `MemberAssignmentNode::compile`** — same
 - [x] **Escape check in `IndexAssignmentNode::compile`** — same
-- [x] **Update §2.2** — applied; text now describes the VNE-070 check and
-      its soundness gap
-- [x] **Update §6.4** — applied; syntactic approximation described, full
-      analysis retained as future work
+- [x] **Update §2.2** — VNE-070 check and its soundness gap documented
+- [x] **Update §6.4** — syntactic approximation described, full analysis future
 
 **Commit:** `Add scratch bounds checking and syntactic region escape checks`
 
@@ -64,173 +60,117 @@ Everything we discussed, ordered. Phases are sequential; items inside a phase ca
       | 1 | 63.6 ± 0.1 | 13.72 ± 0.06 | 3.47777 |
       | 2 | 35.5 ± 0.0 | 14.54 ± 1.27 | 3.47777 |
       | 3 | 63.6 ± 0.0 | 13.65 ± 0.36 | 3.47777 |
-      Config 0 growth slope: 28.0 MB/iteration measured across the two
-      data points (vs. the 16.7 MB element-array size, the remainder is
-      block-chain overhead and transient double-residency). Baseline
-      grows 10.28× for 10× iterations — linear. Configs 1/2/3 stay flat.
-      Ratio at ITERS=100: 79.9×.
-- [ ] **ITERS=1000 on config 0 only, or extrapolate** — 1000 needs ~28 GB;
-      state the extrapolation from the measured 28.0 MB/iteration slope
-      rather than attempting the run.
+      Config 0 growth slope: 28.0 MB/iteration. Ratio at ITERS=100: 79.9×.
+- [x] **ITERS=1000 extrapolation** — stated in §5.7 from the measured
+      28.0 MB/iteration slope. Explicitly not attempted (~28 GB).
 
 ### Experiment 2 (boxed vs region vs scratch)
 
 - [x] Done — configs 0, 1, 2, and 3
 - [x] Wall-clock parity noted in §5.7
-- [x] Check overhead paragraph added — "Check overhead is bounded" in §5.7
+- [x] Check-overhead disclosure rewritten to match the disabled-checks reality
 
-### Experiment 3 (shape specialization)
+### Experiment 3 (shape specialization) — NOT STARTED
 
 - [ ] New benchmark: boxed `Array<Float64>` vs typed `VyneArray_f64` vs
       scratch, same operation (element-wise add or a small matmul)
 - [ ] Measure runtime, instruction count if possible
-- [ ] Write up as §5.8
+- [ ] Write up. **NOTE**: the §5.8 slot is now occupied by Safety Checks;
+      a shape-specialization write-up would need a new section or an
+      appendix. Decision needed: ship without it (declare as future work),
+      or add a short appendix with the numbers.
 
 ### Experiment 4 (safety) — DONE ✓
 
-- [x] `examples/safety/` directory, one `.vy` per case:
-  - [x] `correct_index.vy` — passes
-  - [x] `negative_index.vy` — runtime abort, VNE-072
-  - [x] `too_large_index.vy` — runtime abort, VNE-072
-  - [x] `wrong_index_count.vy` — compile error, VNE-071
-  - [x] `escape_via_assignment.vy` — compile error, VNE-070
-  - [x] `escape_via_member.vy` — compile error, VNE-070
-  - [x] `escape_via_index.vy` — compile error, VNE-070
-  - [x] `boxed_local_in_region.vy` — passes (soundness: check must NOT fire)
-  - [x] `safe_commit.vy` — passes (escape mediated by region.commit)
-  - [x] `nested_region.vy` — passes
-- [x] `run_safety.ps1` — compiles each, asserts pass/fail with expected diagnostic
-- [x] Add `test-safety` target to Makefile (wraps run_safety.ps1)
-- [x] Write up as §5.9 — see Phase 3
-
-**10 passed, 0 failed** on the current tree.
-
-Two planned cases were dropped in favor of more valuable ones:
-
-- `wrong_shape_assign.vy` — dropped; already covered by the VNE-071 rank check
-- `return_from_region.vy` — dropped; primitive-return-from-region is exercised
-  by the classifier and is not the check this suite exists to stress
-
-Two cases were added that were not in the original plan:
-
-- `boxed_local_in_region.vy` — the important one: exercises a `VyneValue`
-  local allocated inside a region whose lifetime ends with the region. If
-  the escape check misfires on this, the whole depth-comparison mechanism
-  in `lookupLocalRegionDepth` is wrong. It doesn't.
-- `safe_commit.vy` — closes the loop on `region.commit` as the sanctioned
-  escape hatch; proves the check accepts the pattern it is supposed to.
+- [x] `examples/safety/` directory, one `.vy` per case (10 files)
+- [x] `run_safety.ps1` — compiles each, asserts pass/fail with diagnostic
+- [x] `test-safety` target in Makefile
+- [x] Written up as §5.8 (was §5.9 before renumber)
+- [x] `boxed_local_in_region.vy` and `safe_commit.vy` added beyond plan
+- **10 passed, 0 failed** on current tree.
 
 ### Comparisons
 
 - [x] **Hand-written C equivalent** — `examples/benchmark/matmul_1024_handc.c`.
-      This is a config-**2** equivalent, not config-3: it uses native `double`
-      arrays on the C stack, matching scratch's storage class, not config 3's
-      boxed `VyneValue` Array. Measured: peak RSS 35.4 MB, checksum 3.47777,
-      wall clock 13.11 / 13.61 / 18.53 s (middle run is a system-noise outlier,
-      same shape as config 2's ITERS=100 variance). Matches Vyne config 2 to
-      within measurement resolution on all three axes.
+      Matches Vyne config 2 on checksum, peak RSS (35.4 vs 35.5 MB), and
+      wall clock.
 - [ ] **NumPy reference** — time and memory for a 100-iteration loop,
-      with and without `out=`
-- [ ] **Footnote in §5.7** — name the ISA/codegen gap; frame the comparison
-      as memory, not speed
+      with and without `out=`. **Decision needed**: never started; either
+      drop from scope or add as an appendix after submission.
+- [x] **§5.7 ISA/codegen footnote** — the "Exposing AVX2 and FMA as an
+      opt-in build mode is straightforward future work and is orthogonal
+      to the memory-model claim" sentence replaces the dead §6.10 pointer.
 
 ---
 
-## Phase 2.5 — Corpus hygiene
+## Phase 2.5 — Corpus hygiene — DONE ✓
 
-- [ ] **Update §5.6 with current classifier numbers.** Still "to be filled in."
-      Post-Phase-0 execution is ~100 ms, not ~38 s. Re-run without `--native`
-      for the portable figure, then fill in the table.
+- [x] **§5.6 with current classifier numbers** — table filled in
+      (99.5% / 0.226304 / 6.4–6.3 MB / 0.12–0.14 s across three configs)
 - [x] **Fix the seed position in ml_seq.vy** — `vmath.seed(42)` above
       "Generating sequences..."
 - [x] **Correct §5.7 config count and numbering** — four-config draft applied
-- [x] **Re-verify the ~11 MB growth-path decomposition in §5.7** — old
-      decomposition was stale; replaced with the measured 28.0 MB/iteration
-      slope decomposition (16.7 MB elements + 11.3 MB overhead/copy)
-- [x] **Delete §6.7 (growth-path reclaim)** — bug is fixed; section describes
-      an unfixed state that no longer exists. Renumber 6.8–6.10 → 6.7–6.9.
-- [ ] **Check `bench.ps1` and record whether ITERS=10 and ITERS=100 runs
-      used `--no-scratch-bounds`.** §5.7's "checks enabled" label and §5.9's
-      "indistinguishable from noise" sentence must match the actual flag.
-      If the benchmark runs used `--no-scratch-bounds`, correct both labels.
+- [x] **Re-verify the growth-path decomposition** — replaced with measured
+      28.0 MB/iteration (16.7 MB elements + 11.3 MB overhead/copy)
+- [x] **Delete §6.7 (growth-path reclaim)** — renumbered 6.8–6.10 → 6.7
+- [x] **Check `bench.ps1` flag** — confirmed `--no-scratch-bounds` was used;
+      §5.7 header and "Identical wall clock" paragraph updated to match
+- [x] **§3.3 cross-ref → §6.7** — verified
+- [x] **§8 cross-ref → §6.7** — verified
+- [x] **§5.7 dead §6.10 reference** — replaced with prose
+
+**Still to fix (typo, non-blocking):**
+
+- [ ] §5.7 "Identical wall clock": "config 2 at ITERS = 100..., where"
+      has a stray `...` — remove.
 
 ---
 
 ## Phase 3 — Paper updates
 
+**All applied except §1 reframing and §7 stack-array paragraph.**
+
 - [x] **Abstract** — 8.7× / 79.9× at 10/100 iterations / identical-checksum
 - [x] **§2.2** — VNE-070 described with soundness gap pointer to §6.4
-- [x] **§3.3** — stack-limit bullet present
+- [x] **§3.3** — stack-limit bullet present; §6.7 cross-ref correct
 - [x] **§4.5** — native scalar ABI documented
-- [x] **§5.7** — four-config tables at ITERS=10 and ITERS=100, updated
-      interpretation, measured growth slope, config-2 variance noted
-- [x] **§5.7 C row** — moved to sit next to config 2 (same storage class),
-      label changed from `hand-written, scratch` to `hand-written, native`
-- [x] **§5.7 C paragraph** — new interpretation paragraph after the config-3
-      discussion; frames the hand-written C as a config-2 equivalent, cites
-      the checksum match, the 0.3% peak-RSS difference, and the wall-clock
-      overlap within noise
-- [x] **§8 C file** — added `examples/benchmark/matmul_1024_handc.c` to
-      Availability with its compile line
+- [x] **§5.4** — SLP-vectorization mechanism with disassembly
+- [x] **§5.6** — training-loop measurements, all three configs
+- [x] **§5.7** — four-config tables at ITERS=10 and ITERS=100, interpretation,
+      measured growth slope, config-2 variance, C-row placement, checks-disabled
+      disclosure, ISA footnote
+- [x] **§5.8 (Safety)** — ten-test table, `boxed_local_in_region` row,
+      verbatim runner output
 - [x] **§6.4** — syntactic check described, full analysis retained as future
-- [ ] **§5.4** — SLP-vectorization mechanism, cite the disassembly
-      (draft has it; verify against actual `gcc -S` output)
-- [ ] **§5.6** — training-loop measurements (post-Phase-0 numbers)
-- [ ] **§5.8** — shape specialization (after Exp 3)
-- [x] **§5.9** — safety; ten-test table, `boxed_local_in_region` row added,
-      verbatim runner output reproduced
-- [ ] **§6.6** — one sentence naming the scratch/storage-class conflation
-- [ ] **§6.7–6.10 renumber** — after deleting the reclaim bug section
-- [ ] **§6.9 (new) — "Cases where manual hoisting does not substitute for
-      a region."** Name the three hard capability gaps: 1. Recursion / reentrancy — a manually-hoisted buffer at file scope
-      or at the top of the recursive function is shared across all
-      dynamic instances. The outer call's contents are clobbered by
-      the inner call's writes. Region/scratch give a fresh buffer per
-      invocation; manual hoisting is not merely inconvenient, it is
-      wrong. 2. Threads — same mechanism in space rather than time. Two threads
-      running the same function cannot share a manually-hoisted global
-      buffer. Region-scoped (stack) buffers are per-thread naturally. 3. Iteration-dependent buffer sizes — a variable-length sequence or
-      ragged batch that needs `Float64[batch_i, K]` with varying
-      `batch_i` cannot be served by a hoisted fixed-size buffer without
-      either wasting memory on small iterations or overflowing on
-      large ones. Arena-backed scratch (a scratch variant not yet
-      built; §6.7 mentions the design pass) would size per iteration.
-      The §5.7 scale experiment does not exercise any of the three, which
-      is why region and hoisted-baseline track each other there. This
-      subsection names the cases where they would diverge, and points to
-      §6.4's automatic scratch promotion as the mechanism that closes the
-      gap when the buffer's lifetime is not statically visible.
-- [ ] **§1 reframing — region and scratch are layered, not parallel.**
-      Current text: "Two constructs... address the problem from opposite
-      directions." Replace with: the region provides the lifetime
-      discipline, scratch provides the storage class, and the region
-      requirement on scratch is what makes scratch's safety story
-      trivial (slot reuse, peak reporting, escape checking, and frame
-      sizing all become tree walks instead of fixpoints). This reframing
-      is the load-bearing claim behind Phase 5's scratch resource-
-      management work; without it, those four capabilities look like
-      four separate features rather than four consequences of one design
-      choice.
+- [x] **§6.6** — "A naming conflation" paragraph appended (storage-class vs.
+      shape conflation)
+- [x] **§6.7 renumber** — done; §6.7 is now the hoisting subsection
+- [x] **§6.7 (new)** — hoisting-gaps subsection: recursion, threads,
+      iteration-dependent buffer sizes, with the `1/8` vs `8/8` capability
+      result
+- [x] **§8 Availability** — benchmark path, hand-written-C path,
+      `recursion_capability.vy`, `--no-scratch-bounds` note
+- [ ] **§1 reframing — layered, not parallel.** Current text still says
+      "Two constructs, described here, address the problem from opposite
+      directions." Replace with the layered framing: region provides
+      lifetime, scratch provides storage class, region-requirement-on-scratch
+      makes shape and escape checks tractable. **This is the load-bearing
+      claim behind Phase 5.**
 - [ ] **§7 Related Work** — paragraph contrasting scratch with `std::array`,
-      `std::inplace_vector`, Rust `[T; N]`, Ada constrained arrays
-- [x] **§8 Availability** — benchmark path, safety suite path, and
-      `--no-scratch-bounds` note present
+      `std::inplace_vector`, Rust `[T; N]`, Ada constrained arrays.
+      Two to three sentences.
 
 ---
 
 ## Phase 4 — The design fix — RECOMMENDATION: DO NOT DO THIS WEEK
-
-The minimal version is the §6.6 sentence. The full version is a paper-sized
-project. Middle path (shape-typed signatures) is 3–5 days and competes with
-Futhark/SaC on an axis you haven't measured on yet.
 
 - [ ] (Deferred) Shape-typed function signatures
 - [ ] (Deferred) Scratch as a value of a shape type
 - [ ] (Deferred) Composability demo
 - [ ] (Deferred) §4.3, §4.6, §6.6 updates
 
-**Honest recommendation unchanged: write §6.6 as future work, ship the
-memory-model paper, save shape types for Paper 3.**
+**Honest recommendation unchanged: ship the memory-model paper. Save shape
+types for Paper 3.**
 
 ---
 
@@ -261,43 +201,31 @@ memory-model paper, save shape types for Paper 3.**
 - Region-aware FFI
 - Activation checkpointing as a language primitive
 
-**Region-vs-hoisting capability benchmark** (new; the empirical backing for
-the §6.9 subsection):
+**Region-vs-hoisting capability benchmark — DONE ✓**
 
-- Recursive function allocating a scratch buffer per call, recursing to
-  depth N. Two configs:
-  - A: buffer hoisted to file scope (or to the top of the recursive
-    function). Produces wrong results — outer-level contents clobbered
-    by the inner call.
-  - B: buffer declared scratch inside the function. Produces correct
-    results, peak RSS flat per recursion level.
-- This is a _capability_ demonstration, not a memory-footprint one. Its
-  purpose is to show that region/scratch are not a stylistic alternative
-  to manual hoisting but the correct construct in cases where hoisting
-  does not apply.
-- Optional extension: threaded version with two workers on the same
-  recursive function. Config A races; config B is thread-safe by
-  construction (each thread's buffer is on its own stack).
+- [x] Recursive function, two configs (hoisted vs. scratch), depth 8
+- [x] Result: 1/8 vs 8/8. §6.7 in the paper.
+- [x] File: `examples/benchmark/recursion_capability.vy`
+- [ ] (Optional) Threaded version with two workers. Not required for this
+      paper.
 
 ---
 
-## The recommended order from here
+## Remaining work, in order
 
-1. ~~Phase 0~~ — done.
-2. ~~Phase 1 (safety)~~ — done.
-3. ~~ITERS=10 on all four configs~~ — done.
-4. ~~ITERS=100 on all four configs~~ — done. §5.7's memory-model claim is
-   now backed by measurements at both ends of the range.
-5. ~~Check the `--no-scratch-bounds` label consistency~~ — pending, still
-   the first thing to do (affects §5.7 and §5.9 wording).
-6. ~~Hand-written C comparison~~ — done. §5.7 now compares Vyne against
-   hand-written C, not just against itself.
-7. **§5.6 classifier numbers** — re-run without `--native`, fill in the table.
-8. **§6.9 write-up** — the hoisting-gaps subsection.
-9. **§1 reframing** — layered, not parallel.
-10. **Delete §6.7, renumber §6.8–6.10** — paper hygiene.
+1. **§1 reframing** — replace the "opposite directions" sentence with the
+   layered framing. Two to three sentences. Ten minutes.
+2. **§7 stack-array paragraph** — contrast scratch with `std::array`,
+   `std::inplace_vector`, `[T; N]`, Ada constrained arrays. Three
+   sentences. Ten minutes.
+3. **§5.7 stray `...` typo** — remove. One minute.
+4. **Decide on Experiment 3 / §5.8 slot.** Recommendation: leave
+   shape specialization as future work; do not write it into this paper.
+   Note in §6.6 as a natural extension if you want.
+5. **Decide on NumPy reference.** Recommendation: drop for this paper.
 
-Do not start Phase 4. Do not chase cuBLAS or GPU support. Finish the paper.
+Steps 1–3 are the only edits standing between the current draft and a
+submittable state. Steps 4–5 are scope decisions.
 
 ---
 
@@ -305,20 +233,22 @@ Do not start Phase 4. Do not chase cuBLAS or GPU support. Finish the paper.
 
 - Phase 0: `Fix parser, emitter, and runtime bugs; add native-target flag` ← **READY**
 - Phase 1: `Add scratch bounds checking and syntactic region escape checks` ← **READY**
-- Phase 2 (partial): `Add hoisted baseline; measure four-config matmul at ITERS=10 with checks enabled` ← **READY**
-- Phase 2 (complete): `Complete benchmark suite: 4 configs, 4 experiments, safety tests; measure ITERS=100`
-- Phase 3: `Paper updates for §5.6–§5.9, §6.6–§6.9, §7`
-- Phase 4 (if done): `Shape-typed scratch: types, ABI, composability demo`
+- Phase 2 (partial): `Add hoisted baseline; measure four-config matmul` ← **READY**
+- Phase 2 (complete): `Complete benchmark suite; measure ITERS=100; add recursion capability demo`
+- Phase 3 (partial): `Fill §5.6; add §6.6 conflation; add §6.7 hoisting-gaps; renumber §5.8/§6.7` ← **READY**
+- Phase 3 (final): `Reframe §1; expand §7 Related Work`
 
 ---
 
-**Current single most important item: the `--no-scratch-bounds` label check.**
-Fifteen minutes. It determines whether §5.7's "checks are indistinguishable
-from noise" sentence is true or has to be rewritten as a cost disclosure.
-§5.7 is otherwise complete — the C row is in the table, the interpretation
-paragraph is written, §8 names the file — so this is the last thing standing
-between §5.7 and frozen.
+## Status summary
 
-**Then: §5.6 classifier numbers, §6.9 hoisting-gaps, §1 reframing, §6.7
-renumber.** All four are paper edits, none require running code. Do them in
-one sitting and the draft is submission-ready.
+**Phases 0–2.5: complete.** Four-config matmul at ITERS=10 and ITERS=100,
+classifier at three configurations, safety suite at 10 tests, recursion
+capability demo at 1/8 vs 8/8, hand-written C at 0.3% peak-RSS parity.
+
+**Phase 3: 90% complete.** Two prose edits open (§1, §7). One typo.
+
+**Phases 4–5: correctly deferred.**
+
+**Paper is submittable after §1, §7, and the typo. Estimated effort:
+25 minutes.**
