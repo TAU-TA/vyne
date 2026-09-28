@@ -3,7 +3,7 @@ ruleset {
 };
 
 use lib "vcolors.vy";
-use lib "vlinalg/vlinalg.vy";
+use lib "vlin/vlin.vy";
 module vmath;
 
 # ======================================================================
@@ -30,14 +30,14 @@ fn rand_uniform(lo :: Float64, hi :: Float64) -> Float64 {
 }
 
 fn forward(X_in, W1, b1, W2, b2, W3, b3) -> Array {
-    A1 = vlinalg.apply_tanh(vlinalg.add_bias(vlinalg.multiply(X_in, W1), b1));
-    A2 = vlinalg.apply_tanh(vlinalg.add_bias(vlinalg.multiply(A1,   W2), b2));
-    A3 = vlinalg.apply_sigmoid(vlinalg.add_bias(vlinalg.multiply(A2, W3), b3));
+    A1 = vlin.apply_tanh(vlin.add_bias(vlin.multiply(X_in, W1), b1));
+    A2 = vlin.apply_tanh(vlin.add_bias(vlin.multiply(A1,   W2), b2));
+    A3 = vlin.apply_sigmoid(vlin.add_bias(vlin.multiply(A2, W3), b3));
     return [A1, A2, A3];
 }
 
-fn accuracy(Y :: vlinalg.Types.Matrix,
-            A3 :: vlinalg.Types.Matrix,
+fn accuracy(Y :: vlin.Types.Matrix,
+            A3 :: vlin.Types.Matrix,
             n :: Int64) -> Float64 {
     correct = 0;
     through i :: 0..n-1 -> loop {
@@ -109,21 +109,21 @@ out("  class 1 (inside)  : " + string(n_pos));
 out("  class 0 (outside) : " + string(n_neg));
 out("");
 
-X = vlinalg.Types.Matrix(N_POINTS, 2, X_data);
-Y = vlinalg.Types.Matrix(N_POINTS, 1, Y_data);
+X = vlin.Types.Matrix(N_POINTS, 2, X_data);
+Y = vlin.Types.Matrix(N_POINTS, 1, Y_data);
 
 # ======================================================================
 # WEIGHTS — 2 -> 10 -> 10 -> 1, tanh hidden, sigmoid output
 # ======================================================================
-W1 = vlinalg.xavier_init(2, HIDDEN);
+W1 = vlin.xavier_init(2, HIDDEN);
 b1 :: Array = [];
 through j :: 0..HIDDEN-1 -> loop { b1.push(0.0); };
 
-W2 = vlinalg.xavier_init(HIDDEN, HIDDEN);
+W2 = vlin.xavier_init(HIDDEN, HIDDEN);
 b2 :: Array = [];
 through j :: 0..HIDDEN-1 -> loop { b2.push(0.0); };
 
-W3 = vlinalg.xavier_init(HIDDEN, 1);
+W3 = vlin.xavier_init(HIDDEN, 1);
 b3 :: Array = [0.0];
 
 # ======================================================================
@@ -132,7 +132,7 @@ b3 :: Array = [0.0];
 scale = LR / float64(N_POINTS);
 
 h0    = forward(X, W1, b1, W2, b2, W3, b3);
-loss0 = vlinalg.cross_entropy(h0[2], Y);
+loss0 = vlin.cross_entropy(h0[2], Y);
 
 out(vcolors.bold("Training:"));
 out("  initial loss  " + string(loss0));
@@ -148,17 +148,17 @@ through epoch :: 1..EPOCHS -> loop {
     A3 = h[2];
 
     # ---- backprop ----
-    delta3 = vlinalg.subtract(A3, Y);
-    dW3    = vlinalg.multiply(vlinalg.transpose(A2), delta3);
+    delta3 = vlin.subtract(A3, Y);
+    dW3    = vlin.multiply(vlin.transpose(A2), delta3);
 
     db3 = 0.0;
     through r :: 0..N_POINTS-1 -> loop { db3 = db3 + delta3.data[r][0]; };
 
-    delta2 = vlinalg.hadamard(
-        vlinalg.multiply(delta3, vlinalg.transpose(W3)),
-        vlinalg.tanh_prime(A2)
+    delta2 = vlin.hadamard(
+        vlin.multiply(delta3, vlin.transpose(W3)),
+        vlin.tanh_prime(A2)
     );
-    dW2 = vlinalg.multiply(vlinalg.transpose(A1), delta2);
+    dW2 = vlin.multiply(vlin.transpose(A1), delta2);
 
     db2 :: Array = [];
     through c :: 0..HIDDEN-1 -> loop {
@@ -167,11 +167,11 @@ through epoch :: 1..EPOCHS -> loop {
         db2.push(s);
     };
 
-    delta1 = vlinalg.hadamard(
-        vlinalg.multiply(delta2, vlinalg.transpose(W2)),
-        vlinalg.tanh_prime(A1)
+    delta1 = vlin.hadamard(
+        vlin.multiply(delta2, vlin.transpose(W2)),
+        vlin.tanh_prime(A1)
     );
-    dW1 = vlinalg.multiply(vlinalg.transpose(X), delta1);
+    dW1 = vlin.multiply(vlin.transpose(X), delta1);
 
     db1 :: Array = [];
     through c :: 0..HIDDEN-1 -> loop {
@@ -181,9 +181,9 @@ through epoch :: 1..EPOCHS -> loop {
     };
 
     # ---- update ----
-    W1 = vlinalg.subtract(W1, vlinalg.multiply_scalar(dW1, scale));
-    W2 = vlinalg.subtract(W2, vlinalg.multiply_scalar(dW2, scale));
-    W3 = vlinalg.subtract(W3, vlinalg.multiply_scalar(dW3, scale));
+    W1 = vlin.subtract(W1, vlin.multiply_scalar(dW1, scale));
+    W2 = vlin.subtract(W2, vlin.multiply_scalar(dW2, scale));
+    W3 = vlin.subtract(W3, vlin.multiply_scalar(dW3, scale));
 
     through c :: 0..HIDDEN-1 -> loop {
         b1[c] = b1[c] - scale * db1[c];
@@ -193,7 +193,7 @@ through epoch :: 1..EPOCHS -> loop {
 
     # ---- progress ----
     if epoch % PRINT_EVERY == 0 {
-        lossN = vlinalg.cross_entropy(A3, Y);
+        lossN = vlin.cross_entropy(A3, Y);
         acc   = accuracy(Y, A3, N_POINTS);
         out("  " + pad_left(string(epoch), 5) + "/" + string(EPOCHS)
             + "  loss " + string(lossN)
@@ -224,7 +224,7 @@ through r :: 0..ROWS-1 -> loop {
         grid.push([gx, gy]);
     };
 };
-G = vlinalg.Types.Matrix(ROWS * COLS, 2, grid);
+G = vlin.Types.Matrix(ROWS * COLS, 2, grid);
 
 hG  = forward(G, W1, b1, W2, b2, W3, b3);
 A3G = hG[2];

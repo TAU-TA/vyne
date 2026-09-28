@@ -74,9 +74,7 @@ void ImportNode::compile(C_Emitter& e) const {
     }
 
     if (alias.empty()) {
-        for (const auto& stmt : externalAst->statements) {
-            if (stmt) stmt->compile(e);
-        }
+        externalAst->compile(e);
     } else {
         e.registerGroup(alias);
         e.pushGlobalContext();
