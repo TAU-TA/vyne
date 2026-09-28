@@ -58,10 +58,54 @@ void ReturnNode::compile(C_Emitter& e) const {
         VType retVT = e.getNativeReturnType().toVType();
         std::string raw = expression ? expression->getCExpr(e) : "vyne_null()";
         std::string native = coerceToNative(e, expression.get(), raw, retVT);
-        e.emitRegionUnwind();
+        if (e.hasRegion()) {
+            e.emit("vmem_runtime_pop_checkpoints(" +
+            std::to_string(e.getRegionStack().size()) + ");");
+        } else {
+            e.emitRegionUnwind();   // no-op if stack is empty anyway
+        }
         e.emit("return " + native + ";");
         return;
     }
+
+    // --- Native Array<T> return -------------------------------------
+    // A native variant declared to return Array<Float64> or Array<Int64>
+    // emits a C function whose return type is VyneArray_f64 / VyneArray_i64.
+    // The body, however, was lowered by AssignmentNode::compile, which does
+    // not yet know that the enclosing function is a native-array producer —
+    // it produces a boxed VyneValue. Convert at the return boundary using
+    // the same runtime helper MemberAccessNode uses to unbox Array<Float64>
+    // fields on a struct. If the expression already has a typed-array
+    // CType in the emitter's table, pass it through unchanged.
+    {
+        const CType& retCt = e.getNativeReturnType();
+        if (retCt.kind == CType::Kind::Array && !retCt.args.empty()) {
+            VType elem = retCt.args[0].toVType();
+            std::string raw = expression
+                ? expression->getCExpr(e)
+                : "vyne_array_create(0)";
+
+            const CType* got = e.lookupType(raw);
+            std::string native;
+            if (got && got->kind == CType::Kind::Array &&
+                !got->args.empty() &&
+                got->args[0].toVType() == elem) {
+                // Already a typed container — use it directly.
+                native = raw;
+            } else {
+                // Boxed VyneValue — unbox at the ABI boundary.
+                const char* fn = (elem == VType::Float64)
+                    ? "vyne_value_to_array_f64"
+                    : "vyne_value_to_array_i64";
+                native = std::string(fn) + "(" + e.boxAny(raw) + ")";
+            }
+
+            e.emitRegionUnwind();
+            e.emit("return " + native + ";");
+            return;
+        }
+    }
+    // --- end native Array<T> return ---------------------------------
 
     std::string expr = expression ? e.boxAny(expression->getCExpr(e))
                                   : "vyne_null()";

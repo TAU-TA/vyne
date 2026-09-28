@@ -127,8 +127,16 @@ static void emitNativeFunctionBody(
     for (size_t i = 0; i < parameters.size(); ++i) {
         if (i > 0) paramList += ", ";
         std::string pName = "v_" + nativeName + "_" + parameters[i].name;
-        CType pt = CType::fromVType(parameters[i].type);
-        paramList += pt.cTypeName() + " " + pName;
+
+        if (parameters[i].type == VType::Array &&
+            parameters[i].arrayElemType != VType::Unknown) {
+            VType elem = parameters[i].arrayElemType;
+            std::string elemC = (elem == VType::Float64) ? "double" : "int64_t";
+            paramList += elemC + "* " + pName;
+        } else {
+            CType pt = CType::fromVType(parameters[i].type);
+            paramList += pt.cTypeName() + " " + pName;
+        }
     }
 
     e.emitGlobalDecl(retCName + " fn_" + nativeName +
@@ -213,6 +221,10 @@ void FunctionNode::compile(C_Emitter& e) const {
 
         if (const std::string* nv = e.lookupNativeVariant(nativeMangled)) {
             CType retCt = CType::fromVType(returnType);
+            if (returnType == VType::Array &&
+                getReturnArrayElemType() != VType::Unknown) {
+                retCt.args.push_back(CType::fromVType(getReturnArrayElemType()));
+            }
             emitNativeFunctionBody(e, parameters, body, *nv, retCt);
         }
     }
