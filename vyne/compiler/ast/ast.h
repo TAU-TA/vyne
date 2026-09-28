@@ -797,6 +797,10 @@ public:
     Value evaluate(SymbolContainer& env, uint32_t currentGroupId) const override;
     void compile(C_Emitter& e) const override;
     std::string getCExpr(C_Emitter& e) const override;
+
+    const ASTNode* getBase()  const { return base.get();  }
+    const ASTNode* getIndex() const { return index.get(); }
+
     std::unique_ptr<ASTNode> takeBase() { return std::move(base); }
     std::unique_ptr<ASTNode> takeIndex() { return std::move(index); }
 };
