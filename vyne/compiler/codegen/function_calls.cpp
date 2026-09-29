@@ -117,75 +117,13 @@ std::string FunctionCallNode::getCExpr(C_Emitter& e) const {
     std::replace(mangledName.begin(), mangledName.end(), '.', '_');
 
     // ----------------------------------------------------------------
-    // Native-variant dispatch. Fires only when the callee has a native
-    // variant AND every argument's static type matches the parameter
-    // (Int64 → Float64 widening permitted). Otherwise the boxed path
-    // below runs unchanged.
+    // Native-variant dispatch. Same helper the group-call path uses;
+    // see codegen/native_dispatch.cpp for the full doc.
     // ----------------------------------------------------------------
-    {
-        const std::string* nativeName = e.lookupNativeVariant(mangledName);
-        const std::vector<CType>* paramTypes =
-            e.getFunctionParamTypes(originalName);
-        const CType* retCt = e.getFunctionReturnType(originalName);
-
-        bool retIsNative = retCt && (retCt->isPrimitive() ||
-                             (retCt->kind == CType::Kind::Array &&
-                              !retCt->args.empty()));
-
-        if (nativeName && paramTypes && retIsNative &&
-            paramTypes->size() == orderedArgs.size())
-        {
-            bool allMatch = true;
-
-            for (size_t i = 0; i < orderedArgs.size(); ++i) {
-                const CType& want = (*paramTypes)[i];
-
-                if (want.kind == CType::Kind::Array && !want.args.empty()) {
-                    // Array-typed param: the argument must be a typed array
-                    // with a matching element kind. If it's a boxed Array,
-                    // fall through to the boxed call.
-                    const CType* have = argCTypes[i];
-                    if (!have || have->kind != CType::Kind::Array ||
-                        have->args.empty() ||
-                        have->args[0].toVType() != want.args[0].toVType()) {
-                        allMatch = false; break;
-                    }
-                } else {
-                    VType wantVT = want.toVType();
-                    bool ok = (argVTypes[i] == wantVT) ||
-                            (wantVT == VType::Float64 && argVTypes[i] == VType::Int64);
-                    if (!ok) { allMatch = false; break; }
-                }
-            }
-
-            if (allMatch) {
-                std::string argList;
-                for (size_t i = 0; i < orderedArgs.size(); ++i) {
-                    if (i > 0) argList += ", ";
-                    const CType& want = (*paramTypes)[i];
-
-                    if (want.kind == CType::Kind::Array && !want.args.empty()) {
-                        argList += argCExprs[i] + ".data";
-                    } else {
-                        argList += coerceToNative(e, orderedArgs[i], argCExprs[i],
-                                                want.toVType());
-                    }
-                }
-                std::string nret = e.newTemp("nret");
-                std::string nretCName;
-                if (retCt->kind == CType::Kind::Array && !retCt->args.empty()) {
-                    VType elem = retCt->args[0].toVType();
-                    nretCName = (elem == VType::Float64)
-                        ? "VyneArray_f64" : "VyneArray_i64";
-                } else {
-                    nretCName = retCt->cTypeName();
-                }
-                e.emit(nretCName + " " + nret + " = fn_" +
-                    *nativeName + "(" + argList + ");");
-                e.declareNativeTemp(nret, *retCt);
-                return nret;
-            }
-        }
+    if (auto nativeResult = tryEmitNativeCall(
+            e, mangledName, originalName,
+            orderedArgs, argCExprs, argVTypes, argCTypes)) {
+        return *nativeResult;
     }
 
     // ----------------------------------------------------------------

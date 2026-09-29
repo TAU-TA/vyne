@@ -171,3 +171,12 @@ std::optional<std::string> tryEmitBlasCall(
     const std::string& recvPath,
     const std::string& methodName,
     const std::vector<std::unique_ptr<ASTNode>>& arguments);
+    
+std::optional<std::string> tryEmitNativeCall(
+    C_Emitter& e,
+    const std::string& mangledCallee,
+    const std::string& lookupName,
+    const std::vector<ASTNode*>& orderedArgs,
+    const std::vector<std::string>& argCExprs,
+    const std::vector<VType>& argVTypes,
+    const std::vector<const CType*>& argCTypes);
