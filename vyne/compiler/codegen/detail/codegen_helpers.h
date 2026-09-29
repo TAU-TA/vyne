@@ -165,3 +165,9 @@ static VType resolveRHSKind(C_Emitter& e, const ASTNode* rhs) {
 
     return VType::Unknown;
 }
+
+std::optional<std::string> tryEmitBlasCall(
+    C_Emitter& e,
+    const std::string& recvPath,
+    const std::string& methodName,
+    const std::vector<std::unique_ptr<ASTNode>>& arguments);

@@ -19,21 +19,23 @@ monolithic `codegen.cpp` alongside these files: that duplicates definitions.
 - `native_maps.h`: native function metadata.
 - `linker.h/.cpp`: import graph ordering; separate from AST-to-C lowering.
 
-| Source | Responsibility |
-|---|---|
-| `literals.cpp` | Number/string/bool/null |
-| `assignments.cpp` | Variables, assignment and native initialization |
-| `operators.cpp` | Binary, unary and postfix |
-| `control_flow.cpp`, `loops.cpp` | Branches, returns, loops |
-| `functions.cpp`, `function_calls.cpp` | Definitions and calls |
-| `collections.cpp` | Arrays, indexing, ranges, slicing |
-| `builtins.cpp` | Built-in calls |
-| `program.cpp` | Program, block, ternary |
-| `members.cpp`, `interfaces.cpp`, `method_calls.cpp` | Fields and methods |
-| `groups_modules.cpp`, `imports.cpp` | Groups, modules, imports |
-| `language_features.cpp` | Enums, defer, lifecycle, coalescing, membership, pipeline |
-| `exceptions.cpp`, `regions.cpp` | Exception and region constructs |
-| `maps_strings_scratch.cpp` | Maps, interpolation, scratch arrays |
+| Source                                              | Responsibility                                            |
+| --------------------------------------------------- | --------------------------------------------------------- |
+| `literals.cpp`                                      | Number/string/bool/null                                   |
+| `assignments.cpp`                                   | Variables, assignment and native initialization           |
+| `blas.cpp`                                          | BLAS lowering for `vlin.multiply` under `--blas`          |
+| `builtins.cpp`                                      | Built-in calls                                            |
+| `operators.cpp`                                     | Binary, unary and postfix                                 |
+| `control_flow.cpp`, `loops.cpp`                     | Branches, returns, loops                                  |
+| `functions.cpp`, `function_calls.cpp`               | Definitions and calls                                     |
+| `collections.cpp`                                   | Arrays, indexing, ranges, slicing                         |
+| `builtins.cpp`                                      | Built-in calls                                            |
+| `program.cpp`                                       | Program, block, ternary                                   |
+| `members.cpp`, `interfaces.cpp`, `method_calls.cpp` | Fields and methods                                        |
+| `groups_modules.cpp`, `imports.cpp`                 | Groups, modules, imports                                  |
+| `language_features.cpp`                             | Enums, defer, lifecycle, coalescing, membership, pipeline |
+| `exceptions.cpp`, `regions.cpp`                     | Exception and region constructs                           |
+| `maps_strings_scratch.cpp`                          | Maps, interpolation, scratch arrays                       |
 
 ## Invariants when extending codegen
 

@@ -138,6 +138,9 @@ std::string MethodCallNode::getCExpr(C_Emitter& e) const {
     // Group call: module.add(...) / module.sub.method(...)
     // ----------------------------------------------------------------
     if (!recvPath.empty() && e.isGroup(recvPath)) {
+        if (auto blas = tryEmitBlasCall(e, recvPath, methodName, arguments)) {
+            return *blas;
+        }
         int argSize = (int)arguments.size();
         std::string argArr = e.newTemp("g_args");
 

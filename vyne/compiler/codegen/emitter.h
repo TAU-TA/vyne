@@ -16,6 +16,8 @@ class C_Emitter {
     std::stringstream functionStream;
     std::stringstream mainStream;
     std::unordered_set<std::string> includeSet;
+    std::unordered_set<std::string> systemIncludes;
+
     int indentLevel = 0;
     enum class EmitContext { GLOBAL, FUNCTION, MAIN };
     std::vector<EmitContext> contextStack;
@@ -94,6 +96,7 @@ class C_Emitter {
     std::unordered_set<std::string> committedVars;
 
     bool scratchBoundsEnabled = true;
+    bool blasEnabled          = false;
 
     int tempVarCount = 0;
 
@@ -317,6 +320,11 @@ public:
         return prefix + "_" + std::to_string(tempVarCount++);
     }
     void addInclude(const std::string& header) { includeSet.insert(header); }
+    void addSystemInclude(const std::string& header) { systemIncludes.insert(header); }
+
+    void setBlasEnabled(bool v) { blasEnabled = v; }
+    bool isBlasEnabled() const { return blasEnabled; }
+    
 
     // --- M4-C1B: interface field typing ---------------------------------
     void registerInterfaceArrayField(const std::string& iface,
@@ -513,6 +521,8 @@ public:
         out << "#include \"" << runtimeHeader << "\"\n";
         for (const auto& inc : includeSet)
             out << "#include \"" << inc << "\"\n";
+        for (const auto& inc : systemIncludes)
+            out << "#include <" << inc << ">\n";
         out << "\n";
 
         std::string globals = globalsStream.str();
@@ -544,6 +554,7 @@ public:
         functionStream.str(""); functionStream.clear();
         mainStream.str("");     mainStream.clear();
         includeSet.clear();
+        systemIncludes.clear();
         interfaceDefaults.clear();
         contextStack.clear();
         groupPrefix.clear();
@@ -560,6 +571,7 @@ public:
         regionStack.clear(); 
         committedVars.clear();
         scratchBoundsEnabled = true;
+        blasEnabled          = false;
         currentReturnVar.clear();
         currentReturningVar.clear();
         localScopes.clear();
