@@ -5,22 +5,54 @@
 // Two pieces live here:
 //
 //   1. The `#ifdef VYNE_USE_OPENBLAS` gate around <cblas.h>. Without the
-//      define, this header is a no-op and the runtime builds with no BLAS
-//      dependency at all.
+//      define, this header is a no-op for the matmul lowering but still
+//      provides a no-op `vyne_blas_invalidate_cache` so that vmem.h's
+//      rewind path links.
 //
 //   2. `vyne_blas_matmul`, the single runtime function that any BLAS-
-//      dispatched matmul call lowers to. The compiler emits a call to this
-//      function; the function does the field extraction, calls cblas_dgemm,
-//      and wraps the result in a fresh struct.
-//
-// Included at the end of vyne_runtime.h, after the entire runtime chain has
-// been processed — so VyneStruct, VyneField, vyne_struct_get, and every
-// other helper used below is already in scope. Do not reorder this include
-// ahead of exceptions.h in vyne_runtime.h.
+//      dispatched matmul call lowers to.
 // ============================================================================
+
+// Unconditional declaration. vmem.h calls this from its rewind path
+// regardless of whether BLAS is enabled, so the symbol has to exist
+// in both builds.
+static inline void vyne_blas_invalidate_cache(void);
 
 #ifdef VYNE_USE_OPENBLAS
   #include <cblas.h>
+
+// ============================================================================
+// Unbox cache
+// ----------------------------------------------------------------------------
+// Every vlin op passes A.data and B.data as boxed VyneValues, and unboxing
+// them copies 1M elements. In a hot loop the operands don't change, so we
+// cache the unboxed result keyed on the boxed array's element pointer.
+//
+// Safety: the cache is valid only while the boxed operand's storage is
+// alive. In general, a region rewind can free A's backing store and a
+// subsequent allocation at the same address would false-hit. Call
+// `vyne_blas_invalidate_cache()` from any rewind that could free an
+// operand — vmem.h already does.
+// ============================================================================
+static const void*   _vyne_blas_a_key   = NULL;
+static VyneArray_f64 _vyne_blas_a_cache;
+static const void*   _vyne_blas_b_key   = NULL;
+static VyneArray_f64 _vyne_blas_b_cache;
+
+static inline void vyne_blas_invalidate_cache(void) {
+    _vyne_blas_a_key = NULL;
+    _vyne_blas_b_key = NULL;
+}
+
+static inline VyneArray_f64 _vyne_blas_unbox_cached(
+    VyneValue v, const void** key, VyneArray_f64* cache)
+{
+    if (v.type != V_ARRAY) return vyne_array_f64_create(0);
+    if (v.as.arr->elements == *key) return *cache;
+    *key   = v.as.arr->elements;
+    *cache = vyne_value_to_array_f64(v);
+    return *cache;
+}
 
 // Extract dimensions and data pointers from two structs with the given
 // field IDs, run cblas_dgemm into a freshly allocated output buffer, and
@@ -28,11 +60,6 @@
 //
 // transpose_b = 0  →  C = A · B      ldb = N
 // transpose_b = 1  →  C = A · Bᵀ     ldb = K
-//
-// Row-major throughout. The three field-name strings written into the
-// result struct are cosmetic — `vyne_struct_get` searches by ID, and the
-// result is always constructed fresh, so only the IDs have to match the
-// caller's Matrix layout.
 static inline VyneValue vyne_blas_matmul(
     VyneValue a, VyneValue b,
     const char* type_name,
@@ -45,8 +72,10 @@ static inline VyneValue vyne_blas_matmul(
         ? vyne_struct_get(b, fid_row).as.i64
         : vyne_struct_get(b, fid_col).as.i64;
 
-    VyneArray_f64 a_data = vyne_value_to_array_f64(vyne_struct_get(a, fid_data));
-    VyneArray_f64 b_data = vyne_value_to_array_f64(vyne_struct_get(b, fid_data));
+    VyneArray_f64 a_data = _vyne_blas_unbox_cached(
+        vyne_struct_get(a, fid_data), &_vyne_blas_a_key, &_vyne_blas_a_cache);
+    VyneArray_f64 b_data = _vyne_blas_unbox_cached(
+        vyne_struct_get(b, fid_data), &_vyne_blas_b_key, &_vyne_blas_b_cache);
     VyneArray_f64 out    = vyne_array_f64_create(M * N);
 
     int64_t ldb = transpose_b ? K : N;
@@ -78,5 +107,13 @@ static inline VyneValue vyne_blas_matmul(
     res.as.strct = s;
     return res;
 }
+
+#else
+
+// BLAS not compiled in. The invalidate hook is a no-op so that vmem.h's
+// rewind path links against any build. `vyne_blas_matmul` is not defined;
+// the compiler-side dispatcher only emits calls to it under --blas, so no
+// generated C needs the symbol when the flag is off.
+static inline void vyne_blas_invalidate_cache(void) { }
 
 #endif // VYNE_USE_OPENBLAS

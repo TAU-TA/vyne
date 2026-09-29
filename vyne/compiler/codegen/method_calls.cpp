@@ -210,13 +210,11 @@ std::string MethodCallNode::getCExpr(C_Emitter& e) const {
     // map methods on a runtime value.
     // ----------------------------------------------------------------
     std::string recvRaw = receiver->getCExpr(e);
-    std::string recv = e.newTemp("m_recv");
-    e.emit("VyneValue " + recv + " = " + e.boxAny(recvRaw) + ";");
 
-    // Array methods
+    // Array methods: push — try the typed-array fast path BEFORE boxing
+    // the receiver. The old order boxed unconditionally, which put a
+    // vyne_array_f64_to_value(...) call inside every push loop.
     if (methodName == "push") {
-        // Typed array fast path: use vyne_array_f64_push / _i64_push,
-        // no per-element boxing.
         const CType* rt = e.lookupType(recvRaw);
         if (rt && rt->kind == CType::Kind::Array && !rt->args.empty()) {
             VType elem = rt->args[0].toVType();
@@ -229,13 +227,19 @@ std::string MethodCallNode::getCExpr(C_Emitter& e) const {
             }
             return recvRaw;
         }
-        // Boxed fallback — unchanged.
+        // Boxed fallback — box the receiver only on this path.
+        std::string recvBoxed = e.newTemp("m_recv");
+        e.emit("VyneValue " + recvBoxed + " = " + e.boxAny(recvRaw) + ";");
         for (const auto& argNode : arguments) {
-            e.emit("vyne_array_push(" + recv + ", " +
+            e.emit("vyne_array_push(" + recvBoxed + ", " +
                 e.boxAny(argNode->getCExpr(e)) + ");");
         }
-        return recv;
+        return recvBoxed;
     }
+
+    // Every branch below needs a boxed receiver — box it once, here.
+    std::string recv = e.newTemp("m_recv");
+    e.emit("VyneValue " + recv + " = " + e.boxAny(recvRaw) + ";");
     if (methodName == "pop") {
         std::string temp = e.newTemp("pop");
         e.emit("VyneValue " + temp + " = vyne_array_pop(" + recv + ");");

@@ -447,44 +447,79 @@ void AssignmentNode::compile(C_Emitter& e) const {
     if (!e.isLocalDeclared(varName)) {
         CType declared = CType::fromVType(expectedType);
 
-        if (isDeclaration && declared.kind == CType::Kind::Array) {
-            VType elem = inferArrayElemType(rhs.get());
-            if (elem != VType::Unknown) {
-                std::string val = rhs->getCExpr(e);
-                const CType* rt = e.lookupType(val);
-                if (rt && rt->kind == CType::Kind::Array && !rt->args.empty()) {
-                    CType arrType;
-                    arrType.kind = CType::Kind::Array;
-                    arrType.args.push_back(CType::fromVType(elem));
-                    e.declareLocal(varName, arrType);
-                    e.emit(CType::arrayContainerName(elem) + " " + varName +
-                           " = " + val + ";");
-                    return;
-                }
-                // RHS didn't materialize as a typed array — box it.
-                e.registerDeclaration(varName);
-                e.emit("VyneValue " + varName + " = " +
-                       e.boxAny(val)+ ";");
+        // Empty array literal fast path stays first — it must NOT call
+        // rhs->getCExpr(), which would box the empty literal.
+        if (isDeclaration && declared.kind == CType::Kind::Array &&
+            rhs->type() == NodeType::ARRAY) {
+            auto* arrRhs = static_cast<const ArrayNode*>(rhs.get());
+            if (arrRhs->getElements().empty()) {
+                VType elem = getArrayElemType();
+                if (elem == VType::Unknown) elem = VType::Float64;
+                std::string ctor = (elem == VType::Float64)
+                    ? "vyne_array_f64_create"
+                    : "vyne_array_i64_create";
+                CType arrType;
+                arrType.kind = CType::Kind::Array;
+                arrType.args.push_back(CType::fromVType(elem));
+                e.declareLocal(varName, arrType);
+                e.emit(CType::arrayContainerName(elem) + " " + varName +
+                       " = " + ctor + "(0);");
                 return;
             }
         }
 
+        // Emit the RHS once. Its CType tells us what we actually got —
+        // a typed array from a native-dispatching call, a primitive, or
+        // a boxed VyneValue.
+        std::string val = rhs->getCExpr(e);
+        const CType* rt = e.lookupType(val);
+
+        // (A) Typed-array RHS: keep the variable typed so downstream
+        //     native dispatch sees the right CType. Annotation is
+        //     preferred but not required — the RHS's own CType is
+        //     authoritative.
+        if (rt && rt->kind == CType::Kind::Array && !rt->args.empty()) {
+            VType elem = rt->args[0].toVType();
+            if (elem == VType::Float64 || elem == VType::Int64) {
+                CType arrType = *rt;
+                e.declareLocal(varName, arrType);
+                e.emit(CType::arrayContainerName(elem) + " " + varName +
+                       " = " + val + ";");
+                return;
+            }
+        }
+
+        // (B) Primitive declaration with annotation.
         if (isDeclaration && declared.isPrimitive()) {
-            std::string val = rhs->getCExpr(e);
             std::string init = nativeInit(e, rhs.get(), val, declared);
             e.declareLocal(varName, declared);
             e.emit(declared.cTypeName() + " " + varName + " = " + init + ";");
-        } else {
-            e.registerDeclaration(varName);
-            std::string val = rhs->getCExpr(e);
-            e.emit("VyneValue " + varName + " = " +
-                   e.boxAny(val) + ";");
+            return;
         }
+
+        // (C) Boxed fallback.
+        e.registerDeclaration(varName);
+        e.emit("VyneValue " + varName + " = " + e.boxAny(val) + ";");
         return;
     }
 
     // --- reassignment to an existing local ---
     const CType* existing = e.lookupLocalType(varName);
+
+    if (!existing) {
+        std::string val = rhs->getCExpr(e);
+        const CType* rt = e.lookupType(val);
+        if (rt && rt->kind == CType::Kind::Array && !rt->args.empty() &&
+            (rt->args[0].toVType() == VType::Float64 ||
+             rt->args[0].toVType() == VType::Int64)) {
+            e.declareLocal(varName, *rt);
+            e.emit(CType::arrayContainerName(rt->args[0].toVType()) +
+                   " " + varName + " = " + val + ";");
+            return;
+        }
+        e.emit(varName + " = " + e.boxAny(val) + ";");
+        return;
+    }
 
     if (existing && existing->isPrimitive()) {
         std::string val = rhs->getCExpr(e);

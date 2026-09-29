@@ -66,6 +66,7 @@ static inline VyneValue vmem_runtime_rewind(VyneValue handle) {
                 (long long)h);
         exit(1);
     }
+    vyne_blas_invalidate_cache();
     arena_rewind(g_vmem_slots[h].cp);
     for (int i = (int)h; i < g_vmem_top; ++i)
         g_vmem_slots[i].active = 0;
