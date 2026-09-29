@@ -26,7 +26,8 @@ int runFile(const std::string& filename, SymbolContainer& env,
             const std::string& mode,
             bool enforceIntegrity = false,
             bool nativeIsa = false,
-            bool scratchBounds = true);
+            bool scratchBounds = true,
+            bool blasEnabled = false);
 
 template<typename... Args>
 static inline void vprint(std::string_view fmt, Args&&... args) {

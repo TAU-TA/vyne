@@ -36,6 +36,7 @@ int main(int argc, char* argv[]) {
     bool nativeIsa        = false;
     bool enforceIntegrity = false;
     bool scratchBounds    = true;
+    bool blasEnabled      = false;
     std::string mode;
     std::string filename;
 
@@ -46,8 +47,9 @@ int main(int argc, char* argv[]) {
             nativeIsa = true;
         } else if (arg == "--no-scratch-bounds") {
             scratchBounds = false;
-        }
-        else if (arg == "--verify") {
+        } else if (arg == "--blas") {
+            blasEnabled = true;
+        } else if (arg == "--verify") {
             enforceIntegrity = true;
             mode = "ast";
         } else if (arg == "--ast") {
@@ -67,5 +69,11 @@ int main(int argc, char* argv[]) {
 
     if (mode.empty()) mode = "ast";
 
-    return runFile(filename, env, mode, enforceIntegrity, nativeIsa, scratchBounds);
+        return runFile(
+            filename, 
+            env, mode, 
+            enforceIntegrity, 
+            nativeIsa, 
+            scratchBounds, 
+            blasEnabled);
 }

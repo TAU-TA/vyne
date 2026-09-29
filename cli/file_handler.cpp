@@ -40,7 +40,8 @@ int runFile(const std::string& filename, SymbolContainer& env,
             const std::string& mode,
             bool enforceIntegrity,
             bool nativeIsa,
-            bool scratchBounds) {      
+            bool scratchBounds,
+            bool blasEnabled) {     
     if (enforceIntegrity && !verifyIntegrity(filename)) {
         return 1;
     }
@@ -138,6 +139,29 @@ int runFile(const std::string& filename, SymbolContainer& env,
             emitter.reset();
             emitter.setScratchBoundsEnabled(scratchBounds);
 
+            // --- BLAS lowering --------------------------------------------
+            // When --blas is set, the emitter:
+            //   1. Enables the dispatch path in MethodCallNode::getCExpr
+            //      (see codegen/blas.cpp), so vlin.multiply and
+            //      vlin.multiply_trans_b lower to cblas_dgemm instead of
+            //      the emitted C triple loop.
+            //   2. Emits `#include <cblas.h>` at the top of the
+            //      generated .c, so the cblas_dgemm symbol is
+            //      declared. Without this, the generated C would
+            //      compile (the call is legal C) but link would fail
+            //      with an implicit-declaration error.
+            //
+            // The corresponding gcc flags are added in the compile
+            // command below. Both halves must agree: --blas with a
+            // missing link flag fails at link time; --blas with a
+            // missing include flag fails at compile time; the driver
+            // adds both together, so a working `--blas` build
+            // satisfies both.
+            if (blasEnabled) {
+                emitter.setBlasEnabled(true);
+                emitter.addSystemInclude("cblas.h");
+            }
+
             for (const auto& unit : units) {
                 emitter.markImported(unit.canonicalPath);
             }
@@ -185,12 +209,25 @@ int runFile(const std::string& filename, SymbolContainer& env,
             if (nativeIsa) {
                 compile_cmd += " -march=native";
             }
+            if (blasEnabled) {
+                std::string obInclude = exeDir + "/vendor/openblas/include";
+                std::string obLib;
+#ifdef _WIN32
+                obLib = exeDir + "/vendor/openblas/lib/libopenblas.dll.a";
+#else
+                obLib = "-lopenblas";
+#endif
+
+                compile_cmd += " -DVYNE_USE_OPENBLAS";
+                compile_cmd += " -I\"" + obInclude + "\"";
+                compile_cmd += " \"" + obLib + "\"";
+            }
+
 #ifdef _WIN32
             compile_cmd += " -Wl,--stack,67108864";
 #else
             compile_cmd += " -Wl,-z,stacksize=67108864";
 #endif
-                        ;
 
             auto start_compile = std::chrono::high_resolution_clock::now();
             int compile_result = system(compile_cmd.c_str());
@@ -201,7 +238,22 @@ int runFile(const std::string& filename, SymbolContainer& env,
                 std::cerr << "\n" << RED << "  error" << RESET << "  gcc failed — see above\n\n";
                 return 1;
             }
-
+#ifdef _WIN32
+            if (blasEnabled) {
+                std::string obDll = exeDir + "/vendor/openblas/bin/libopenblas.dll";
+                std::error_code ec;
+                std::filesystem::copy_file(
+                    obDll,
+                    std::filesystem::path(exeName).parent_path() / "libopenblas.dll",
+                    std::filesystem::copy_options::overwrite_existing,
+                    ec);
+                if (ec) {
+                    std::cerr << RED
+                              << "  warning  could not copy libopenblas.dll: "
+                              << ec.message() << RESET << "\n";
+                }
+            }
+#endif
             std::string sizeStr = "?";
             if (std::filesystem::exists(exeName)) {
                 uintmax_t bytes = std::filesystem::file_size(exeName);
