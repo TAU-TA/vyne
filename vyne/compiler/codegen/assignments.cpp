@@ -144,38 +144,90 @@ static void checkRegionEscape(C_Emitter& e,
         rhs->type() == NodeType::METHOD_CALL) {
 
         std::string name;
-        if (rhs->type() == NodeType::FUNCTION_CALL) {
+        std::string recvPath;
+
+if (rhs->type() == NodeType::FUNCTION_CALL) {
             name = static_cast<const FunctionCallNode*>(rhs)->getOriginalName();
         } else {
-            name = static_cast<const MethodCallNode*>(rhs)->getMethodName();
+            auto* mc = static_cast<const MethodCallNode*>(rhs);
+            name = mc->getMethodName();
+
+            // Receiver path is the group / module name for group calls
+            // (`vlin.cross_entropy`), or the dotted path for interfaces
+            // (`a.b.Ctor`). Same extraction MethodCallNode::getCExpr uses.
+            // NB: MethodCallNode::getReceiver() returns ASTNode* (raw),
+            // not a smart pointer — no .get() here.
+            const ASTNode* recv = mc->getReceiver();
+            if (recv) {
+                if (recv->type() == NodeType::VARIABLE) {
+                    recvPath = static_cast<const VariableNode*>(recv)
+                                   ->getOriginalName();
+                } else if (recv->type() == NodeType::MEMBER_ACCESS) {
+                    recvPath = static_cast<const MemberAccessNode*>(recv)
+                                   ->getFullPath();
+                }
+            }
         }
 
         auto primitiveReturn = [&](const std::string& n) -> bool {
+            if (n.empty()) return false;
             const CType* retCt = e.getFunctionReturnType(n);
             return retCt && retCt->isPrimitive();
         };
 
-        if (primitiveReturn(name)) return;
+        // Try every name the callee might be registered under. Bare name
+        // covers free functions and interface methods; the mangled form
+        // covers dotted names; the receiver-qualified forms cover group
+        // methods, which GroupNode::compile registers as `<group>_<method>`
+        // (see the fix in groups_modules.cpp).
+        std::vector<std::string> candidates;
+        candidates.push_back(name);
 
         std::string mangled = name;
         std::replace(mangled.begin(), mangled.end(), '.', '_');
-        if (primitiveReturn(mangled)) return;
-    }
+        if (mangled != name) candidates.push_back(mangled);
 
-    // Variable RHS: safe if the source is also at a shallower depth,
-    // or if it has been committed.
-    if (rhs->type() == NodeType::VARIABLE) {
-        auto* var = static_cast<const VariableNode*>(rhs);
-        std::string rs = var->getOriginalName();
-        std::replace(rs.begin(), rs.end(), '.', '_');
-        std::string prefix = e.getActiveFunctionPrefix();
-        std::string rname = prefix.empty()
-            ? ("v_" + rs)
-            : ("v_" + prefix + "_" + rs);
-        int rhsDepth = e.lookupLocalRegionDepth(rname);
-        if (rhsDepth >= 0 && rhsDepth <= lhsDepth) return;
-        // Not a tracked local — could be a global, or a name we lost.
-        // Treat unresolved as unsafe.
+        if (!recvPath.empty()) {
+            std::string qualified = recvPath + "_" + name;
+            std::replace(qualified.begin(), qualified.end(), '.', '_');
+            candidates.push_back(qualified);
+
+            std::string dotted = recvPath + "." + name;
+            candidates.push_back(dotted);
+        }
+
+        for (const auto& c : candidates) {
+            if (primitiveReturn(c)) return;
+        }
+
+        // ---- Last-resort suffix match ------------------------------
+        // The candidate list only covers spellings we anticipated:
+        // bare name, name with `.` mangled to `_`, and the receiver
+        // path prefix. If the callee lives one level deeper — e.g.
+        // `cross_entropy` is an interface method on `Reductions`
+        // nested inside `group vlin`, and was registered as
+        // `vlin_Reductions_cross_entropy` — none of the three guesses
+        // hit. Search the whole table for any key that ends with the
+        // method name behind a `_` or `.` boundary, and accept if the
+        // matched return type is primitive. We still reject non-
+        // primitive matches, so this only ever turns false positives
+        // into passes — never a real escape into a false negative.
+        for (const auto& kv : e.getAllFunctionReturnTypes()) {
+            const std::string& reg = kv.first;
+            const CType& rc = kv.second;
+            if (reg.size() <= name.size()) continue;
+            size_t prefixLen = reg.size() - name.size();
+            if (reg.compare(prefixLen, name.size(), name) != 0) continue;
+            char sep = reg[prefixLen - 1];
+            if (sep != '_' && sep != '.') continue;
+            if (rc.isPrimitive()) {
+                // Found a qualified name ending in <method> whose
+                // return type is primitive. That's a proof the
+                // callee's value fits in a native register.
+                return;
+            }
+        }
+        // ---- end suffix match --------------------------------------
     }
 
     throw std::runtime_error(
@@ -452,9 +504,9 @@ void AssignmentNode::compile(C_Emitter& e) const {
         if (isDeclaration && declared.kind == CType::Kind::Array &&
             rhs->type() == NodeType::ARRAY) {
             auto* arrRhs = static_cast<const ArrayNode*>(rhs.get());
-            if (arrRhs->getElements().empty()) {
+            if (arrRhs->getElements().empty() &&
+                getArrayElemType() != VType::Unknown) {
                 VType elem = getArrayElemType();
-                if (elem == VType::Unknown) elem = VType::Float64;
                 std::string ctor = (elem == VType::Float64)
                     ? "vyne_array_f64_create"
                     : "vyne_array_i64_create";

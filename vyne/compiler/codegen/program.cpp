@@ -50,10 +50,16 @@ void ProgramNode::compile(C_Emitter& e) const {
             }
 
             e.registerFunctionSignature(fn->getOriginalName(),
-                                        std::move(paramNames));
+                                         std::move(paramNames));
             e.registerFunctionParamTypes(fn->getOriginalName(),
                                         std::move(paramTypes));
-            e.registerFunctionReturnType(fn->getOriginalName(), retCt);
+            {
+                std::string orig = fn->getOriginalName();
+                std::string mangled = orig;
+                std::replace(mangled.begin(), mangled.end(), '.', '_');
+                e.registerFunctionReturnType(orig,    retCt);
+                e.registerFunctionReturnType(mangled, retCt);
+            }
 
             if (allNativeCallable && retNative && !hasDeferOrTry) {
                 std::string mangled = fn->getOriginalName();

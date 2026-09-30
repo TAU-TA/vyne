@@ -84,6 +84,41 @@ void ImportNode::compile(C_Emitter& e) const {
             if (!stmt) continue;
             if (stmt->type() == NodeType::FUNCTION) {
                 auto* fn = static_cast<FunctionNode*>(stmt.get());
+
+                // Register the aliased function's return type so the
+                // region escape check (assignments.cpp:checkRegionEscape)
+                // can prove calls to it are primitive-returning.
+                //
+                // This branch of ImportNode::compile handles the
+                // `use lib "..."` form, which the parser turns into an
+                // ImportNode with a non-empty alias ("vlin" for
+                // "vlin/vlin.vy"). It routes through
+                // FunctionNode::compileAs, which — unlike
+                // FunctionNode::compile — does not touch the return-
+                // type table. So `x = alias.fn(...)` inside a region
+                // saw an unregistered callee, could not prove a
+                // primitive return, and tripped VNE-070 even for pure
+                // scalar functions like `vlin.cross_entropy`.
+                //
+                // Register under every spelling the escape check
+                // queries with: bare, alias-underscore, alias-dotted.
+                {
+                    CType retCt = CType::fromVType(fn->getReturnType());
+                    if (fn->getReturnType() == VType::Array &&
+                        fn->getReturnArrayElemType() != VType::Unknown) {
+                        retCt.args.push_back(
+                            CType::fromVType(fn->getReturnArrayElemType()));
+                    }
+
+                    std::string fnName = fn->getOriginalName();
+                    std::string mangled = alias + "_" + fnName;
+                    std::replace(mangled.begin(), mangled.end(), '.', '_');
+
+                    e.registerFunctionReturnType(fnName,               retCt);
+                    e.registerFunctionReturnType(mangled,              retCt);
+                    e.registerFunctionReturnType(alias + "." + fnName, retCt);
+                }
+
                 e.popGlobalContext();
                 fn->compileAs(e, alias + "_" + fn->getOriginalName());
                 e.pushGlobalContext();

@@ -39,6 +39,36 @@ void GroupNode::compile(C_Emitter& e) const {
             }
             e.pushGlobalContext();
         } else if (stmt->type() == NodeType::FUNCTION) {
+            auto* fn = static_cast<FunctionNode*>(stmt.get());
+
+            // Register this group member's return type under every
+            // spelling the escape check might query with. Group functions
+            // were previously never registered — only top-level ones in
+            // ProgramNode::compile were — so every `x = group.fn(...)`
+            // inside a region looked like an untyped, non-primitive RHS
+            // and tripped VNE-070. `lossN = vlin.cross_entropy(...)` is
+            // the case that exposed it.
+            CType retCt = CType::fromVType(fn->getReturnType());
+            if (fn->getReturnType() == VType::Array &&
+                fn->getReturnArrayElemType() != VType::Unknown) {
+                retCt.args.push_back(
+                    CType::fromVType(fn->getReturnArrayElemType()));
+            }
+
+            std::string orig = fn->getOriginalName();
+            std::string mangled = orig;
+            std::replace(mangled.begin(), mangled.end(), '.', '_');
+
+            std::string groupMangled = groupName + "_" + mangled;
+            std::replace(groupMangled.begin(), groupMangled.end(), '.', '_');
+
+            std::string groupDotted = groupName + "." + orig;
+
+            e.registerFunctionReturnType(orig,         retCt);
+            e.registerFunctionReturnType(mangled,      retCt);
+            e.registerFunctionReturnType(groupMangled, retCt);
+            e.registerFunctionReturnType(groupDotted,  retCt);
+
             e.popGlobalContext();
             stmt->compile(e);
             e.pushGlobalContext();

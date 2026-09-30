@@ -197,6 +197,36 @@ void FunctionNode::compile(C_Emitter& e) const {
         mangledName = targetModule + "_" + mangledName;
     }
 
+    // Register this function's return type so the region escape check
+    // can see through calls to it. This fires for EVERY function that
+    // ever gets compiled — top-level, group member, aliased import —
+    // which makes the check robust against whichever container the
+    // function happens to live in. Without it, an interface method or
+    // any function that skips GroupNode::compile's FUNCTION branch
+    // leaves no entry in functionReturnTypes, and `x = fn(...)` inside
+    // a region trips VNE-070 even when fn returns a primitive.
+    {
+        CType retCt = CType::fromVType(returnType);
+        if (returnType == VType::Array &&
+            getReturnArrayElemType() != VType::Unknown) {
+            retCt.args.push_back(CType::fromVType(getReturnArrayElemType()));
+        }
+        std::string orig    = originalName;
+        std::string mangled = orig;
+        std::replace(mangled.begin(), mangled.end(), '.', '_');
+
+        e.registerFunctionReturnType(orig,    retCt);
+        e.registerFunctionReturnType(mangled, retCt);
+
+        // Also under the module / group prefix if there is one.
+        if (!targetModule.empty()) {
+            e.registerFunctionReturnType(
+                targetModule + "_" + mangled, retCt);
+            e.registerFunctionReturnType(
+                targetModule + "." + orig,    retCt);
+        }
+    }
+
     e.emitGlobalDecl("VyneValue fn_" + mangledName + "(int arg_count, VyneValue* args);");
     e.pushFunctionContext();
     e.enterFunction(mangledName);
@@ -233,6 +263,19 @@ void FunctionNode::compile(C_Emitter& e) const {
 void FunctionNode::compileAs(C_Emitter& e, const std::string& mangledName) const {
     std::string name = mangledName;
     std::replace(name.begin(), name.end(), '.', '_');
+
+    // Register under the two names we know for sure. The dotted
+    // alias-form (`vlin.cross_entropy`) is registered by the caller
+    // (ImportNode::compile), because only the caller knows the alias.
+    {
+        CType retCt = CType::fromVType(returnType);
+        if (returnType == VType::Array &&
+            getReturnArrayElemType() != VType::Unknown) {
+            retCt.args.push_back(CType::fromVType(getReturnArrayElemType()));
+        }
+        e.registerFunctionReturnType(name,         retCt);
+        e.registerFunctionReturnType(originalName, retCt);
+    }
 
     e.emitGlobalDecl("VyneValue fn_" + name + "(int arg_count, VyneValue* args);");
     e.pushFunctionContext();

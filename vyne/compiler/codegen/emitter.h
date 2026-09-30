@@ -442,6 +442,14 @@ public:
         auto it = functionReturnTypes.find(name);
         return it == functionReturnTypes.end() ? nullptr : &it->second;
     }
+
+    // Read-only view of the whole table. Used by the region escape
+    // check as a last-resort fuzzy lookup, and by the diagnostic
+    // dump when the check fires. Do not mutate through this accessor.
+    const std::unordered_map<std::string, CType>&
+    getAllFunctionReturnTypes() const {
+        return functionReturnTypes;
+    }
     const std::vector<CType>* getFunctionParamTypes(const std::string& name) const {
         auto it = functionParamTypes.find(name);
         return it == functionParamTypes.end() ? nullptr : &it->second;

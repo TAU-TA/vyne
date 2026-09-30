@@ -94,6 +94,53 @@ void InterfaceNode::compile(C_Emitter& e) const {
         std::string methodName = cStructName + "_" + fn->getOriginalName();
         std::replace(methodName.begin(), methodName.end(), '.', '_');
 
+        // Register this interface method's return type under every
+        // spelling the region escape check (assignments.cpp:
+        // checkRegionEscape) might query with. Interface methods are
+        // emitted inline by this function and never routed through
+        // FunctionNode::compile, so without this block the emitter's
+        // functionReturnTypes table has no entry for them — every
+        // `x = iface.method(...)` inside a region then looked like an
+        // untyped, non-primitive RHS and tripped VNE-070. The
+        // `vlin.cross_entropy(...)` case in ml_seq.vy is exactly this:
+        // cross_entropy is declared with a `-> Float64` return type,
+        // but nothing ever wrote that type into the emitter's table.
+        {
+            CType retCt = CType::fromVType(fn->getReturnType());
+            if (fn->getReturnType() == VType::Array &&
+                fn->getReturnArrayElemType() != VType::Unknown) {
+                retCt.args.push_back(
+                    CType::fromVType(fn->getReturnArrayElemType()));
+            }
+
+            std::string orig = fn->getOriginalName();
+            std::string mangled = orig;
+            std::replace(mangled.begin(), mangled.end(), '.', '_');
+
+            // Bare name and dotted/mangled forms.
+            e.registerFunctionReturnType(orig,       retCt);
+            e.registerFunctionReturnType(mangled,    retCt);
+            e.registerFunctionReturnType(methodName, retCt);
+
+            // Receiver-qualified forms. `vlin.cross_entropy(...)` has
+            // recvPath = "vlin"; checkRegionEscape will query
+            // "vlin_cross_entropy" and "vlin.cross_entropy".
+            if (!effectiveModule.empty()) {
+                e.registerFunctionReturnType(
+                    effectiveModule + "_" + mangled, retCt);
+                e.registerFunctionReturnType(
+                    effectiveModule + "." + orig,    retCt);
+            }
+            // Also under the interface's own name, so
+            // `Matrix.multiply(...)` style calls resolve too.
+            if (interfaceName != effectiveModule) {
+                e.registerFunctionReturnType(
+                    interfaceName + "_" + mangled, retCt);
+                e.registerFunctionReturnType(
+                    interfaceName + "." + orig,    retCt);
+            }
+        }
+
         e.emitGlobalDecl("VyneValue fn_" + methodName + "(int arg_count, VyneValue* args);");
         e.pushFunctionContext();
         e.enterFunction(methodName); 

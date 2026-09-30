@@ -152,12 +152,22 @@ static VType resolveRHSKind(C_Emitter& e, const ASTNode* rhs) {
             case VTokenType::Floor_Divide:
             case VTokenType::Modulo:
             case VTokenType::Power:
-                // These operators are numeric-only in Vyne: the interpreter
-                // raises on non-numeric operands, and the runtime's binop
-                // dispatch only reaches them through the float or int branch.
-                // A `+` never appears here because it is overloaded for
-                // strings and arrays; it falls to the default below.
                 return VType::Float64;
+            case VTokenType::Add: {
+                VType lt = resolveRHSKind(e, bop->leftNode.get());
+                VType rt = resolveRHSKind(e, bop->rightNode.get());
+                bool lNum = (lt == VType::Int64 || lt == VType::Float64);
+                bool rNum = (rt == VType::Int64 || rt == VType::Float64);
+                if (lNum && rNum) {
+                    // Int64 + Int64 stays Int64; mixed promotes to Float64.
+                    // Either is primitive, which is all the escape check
+                    // needs. Return Int64 for both-Int64 to preserve the
+                    // more precise type.
+                    return (lt == VType::Int64 && rt == VType::Int64)
+                           ? VType::Int64 : VType::Float64;
+                }
+                return VType::Unknown;
+            }
             default:
                 return VType::Unknown;
         }
