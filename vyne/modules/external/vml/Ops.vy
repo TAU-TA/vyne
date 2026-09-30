@@ -59,7 +59,7 @@ fn :: vml forward_all(model :: vml.Types.Sequential, x :: vlin.Types.Matrix) -> 
 
 # W -= lr * grad, in place.
 fn :: vml sgd_step(W :: vlin.Types.Matrix, grad :: vlin.Types.Matrix,
-                   opt :: vml.Types.SGD) {
-    vlin.sgd_update_inplace(W, grad, opt.lr);
+                   lr :: Float64) {
+    vlin.sgd_update_inplace(W, grad, lr);
     return W;
 }

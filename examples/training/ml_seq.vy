@@ -226,9 +226,9 @@ through epoch :: 1..EPOCHS -> loop {
         dW1 = vlin.multiply(vlin.transpose(X), delta1);
 
         # ---- weight updates via vml ----
-        vml.sgd_step(W1, dW1, opt);
-        vml.sgd_step(W2, dW2, opt);
-        vml.sgd_step(W3, dW3, opt);
+        vml.sgd_step(W1, dW1, scale);
+        vml.sgd_step(W2, dW2, scale);
+        vml.sgd_step(W3, dW3, scale);
 
         # ---- bias gradient accumulation (unchanged) ----
         through c :: 0..HIDDEN2-1 -> loop {
