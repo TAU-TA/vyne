@@ -2,6 +2,9 @@
 #include "../vyne/utils/sha256.h"
 #include <map>
 
+// ---------------------------------------------------------------------------
+// Integrity check (unchanged)
+// ---------------------------------------------------------------------------
 bool verifyIntegrity(const std::string& scriptPath) {
     namespace fs = std::filesystem;
     fs::path filePath(scriptPath);
@@ -20,31 +23,313 @@ bool verifyIntegrity(const std::string& scriptPath) {
     }
 
     std::string fileKey = filePath.filename().string();
-
     auto it = expectedHashes.find(fileKey);
-    if (it == expectedHashes.end()) {
-        return true; 
-    }
+    if (it == expectedHashes.end()) return true;
 
     std::string currentHash = SHA256::hashFile(scriptPath);
     if (currentHash != it->second) {
-        std::cerr << RED << "[SECURITY ERROR] Integrity check failed for " 
+        std::cerr << RED << "[SECURITY ERROR] Integrity check failed for "
                   << scriptPath << "! File modified or corrupted." << RESET << "\n";
         return false;
     }
-
     return true;
 }
 
-int runFile(const std::string& filename, SymbolContainer& env,
-            const std::string& mode,
-            bool enforceIntegrity,
-            bool nativeIsa,
-            bool scratchBounds,
-            bool blasEnabled) {     
-    if (enforceIntegrity && !verifyIntegrity(filename)) {
+// ---------------------------------------------------------------------------
+// Local helpers
+// ---------------------------------------------------------------------------
+namespace {
+
+std::string outputBase(const std::string& filename, const BuildOptions& opts) {
+    if (!opts.outputName.empty()) return opts.outputName;
+    size_t dotPos = filename.find_last_of(".");
+    return (dotPos == std::string::npos) ? filename : filename.substr(0, dotPos);
+}
+
+std::string humanSize(uintmax_t bytes) {
+    if (bytes < 1024)          return std::to_string(bytes) + " B";
+    if (bytes < 1024 * 1024)   return std::to_string(bytes / 1024) + " KB";
+    return std::to_string(bytes / (1024 * 1024)) + " MB";
+}
+
+void sectionOpen(const char* label) {
+    std::cout << "\n";
+    std::cout << CYAN << "  >> " << label << RESET << "\n";
+    std::cout << CYAN << "  " << std::string(42, '-') << RESET << "\n\n";
+}
+void sectionClose() {
+    std::cout << "\n";
+    std::cout << CYAN << "  " << std::string(42, '-') << RESET << "\n\n";
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// Transpile + downstream phases
+// ---------------------------------------------------------------------------
+// Common path for --emit-c, --emit-asm, --compile, --run. The Vyne -> C step
+// runs unconditionally; the mode decides where the driver stops.
+// ---------------------------------------------------------------------------
+static int runTranspile(const std::string& filename,
+                        const std::string& content,
+                        const BuildOptions& opts)
+{
+    auto tokens_for_count = tokenize(content);
+    int tokenCount = (int)tokens_for_count.size();
+    int lineCount  = (int)std::count(content.begin(), content.end(), '\n') + 1;
+
+    std::cout << "\n";
+    std::cout << BOLD << "  Compiling " << RESET << filename << "\n\n";
+
+    // ---------------- Phase 1: Vyne source -> C source ----------------
+    auto start_transpile = std::chrono::high_resolution_clock::now();
+
+    VyneLinker linker;
+    auto units = linker.link(filename);
+
+    C_Emitter emitter;
+    emitter.reset();
+    emitter.setScratchBoundsEnabled(opts.scratchBounds);
+
+    if (opts.blasEnabled) {
+        emitter.setBlasEnabled(true);
+        emitter.addSystemInclude("cblas.h");
+    }
+
+    for (const auto& unit : units) emitter.markImported(unit.canonicalPath);
+    for (auto& unit : units) {
+        emitter.setSourceDir(
+            std::filesystem::path(unit.canonicalPath).parent_path().string());
+        if (unit.alias.empty()) unit.ast->compile(emitter);
+        else                    unit.ast->compileAliased(emitter, unit.alias);
+    }
+
+    std::string exeDir  = FileUtils::getExeDir();
+    std::string runtime = exeDir + "/vyne/runtime/vyne_runtime.h";
+    std::string cSource = emitter.finalize(runtime);
+
+    std::string base    = outputBase(filename, opts);
+    std::string cFile   = base + ".vy.c";
+    std::string asmFile = base + ".vy.s";
+    std::string exeName = base;
+#ifdef _WIN32
+    exeName += ".exe";
+#endif
+
+    {
+        std::ofstream out(cFile);
+        if (!out.is_open()) {
+            std::cerr << RED << "  error" << RESET
+                      << "  could not write " << cFile << "\n";
+            return 1;
+        }
+        out << cSource;
+    }
+
+    auto end_transpile = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> transpile_ms = end_transpile - start_transpile;
+
+    std::cout << GREEN << "  transpile" << RESET
+              << "  " << lineCount << " lines  "
+              << tokenCount << " tokens  "
+              << std::fixed << std::setprecision(2) << transpile_ms.count() << "ms\n";
+
+    // ---------------- Phase 2a: stop here for --emit-c ----------------
+    if (opts.mode == RunMode::EmitC) {
+        sectionOpen("emitted");
+        std::cout << "    " << cFile << "  ("
+                  << humanSize(std::filesystem::file_size(cFile)) << ")\n";
+        sectionClose();
+
+        vprintln("\n{}{}{}  >> summary {}", BOLD, YELLOW, "", RESET);
+        vprintln("{} {} source      {} ({}) {}", YELLOW, "  -", GREEN, cFile, RESET);
+        vprintln("     {}lines       {}", GREEN, lineCount);
+        vprintln("     {}tokens      {}", GREEN, tokenCount);
+        vprintln("     {}transpile   {:.2f}ms", GREEN, transpile_ms.count());
+        vprintln("{} {} {}total       {:.2f}ms", YELLOW, "  -", BOLD, transpile_ms.count());
+
+        Vyne::DiagnosticEngine::printSummary();
+        return 0;
+    }
+
+    // Common gcc flags, extended per downstream mode.
+    auto gccBase = [&]() {
+        std::string cmd = "gcc \"" + cFile + "\"";
+        cmd += " -I\"" + exeDir + "\" -O3 -w";
+        if (opts.nativeIsa) cmd += " -march=native";
+        if (opts.blasEnabled) {
+            std::string obInclude = exeDir + "/vendor/openblas/include";
+#ifdef _WIN32
+            std::string obLib = exeDir + "/vendor/openblas/lib/libopenblas.dll.a";
+#else
+            std::string obLib = "-lopenblas";
+#endif
+            cmd += " -DVYNE_USE_OPENBLAS";
+            cmd += " -I\"" + obInclude + "\"";
+            cmd += " \"" + obLib + "\"";
+        }
+        return cmd;
+    };
+
+    // ---------------- Phase 2b: assemble for --emit-asm ----------------
+    if (opts.mode == RunMode::EmitAsm) {
+        std::string cmd = gccBase() + " -S -o \"" + asmFile + "\"";
+
+        auto start_asm = std::chrono::high_resolution_clock::now();
+        int rc = system(cmd.c_str());
+        auto end_asm = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> asm_ms = end_asm - start_asm;
+
+        if (rc != 0) {
+            std::cerr << "\n" << RED << "  error" << RESET
+                      << "  gcc -S failed — see above\n\n";
+            return 1;
+        }
+
+        std::cout << GREEN << "  assemble " << RESET
+                  << "  gcc -S" << (opts.nativeIsa ? " -march=native" : "")
+                  << "  "
+                  << std::fixed << std::setprecision(2) << asm_ms.count() << "ms\n";
+
+        sectionOpen("emitted");
+        std::cout << "    " << asmFile << "  ("
+                  << humanSize(std::filesystem::file_size(asmFile)) << ")\n";
+        std::cout << "    " << cFile   << "  ("
+                  << humanSize(std::filesystem::file_size(cFile))
+                  << ", intermediate)\n";
+        sectionClose();
+
+        double total_ms = transpile_ms.count() + asm_ms.count();
+        vprintln("\n{}{}{}  >> summary {}", BOLD, YELLOW, "", RESET);
+        vprintln("{} {} source      {} ({}) {}", YELLOW, "  -", GREEN, asmFile, RESET);
+        vprintln("     {}transpile   {:.2f}ms", GREEN, transpile_ms.count());
+        vprintln("     {}assemble    {:.2f}ms", GREEN, asm_ms.count());
+        vprintln("{} {} {}total       {:.2f}ms", YELLOW, "  -", BOLD, total_ms);
+
+        Vyne::DiagnosticEngine::printSummary();
+        return 0;
+    }
+
+    // ---------------- Phase 2c: link for --compile / --run -------------
+    std::string cmd = gccBase() + " -o \"" + exeName + "\"";
+#ifdef _WIN32
+    cmd += " -Wl,--stack,67108864";
+#else
+    cmd += " -Wl,-z,stacksize=67108864";
+#endif
+
+    auto start_compile = std::chrono::high_resolution_clock::now();
+    int compile_result = system(cmd.c_str());
+    auto end_compile   = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> compile_ms = end_compile - start_compile;
+
+    if (compile_result != 0) {
+        std::cerr << "\n" << RED << "  error" << RESET
+                  << "  gcc failed — see above\n\n";
         return 1;
     }
+
+#ifdef _WIN32
+    if (opts.blasEnabled) {
+        std::string obDll = exeDir + "/vendor/openblas/bin/libopenblas.dll";
+        std::error_code ec;
+        std::filesystem::copy_file(
+            obDll,
+            std::filesystem::path(exeName).parent_path() / "libopenblas.dll",
+            std::filesystem::copy_options::overwrite_existing,
+            ec);
+        if (ec) {
+            std::cerr << RED
+                      << "  warning  could not copy libopenblas.dll: "
+                      << ec.message() << RESET << "\n";
+        }
+    }
+#endif
+
+    std::string sizeStr = std::filesystem::exists(exeName)
+        ? humanSize(std::filesystem::file_size(exeName))
+        : "?";
+
+    std::cout << GREEN << "  compile  " << RESET
+              << "  gcc -O3" << (opts.nativeIsa ? " -march=native" : "")
+              << "  "
+              << std::fixed << std::setprecision(2) << compile_ms.count() << "ms\n";
+
+    // ---------------- Phase 3: run for --run (default) ----------------
+    if (opts.mode == RunMode::CompileRun) {
+        sectionOpen("output");
+
+        auto start_exec = std::chrono::high_resolution_clock::now();
+        int run_result = system(("\"" + exeName + "\"").c_str());
+        auto end_exec = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> exec_ms = end_exec - start_exec;
+
+        sectionClose();
+
+        double total_ms = transpile_ms.count() + compile_ms.count() + exec_ms.count();
+
+        vprintln("\n{}{}{}  >> summary {}", BOLD, YELLOW, "", RESET);
+        vprintln("{} {} binary     {} ({}) {}", YELLOW, "  -", GREEN, exeName, CYAN, sizeStr, RESET);
+        vprintln("     {}transpile {:.2f}ms", GREEN, transpile_ms.count());
+        vprintln("     {}compile   {:.2f}ms", GREEN, compile_ms.count());
+        vprintln("     {}execution {:.2f}ms", GREEN, exec_ms.count());
+        vprintln("{} {} {}total      {:.2f}ms", YELLOW, "  -", BOLD, total_ms);
+
+        if (run_result != 0)
+            std::cout << RED << "  >> exited with code " << run_result << RESET << "\n\n";
+
+        Vyne::DiagnosticEngine::printSummary();
+        return 0;
+    }
+
+    // ---------------- --compile: stop after the .exe is built ----------------
+    double total_ms = transpile_ms.count() + compile_ms.count();
+    vprintln("\n{}{}{}  >> summary {}", BOLD, YELLOW, "", RESET);
+    vprintln("{} {} binary     {} ({}) {}", YELLOW, "  -", GREEN, exeName, CYAN, sizeStr, RESET);
+    vprintln("     {}transpile {:.2f}ms", GREEN, transpile_ms.count());
+    vprintln("     {}compile   {:.2f}ms", GREEN, compile_ms.count());
+    vprintln("{} {} {}total      {:.2f}ms", YELLOW, "  -", BOLD, total_ms);
+
+    Vyne::DiagnosticEngine::printSummary();
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Interpret path
+// ---------------------------------------------------------------------------
+static int runInterpret(const std::string& filename,
+                        SymbolContainer& env,
+                        const std::shared_ptr<ASTNode>& rootShared,
+                        Parser& parser)
+{
+    auto start = std::chrono::high_resolution_clock::now();
+
+    env.setSourceDir(filename);
+    uint32_t globalId = StringPool::instance().intern("global");
+    rootShared->evaluate(env, globalId);
+
+    auto end = std::chrono::high_resolution_clock::now();
+    parser.checkUnusedVariables(env);
+    std::chrono::duration<double, std::milli> ms = end - start;
+
+    std::cout << GREEN << "\nExecution finished in: " << ms.count() << "ms" << RESET;
+
+    bool hasErrors = false;
+    for (const auto& d : Vyne::DiagnosticEngine::getDiagnostics()) {
+        if (d.severity == Vyne::Severity::Error ||
+            d.severity == Vyne::Severity::Critical) hasErrors = true;
+    }
+    Vyne::DiagnosticEngine::printSummary();
+    return hasErrors ? 1 : 0;
+}
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+int runFile(const std::string& filename, SymbolContainer& env,
+            const BuildOptions& opts)
+{
+    if (opts.enforceIntegrity && !verifyIntegrity(filename)) return 1;
 
     size_t dotPos = filename.find_last_of(".");
     if (dotPos == std::string::npos) {
@@ -62,7 +347,6 @@ int runFile(const std::string& filename, SymbolContainer& env,
         std::cerr << RED << "Could not open file: " << filename << RESET << "\n";
         return 1;
     }
-
     std::stringstream buffer;
     buffer << file.rdbuf();
     const std::string content = buffer.str();
@@ -80,235 +364,29 @@ int runFile(const std::string& filename, SymbolContainer& env,
         auto programRoot = parser.parseProgram(env);
         std::shared_ptr<ASTNode> rootShared = std::move(programRoot);
 
-        auto& diags = Vyne::DiagnosticEngine::getDiagnostics();
         bool hasErrors = false;
-        for (const auto& d : diags) {
-            if (d.severity == Vyne::Severity::Error || d.severity == Vyne::Severity::Critical) {
-                hasErrors = true;
-            }
+        for (const auto& d : Vyne::DiagnosticEngine::getDiagnostics()) {
+            if (d.severity == Vyne::Severity::Error ||
+                d.severity == Vyne::Severity::Critical) hasErrors = true;
         }
         if (hasErrors) {
             std::cerr << RED << "Compilation failed due to errors" << RESET << "\n";
             return 1;
         }
 
-        if (mode == "ast") {
-            auto start = std::chrono::high_resolution_clock::now();
+        if (opts.mode == RunMode::Interpret)
+            return runInterpret(filename, env, rootShared, parser);
 
-            env.setSourceDir(filename);
-            uint32_t globalId = StringPool::instance().intern("global");
-            rootShared->evaluate(env, globalId);
-            
-            auto end = std::chrono::high_resolution_clock::now();
-            parser.checkUnusedVariables(env);
-            std::chrono::duration<double, std::milli> ms = end - start;
-            std::cout << GREEN << "\nExecution finished in: " << ms.count() << "ms" << RESET;
-            auto& diags2 = Vyne::DiagnosticEngine::getDiagnostics();
-            bool hasErrors2 = false;
-            for (const auto& d : diags2) {
-                if (d.severity == Vyne::Severity::Error || d.severity == Vyne::Severity::Critical) {
-                    hasErrors2 = true;
-                }
-            }
+        return runTranspile(filename, content, opts);
 
-            Vyne::DiagnosticEngine::printSummary();
-
-            if (hasErrors2) {
-                return 1;
-            }
-            return 0;
-
-        } else if (mode == "c") {
-
-            auto tokens_for_count = tokenize(content);
-            int tokenCount = (int)tokens_for_count.size();
-            int lineCount  = (int)std::count(content.begin(), content.end(), '\n') + 1;
-
-            std::cout << "\n";
-            std::cout << BOLD << "  Compiling " << RESET << filename << "\n\n";
-
-            auto start_transpile = std::chrono::high_resolution_clock::now();
-
-            // Resolve the import graph before codegen. The linker parses every
-            // transitively-imported file exactly once and returns compile units
-            // in topological order (leaves first, entry last).
-            VyneLinker linker;
-            auto units = linker.link(filename);
-
-            C_Emitter emitter;
-            emitter.reset();
-            emitter.setScratchBoundsEnabled(scratchBounds);
-
-            // --- BLAS lowering --------------------------------------------
-            // When --blas is set, the emitter:
-            //   1. Enables the dispatch path in MethodCallNode::getCExpr
-            //      (see codegen/blas.cpp), so vlin.multiply and
-            //      vlin.multiply_trans_b lower to cblas_dgemm instead of
-            //      the emitted C triple loop.
-            //   2. Emits `#include <cblas.h>` at the top of the
-            //      generated .c, so the cblas_dgemm symbol is
-            //      declared. Without this, the generated C would
-            //      compile (the call is legal C) but link would fail
-            //      with an implicit-declaration error.
-            //
-            // The corresponding gcc flags are added in the compile
-            // command below. Both halves must agree: --blas with a
-            // missing link flag fails at link time; --blas with a
-            // missing include flag fails at compile time; the driver
-            // adds both together, so a working `--blas` build
-            // satisfies both.
-            if (blasEnabled) {
-                emitter.setBlasEnabled(true);
-                emitter.addSystemInclude("cblas.h");
-            }
-
-            for (const auto& unit : units) {
-                emitter.markImported(unit.canonicalPath);
-            }
-
-            for (auto& unit : units) {
-                emitter.setSourceDir(
-                    std::filesystem::path(unit.canonicalPath).parent_path().string());
-
-                if (unit.alias.empty()) {
-                    unit.ast->compile(emitter);
-                } else {
-                    unit.ast->compileAliased(emitter, unit.alias);
-                }
-            }
-
-            std::string exeDir  = FileUtils::getExeDir();
-            std::string runtime = exeDir + "/vyne/runtime/vyne_runtime.h";
-            std::string cSource = emitter.finalize(runtime);
-
-            std::string base    = filename.substr(0, filename.find_last_of("."));
-            std::string cFile   = base + ".vy.c";
-            std::string exeName = base;
-            #ifdef _WIN32
-                exeName += ".exe";
-            #endif
-
-            std::ofstream out(cFile);
-            if (!out.is_open()) {
-                std::cerr << RED << "  error" << RESET << "  could not write " << cFile << "\n";
-                return 1;
-            }
-            out << cSource;
-            out.close();
-
-            auto end_transpile = std::chrono::high_resolution_clock::now();
-            std::chrono::duration<double, std::milli> transpile_ms = end_transpile - start_transpile;
-
-            std::cout << GREEN << "  transpile" << RESET
-                    << "  " << lineCount << " lines  "
-                    << tokenCount << " tokens  "
-                    << std::fixed << std::setprecision(2) << transpile_ms.count() << "ms\n";
-
-            std::string compile_cmd = "gcc \"" + cFile + "\" -o \"" + exeName + "\"";
-            compile_cmd += " -I\"" + exeDir + "\" -O3 -w";
-            if (nativeIsa) {
-                compile_cmd += " -march=native";
-            }
-            if (blasEnabled) {
-                std::string obInclude = exeDir + "/vendor/openblas/include";
-                std::string obLib;
-#ifdef _WIN32
-                obLib = exeDir + "/vendor/openblas/lib/libopenblas.dll.a";
-#else
-                obLib = "-lopenblas";
-#endif
-
-                compile_cmd += " -DVYNE_USE_OPENBLAS";
-                compile_cmd += " -I\"" + obInclude + "\"";
-                compile_cmd += " \"" + obLib + "\"";
-            }
-
-#ifdef _WIN32
-            compile_cmd += " -Wl,--stack,67108864";
-#else
-            compile_cmd += " -Wl,-z,stacksize=67108864";
-#endif
-
-            auto start_compile = std::chrono::high_resolution_clock::now();
-            int compile_result = system(compile_cmd.c_str());
-            auto end_compile   = std::chrono::high_resolution_clock::now();
-            std::chrono::duration<double, std::milli> compile_ms = end_compile - start_compile;
-
-            if (compile_result != 0) {
-                std::cerr << "\n" << RED << "  error" << RESET << "  gcc failed — see above\n\n";
-                return 1;
-            }
-#ifdef _WIN32
-            if (blasEnabled) {
-                std::string obDll = exeDir + "/vendor/openblas/bin/libopenblas.dll";
-                std::error_code ec;
-                std::filesystem::copy_file(
-                    obDll,
-                    std::filesystem::path(exeName).parent_path() / "libopenblas.dll",
-                    std::filesystem::copy_options::overwrite_existing,
-                    ec);
-                if (ec) {
-                    std::cerr << RED
-                              << "  warning  could not copy libopenblas.dll: "
-                              << ec.message() << RESET << "\n";
-                }
-            }
-#endif
-            std::string sizeStr = "?";
-            if (std::filesystem::exists(exeName)) {
-                uintmax_t bytes = std::filesystem::file_size(exeName);
-                if      (bytes < 1024)             sizeStr = std::to_string(bytes) + " B";
-                else if (bytes < 1024 * 1024)      sizeStr = std::to_string(bytes / 1024) + " KB";
-                else                               sizeStr = std::to_string(bytes / (1024*1024)) + " MB";
-            }
-
-            std::cout << GREEN << "  compile  " << RESET
-                    << "  gcc -O3" << (nativeIsa ? " -march=native" : "")
-                    << "  "
-                    << std::fixed << std::setprecision(2) << compile_ms.count() << "ms\n";
-
-            std::string run_cmd = "\"" + exeName + "\"";
-
-            std::cout << "\n";
-            std::cout << CYAN << "  >> output" << RESET << "\n";
-            std::cout << CYAN << "  " << std::string(42, '-') << RESET << "\n\n";
-
-            auto start_exec = std::chrono::high_resolution_clock::now();
-            int  run_result = system(run_cmd.c_str());
-            auto end_exec   = std::chrono::high_resolution_clock::now();
-            std::chrono::duration<double, std::milli> exec_ms = end_exec - start_exec;
-
-            std::cout << "\n";
-            std::cout << CYAN << "  " << std::string(42, '-') << RESET << "\n\n";
-
-            double total_ms = (transpile_ms + compile_ms + exec_ms).count();
-
-            vprintln("\n{}{}{}  >> summary {}", BOLD, YELLOW, "", RESET);
-            vprintln("{} {} binary     {} ({}) {}", YELLOW, "  -", GREEN, exeName, CYAN, sizeStr, RESET);
-            vprintln("     {}transpile {:.2f}ms", GREEN, transpile_ms.count());
-            vprintln("     {}compile   {:.2f}ms", GREEN, compile_ms.count());
-            vprintln("     {}execution {:.2f}ms", GREEN, exec_ms.count());
-            vprintln("{} {} {}total      {:.2f}ms", YELLOW, "  -", BOLD, total_ms);
-
-            if (run_result != 0)
-                std::cout << RED << "  >> exited with code " << run_result << RESET << "\n\n";
-
-            Vyne::DiagnosticEngine::printSummary();
-
-            return 0;
-        }
     } catch (const std::exception& e) {
         if (Vyne::DiagnosticEngine::getDiagnostics().empty()) {
-            const std::string& file = Vyne::DiagnosticEngine::getCurrentFile();
+            const std::string& f = Vyne::DiagnosticEngine::getCurrentFile();
             std::cerr << RED << "Error";
-            if (!file.empty()) std::cerr << " in " << file;
+            if (!f.empty()) std::cerr << " in " << f;
             std::cerr << ": " << e.what() << RESET << "\n";
         }
-
         Vyne::DiagnosticEngine::printSummary();
-
         return 1;
     }
-    
-    return 0;
 }
