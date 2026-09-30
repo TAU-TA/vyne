@@ -35,6 +35,26 @@ static inline void _vyne_print_internal(VyneValue v) {
             printf("]");
             break;
         }
+        case V_F64_ARRAY: {
+            printf("[");
+            VyneArray_f64* a = v.as.arr_f64;
+            for (int64_t i = 0; i < a->size; i++) {
+                _vyne_print_internal(vyne_float(a->data[i]));
+                if (i < a->size - 1) printf(", ");
+            }
+            printf("]");
+            break;
+        }
+        case V_I64_ARRAY: {
+            printf("[");
+            VyneArray_i64* a = v.as.arr_i64;
+            for (int64_t i = 0; i < a->size; i++) {
+                _vyne_print_internal(vyne_int(a->data[i]));
+                if (i < a->size - 1) printf(", ");
+            }
+            printf("]");
+            break;
+        }
         case V_MAP: {
             VyneMap* m = v.as.map;
             printf("{");

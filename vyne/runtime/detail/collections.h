@@ -16,6 +16,28 @@ static inline VyneValue vyne_slice_get(VyneValue base, VyneValue lo_v, VyneValue
     int64_t hi = hi_open ? INT64_MAX
                          : ((hi_v.type == V_INT64) ? hi_v.as.i64 : (int64_t)hi_v.as.f64);
 
+    if (base.type == V_F64_ARRAY) {
+        VyneArray_f64* a = base.as.arr_f64;
+        int64_t len = a->size;
+        if (lo < 0) lo = 0;
+        if (lo > len) lo = len;
+        if (hi < 0) hi = 0;
+        if (hi > len) hi = len;
+        if (lo >= hi) return vyne_array_f64_to_value(&(VyneArray_f64){NULL, 0, 0});
+        VyneArray_f64 r = vyne_array_f64_slice(a, lo, hi);
+        return vyne_array_f64_to_value(&r);
+    }
+    if (base.type == V_I64_ARRAY) {
+        VyneArray_i64* a = base.as.arr_i64;
+        int64_t len = a->size;
+        if (lo < 0) lo = 0;
+        if (lo > len) lo = len;
+        if (hi < 0) hi = 0;
+        if (hi > len) hi = len;
+        if (lo >= hi) return vyne_array_i64_to_value(&(VyneArray_i64){NULL, 0, 0});
+        VyneArray_i64 r = vyne_array_i64_slice(a, lo, hi);
+        return vyne_array_i64_to_value(&r);
+    }
     if (base.type == V_ARRAY) {
         VyneArray* a = base.as.arr;
         int64_t len = a->size;
@@ -56,7 +78,7 @@ static inline VyneValue vyne_slice_get(VyneValue base, VyneValue lo_v, VyneValue
 
 // Polymorphic dispatch for methods that exist on both arrays and maps
 static inline VyneValue vyne_delete_any(VyneValue recv, VyneValue val) {
-    if (recv.type == V_ARRAY) {
+    if (recv.type == V_ARRAY || recv.type == V_F64_ARRAY || recv.type == V_I64_ARRAY) {
         return vyne_bool(vyne_array_delete(recv, val));
     }
     if (recv.type == V_MAP && val.type == V_STRING) {
@@ -67,8 +89,10 @@ static inline VyneValue vyne_delete_any(VyneValue recv, VyneValue val) {
 }
 
 static inline void vyne_clear_any(VyneValue recv) {
-    if (recv.type == V_ARRAY)      vyne_array_clear(recv);
-    else if (recv.type == V_MAP)   vyne_map_clear(recv);
+    if (recv.type == V_ARRAY || recv.type == V_F64_ARRAY || recv.type == V_I64_ARRAY)
+        vyne_array_clear(recv);
+    else if (recv.type == V_MAP)
+        vyne_map_clear(recv);
 }
 
 // ============================================================================

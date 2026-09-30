@@ -44,12 +44,14 @@ static VyneValue vyne_binop_slow(VyneValue left, VyneValue right, int op) {
         return vyne_string_own(res);
     }
 
-    if (op == VBOP_ADD && left.type == V_ARRAY && right.type == V_ARRAY) {
-        VyneArray* la = left.as.arr;
-        VyneArray* ra = right.as.arr;
+    if (op == VBOP_ADD && _vyne_array_size(left) > 0 && _vyne_array_size(right) > 0
+        && (left.type == V_ARRAY || left.type == V_F64_ARRAY || left.type == V_I64_ARRAY)
+        && (right.type == V_ARRAY || right.type == V_F64_ARRAY || right.type == V_I64_ARRAY)) {
         VyneValue result = vyne_array_create(0);
-        for (int i = 0; i < la->size; i++) vyne_array_push(result, la->elements[i]);
-        for (int i = 0; i < ra->size; i++) vyne_array_push(result, ra->elements[i]);
+        int64_t ln = _vyne_array_size(left);
+        for (int64_t i = 0; i < ln; ++i) vyne_array_push(result, _vyne_array_elem_at(left, i));
+        int64_t rn = _vyne_array_size(right);
+        for (int64_t i = 0; i < rn; ++i) vyne_array_push(result, _vyne_array_elem_at(right, i));
         return result;
     }
 
@@ -159,10 +161,10 @@ static inline VyneValue vyne_binop(VyneValue left, VyneValue right, int op) {
 static inline VyneValue vyne_in_operator(VyneValue left, VyneValue right, int isNot) {
     bool result = false;
 
-    if (right.type == V_ARRAY) {
-        VyneArray* arr = right.as.arr;
-        for (int i = 0; i < arr->size; i++) {
-            if (vyne_values_equal(left, arr->elements[i])) {
+    if (right.type == V_ARRAY || right.type == V_F64_ARRAY || right.type == V_I64_ARRAY) {
+        int64_t n = _vyne_array_size(right);
+        for (int64_t i = 0; i < n; ++i) {
+            if (vyne_values_equal(left, _vyne_array_elem_at(right, i))) {
                 result = true;
                 break;
             }

@@ -73,16 +73,26 @@ static inline void vyne_array_i64_set(VyneArray_i64* a, int64_t i, int64_t v) {
 // --- Boundary conversions -------------------------------------------------
 // Boxing: allocate a boxed VyneArray and copy elements in.
 static inline VyneValue vyne_array_f64_to_value(const VyneArray_f64* a) {
-    VyneValue v = vyne_array_create((int)a->size);
-    for (int64_t i = 0; i < a->size; ++i)
-        v.as.arr->elements[i] = vyne_float(a->data[i]);
+    VyneArray_f64* w = (VyneArray_f64*)arena_alloc(sizeof(VyneArray_f64));
+    w->data = a->data;
+    w->size = a->size;
+    w->cap  = a->cap;
+    VyneValue v;
+    v.type      = V_F64_ARRAY;
+    v._reserved = 0;
+    v.as.arr_f64 = w;
     return v;
 }
 
 static inline VyneValue vyne_array_i64_to_value(const VyneArray_i64* a) {
-    VyneValue v = vyne_array_create((int)a->size);
-    for (int64_t i = 0; i < a->size; ++i)
-        v.as.arr->elements[i] = vyne_int(a->data[i]);
+    VyneArray_i64* w = (VyneArray_i64*)arena_alloc(sizeof(VyneArray_i64));
+    w->data = a->data;
+    w->size = a->size;
+    w->cap  = a->cap;
+    VyneValue v;
+    v.type      = V_I64_ARRAY;
+    v._reserved = 0;
+    v.as.arr_i64 = w;
     return v;
 }
 
@@ -115,12 +125,20 @@ static inline VyneArray_i64 vyne_array_i64_slice(const VyneArray_i64* a,
     return r;
 }
 
-// --- Unbox: VyneValue -> typed array. Used when a value crosses INTO a
-//     typed context (currently only for reassignment guards; kept here so
-//     M5 can lift the function-parameter boundary without touching the
-//     runtime again). Silent on mismatch, matching the "trust the type
-//     annotation" rule.
+// --- Unbox: VyneValue -> typed array.
+//   V_F64_ARRAY -> O(1): struct copy, shares the data pointer.
+//   V_I64_ARRAY -> O(N): elementwise int64 -> double conversion.
+//   V_ARRAY     -> O(N): per-element tag check (existing behavior).
+//   anything    -> empty array.
 static inline VyneArray_f64 vyne_value_to_array_f64(VyneValue v) {
+    if (v.type == V_F64_ARRAY) return *v.as.arr_f64;   // O(1)
+    if (v.type == V_I64_ARRAY) {
+        VyneArray_i64* s = v.as.arr_i64;
+        VyneArray_f64 r = vyne_array_f64_create(s->size);
+        for (int64_t i = 0; i < s->size; ++i)
+            r.data[i] = (double)s->data[i];
+        return r;
+    }
     if (v.type != V_ARRAY) return vyne_array_f64_create(0);
     int64_t n = v.as.arr->size;
     VyneArray_f64 r = vyne_array_f64_create(n);
@@ -132,6 +150,14 @@ static inline VyneArray_f64 vyne_value_to_array_f64(VyneValue v) {
 }
 
 static inline VyneArray_i64 vyne_value_to_array_i64(VyneValue v) {
+    if (v.type == V_I64_ARRAY) return *v.as.arr_i64;   // O(1)
+    if (v.type == V_F64_ARRAY) {
+        VyneArray_f64* s = v.as.arr_f64;
+        VyneArray_i64 r = vyne_array_i64_create(s->size);
+        for (int64_t i = 0; i < s->size; ++i)
+            r.data[i] = (int64_t)s->data[i];
+        return r;
+    }
     if (v.type != V_ARRAY) return vyne_array_i64_create(0);
     int64_t n = v.as.arr->size;
     VyneArray_i64 r = vyne_array_i64_create(n);

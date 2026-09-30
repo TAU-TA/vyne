@@ -157,7 +157,8 @@ static inline VyneValue vyne_map_values(VyneValue map_val) {
 }
 
 static inline VyneValue vyne_index_get(VyneValue base, VyneValue index) {
-    if (base.type == V_ARRAY) return vyne_array_get(base, index);
+    if (base.type == V_ARRAY || base.type == V_F64_ARRAY || base.type == V_I64_ARRAY)
+        return vyne_array_get(base, index);
     if (base.type == V_MAP) return vyne_map_get(base, index);
     if (base.type == V_STRING && index.type == V_INT64) {
         const char* s = base.as.str;
@@ -170,8 +171,10 @@ static inline VyneValue vyne_index_get(VyneValue base, VyneValue index) {
 }
 
 static inline void vyne_index_set(VyneValue base, VyneValue index, VyneValue val) {
-    if (base.type == V_ARRAY) { vyne_array_set(base, index, val); return; }
-    if (base.type == V_MAP)   { vyne_map_set(base, index, val);   return; }
+    if (base.type == V_ARRAY || base.type == V_F64_ARRAY || base.type == V_I64_ARRAY) {
+        vyne_array_set(base, index, val); return;
+    }
+    if (base.type == V_MAP) { vyne_map_set(base, index, val); return; }
 }
 
 static inline void vyne_dismiss_module(const char* name) {

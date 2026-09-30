@@ -25,8 +25,10 @@ static inline const char* vyne_get_type_name(VyneValue v) {
         case V_FLOAT64: return "Float64";
         case V_STRING:  return "String";
         case V_BOOL:    return "Boolean";
-        case V_ARRAY:   return "Array";
-        case V_MAP:     return "Map";
+        case V_ARRAY:     return "Array";
+        case V_F64_ARRAY: return "Array<Float64>";
+        case V_I64_ARRAY: return "Array<Int64>";
+        case V_MAP:       return "Map";
         case V_STRUCT:  return "Struct";
         case V_NULL:    return "Null";
         default:        return "Unknown";
@@ -34,10 +36,12 @@ static inline const char* vyne_get_type_name(VyneValue v) {
 }
 
 static inline int64_t vyne_get_sizeof(VyneValue v) {
-    if (v.type == V_ARRAY) return (int64_t)v.as.arr->size;
-    if (v.type == V_MAP)   return (int64_t)v.as.map->size;
-    if (v.type == V_STRING) return (int64_t)strlen(v.as.str);
-    if (v.type == V_STRUCT) return (int64_t)v.as.strct->field_count;
+    if (v.type == V_ARRAY)     return (int64_t)v.as.arr->size;
+    if (v.type == V_F64_ARRAY) return v.as.arr_f64->size;
+    if (v.type == V_I64_ARRAY) return v.as.arr_i64->size;
+    if (v.type == V_MAP)       return (int64_t)v.as.map->size;
+    if (v.type == V_STRING)    return (int64_t)strlen(v.as.str);
+    if (v.type == V_STRUCT)    return (int64_t)v.as.strct->field_count;
     return 8;
 }
 
@@ -76,6 +80,40 @@ static inline VyneValue vyne_to_string(VyneValue v) {
             tmp[pos++] = ']';
             tmp[pos]   = '\0';
             return vyne_string(tmp);
+        }
+        case V_F64_ARRAY: {
+            VyneArray_f64* a = v.as.arr_f64;
+            size_t total = 3;
+            for (int64_t i = 0; i < a->size; ++i) total += 24; // generous
+            char* tmp = (char*)arena_alloc(total);
+            size_t pos = 0;
+            tmp[pos++] = '[';
+            for (int64_t i = 0; i < a->size; ++i) {
+                if (i > 0) { tmp[pos++] = ','; tmp[pos++] = ' '; }
+                char fbuf[32];
+                _vyne_format_float(fbuf, a->data[i]);
+                size_t slen = strlen(fbuf);
+                memcpy(tmp + pos, fbuf, slen); pos += slen;
+            }
+            tmp[pos++] = ']';
+            tmp[pos]   = '\0';
+            return vyne_string_own(tmp);
+        }
+        case V_I64_ARRAY: {
+            VyneArray_i64* a = v.as.arr_i64;
+            size_t total = 3;
+            for (int64_t i = 0; i < a->size; ++i) total += 24;
+            char* tmp = (char*)arena_alloc(total);
+            size_t pos = 0;
+            tmp[pos++] = '[';
+            for (int64_t i = 0; i < a->size; ++i) {
+                if (i > 0) { tmp[pos++] = ','; tmp[pos++] = ' '; }
+                int written = snprintf(tmp + pos, 24, "%lld", (long long)a->data[i]);
+                if (written > 0) pos += (size_t)written;
+            }
+            tmp[pos++] = ']';
+            tmp[pos]   = '\0';
+            return vyne_string_own(tmp);
         }
         case V_MAP: {
             VyneMap* m = v.as.map;

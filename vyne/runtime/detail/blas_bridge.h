@@ -47,6 +47,8 @@ static inline void vyne_blas_invalidate_cache(void) {
 static inline VyneArray_f64 _vyne_blas_unbox_cached(
     VyneValue v, const void** key, VyneArray_f64* cache)
 {
+    // V_F64_ARRAY unbox is already O(1): return the shared struct, no cache.
+    if (v.type == V_F64_ARRAY) return *v.as.arr_f64;
     if (v.type != V_ARRAY) return vyne_array_f64_create(0);
     if (v.as.arr->elements == *key) return *cache;
     *key   = v.as.arr->elements;
