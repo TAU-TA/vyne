@@ -12,10 +12,10 @@
 
 ruleset { dynamic_casting };
 
-use lib "vlin/vlin.vy";
-module vlin;
-module vmath;
-module vmem;
+use external "vlin/vlin.vy";
+use native vlin;
+use native vmath;
+use native vmem;
 
 vmath.seed(42);
 

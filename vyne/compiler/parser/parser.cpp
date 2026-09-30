@@ -256,9 +256,31 @@ std::unique_ptr<ASTNode> Parser::parseImportModule() {
     int line = peekToken().line;
     consume(VTokenType::Use);
 
+    // `use native <ident> [as <alias>];` — binds a host-provided
+    // module. Distinct from `use lib "…"` / `use extern "…"`, which
+    // import .vy source. Native modules have no file behind them;
+    // codegen pulls in a runtime header instead.
+    if (peekToken().type == VTokenType::Native) {
+        consume(VTokenType::Native);
+        Token nameTok = consume(VTokenType::Identifier);
+        std::string alias;
+        if (peekToken().type == VTokenType::As) {
+            consume(VTokenType::As);
+            alias = consume(VTokenType::Identifier).name;
+        }
+        consumeSemicolon();
+
+        auto node = std::make_unique<NativeModuleNode>(
+            StringPool::instance().intern(nameTok.name),
+            nameTok.name,
+            alias);
+        node->lineNumber = line;
+        return node;
+    }
+
     bool isExtern = false;
-    if (peekToken().type == VTokenType::Extern) {
-        consume(VTokenType::Extern);
+    if (peekToken().type == VTokenType::External) {
+        consume(VTokenType::External);
         isExtern = true;
     }
 

@@ -5,12 +5,12 @@
 
 ruleset { dynamic_casting };
 
-use lib "vbio/vbio.vy";
-use lib "vml/vml.vy";
-use lib "vcolors.vy";
+use external "vbio/vbio.vy";
+use external "vml/vml.vy";
+use external "vcolors.vy";
 
-module vmath;
-module vmem;
+use native vmath;
+use native vmem;
 
 vmath.seed(42);
 

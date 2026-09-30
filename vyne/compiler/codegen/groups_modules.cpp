@@ -92,18 +92,44 @@ std::string GroupNode::getCExpr(C_Emitter& e) const {
 // MODULE
 // ============================================================
 
+// `module foo;` — no more name-based behaviour. The parser has
+// already set `currentModuleName`, which is all the compiler needs
+// from this statement during parsing. At codegen time we register
+// the name as a user group so `foo.bar(...)` routes through the
+// group-call path; nothing else is done here. If the user wants a
+// native module, they must say so explicitly with `use native`.
 void ModuleNode::compile(C_Emitter& e) const {
-    std::string base = FileUtils::getExeDir();
-    std::filesystem::path moduleBase = std::filesystem::path(base) / "vyne" / "runtime" / "modules";
-
-    if (originalName == "vmath")  e.addInclude((moduleBase / "vmath.h").string());
-    if (originalName == "vcore")  e.addInclude((moduleBase / "vcore.h").string());
-    if (originalName == "vmem")   e.addInclude((moduleBase / "vmem.h").string());
-    if (originalName == "vaudio") e.addInclude((moduleBase / "vaudio.h").string());
-    if (originalName == "vglib")  e.addInclude((moduleBase / "vglib.h").string());
-
     e.registerGroup(originalName);
 }
 
 std::string ModuleNode::getCExpr(C_Emitter& e) const { return "vyne_null()"; }
+
+// ============================================================
+// NATIVE MODULE — CODEGEN
+// ------------------------------------------------------------
+// `use native vmath;` lowers to:
+//   • pulling the runtime header <vmath.h> into the generated C
+//   • registering the bound name with the emitter as a group, so
+//     `vmath.sqrt(...)` reaches the group-call branch of
+//     MethodCallNode::getCExpr
+//
+// The group branch checks `findNative(recvPath, methodName)`
+// before falling through to the boxed call, so registering the
+// name as a group is sufficient — no new emitter state is needed.
+// Aliases are registered as additional groups pointing at the
+// same underlying header. Emitting the same `#include` twice is
+// harmless (includeSet deduplicates by path).
+// ============================================================
+void NativeModuleNode::compile(C_Emitter& e) const {
+    std::string base = FileUtils::getExeDir();
+    std::filesystem::path moduleBase =
+        std::filesystem::path(base) / "vyne" / "runtime" / "modules";
+
+    e.addInclude((moduleBase / (moduleName + ".h")).string());
+
+    e.registerGroup(moduleName);
+    if (!alias.empty()) {
+        e.registerGroup(alias);
+    }
+}
 

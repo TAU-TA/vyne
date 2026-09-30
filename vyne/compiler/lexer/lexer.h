@@ -28,7 +28,8 @@ enum class VTokenType {
     Use,                // Multiple file importing
     Deploy,             // Module deployment
     As,                 // Alias declaration
-    Extern,             // External lib modifier
+    External,             // External lib modifier
+    Native,             // Native lib modifier
     Interface,          // Struct definers
     Region,             // 'region' keyword (A1/A3)
     Scratch,            // 'scratch' — shaped stack array declaration
@@ -139,7 +140,8 @@ static const std::unordered_map<std::string_view, VTokenType> keywords = {
     {"use",             VTokenType::Use},
     {"deploy",          VTokenType::Deploy},
     {"as",              VTokenType::As},
-    {"lib",             VTokenType::Extern},
+    {"external",        VTokenType::External},
+    {"native",          VTokenType::Native},
     {"interface",       VTokenType::Interface},
     {"region",          VTokenType::Region},
     {"scratch",         VTokenType::Scratch},
@@ -209,7 +211,7 @@ inline std::string VTokenTypeToString(VTokenType type) {
         case VTokenType::Use:               return "'use'";
         case VTokenType::Deploy:           return "'deploy'";
         case VTokenType::As:                return "'as'";
-        case VTokenType::Extern:           return "'extern'";
+        case VTokenType::External:           return "'extern'";
         case VTokenType::Interface:        return "'interface'";
         case VTokenType::Region:           return "'region'";
         case VTokenType::Scratch:          return "'scratch'";

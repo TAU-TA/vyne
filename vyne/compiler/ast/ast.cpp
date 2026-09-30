@@ -1857,25 +1857,52 @@ Value BlockNode::evaluate(SymbolContainer& env, uint32_t currentGroupId) const {
  * @return Value The Module-typed value representing the loaded library.
  */
 
+// `use native <name> [as <alias>];` — dispatch to the matching
+// interpreter-side setup function, then expose the module under
+// both its own name and (if given) the alias. The setup functions
+// each register their members into `env[<moduleName>]` themselves;
+// when an alias is present we mirror those members under a second
+// key so `alias.member(...)` resolves without changing how any of
+// the setup functions work.
 Value ModuleNode::evaluate(SymbolContainer& env, uint32_t currentGroupId) const {
-    if (originalName == "vcore")  setupVCore(env, StringPool::instance());
-    if (originalName == "vglib")  setupVGLib(env, StringPool::instance());
-    if (originalName == "vmem")   setupVMem(env, StringPool::instance());
-    if (originalName == "vmath")  setupVMath(env, StringPool::instance());
-    if (originalName == "vfs")    setupVFs(env, StringPool::instance());
-    if (originalName == "vurage") setupVurage(env, StringPool::instance());
-    if (originalName == "vcv")    setupVCV(env, StringPool::instance());
-    if (originalName == "vaudio") setupVAudio(env, StringPool::instance());
-    if (originalName == "vnet")   setupVNet(env, StringPool::instance());
-    if (originalName == "vserv")  setupVServ(env, StringPool::instance());
-    if (originalName == "vml")    setupVML(env, StringPool::instance());
+    auto& groupTable = env[currentGroupId];
 
-    auto& groupTable = env[currentGroupId]; 
-
-    groupTable[moduleId] = Value(moduleId, originalName, true); 
+    groupTable[moduleId] = Value(moduleId, originalName, true);
 
     if (env.find(originalName) == env.end()) {
-        env[originalName] = {}; 
+        env[originalName] = {};
+    }
+
+    return groupTable[moduleId];
+}
+Value NativeModuleNode::evaluate(SymbolContainer& env, uint32_t currentGroupId) const {
+    if (moduleName == "vcore")  setupVCore(env, StringPool::instance());
+    if (moduleName == "vglib")  setupVGLib(env, StringPool::instance());
+    if (moduleName == "vmem")   setupVMem(env, StringPool::instance());
+    if (moduleName == "vmath")  setupVMath(env, StringPool::instance());
+    if (moduleName == "vfs")    setupVFs(env, StringPool::instance());
+    if (moduleName == "vurage") setupVurage(env, StringPool::instance());
+    if (moduleName == "vcv")    setupVCV(env, StringPool::instance());
+    if (moduleName == "vaudio") setupVAudio(env, StringPool::instance());
+    if (moduleName == "vnet")   setupVNet(env, StringPool::instance());
+    if (moduleName == "vserv")  setupVServ(env, StringPool::instance());
+    if (moduleName == "vml")    setupVML(env, StringPool::instance());
+
+    // Make sure the module name is visible in the current scope.
+    auto& groupTable = env[currentGroupId];
+    groupTable[moduleId] = Value(moduleId, moduleName, true);
+    if (env.find(moduleName) == env.end()) env[moduleName] = SymbolTable();
+
+    // Alias path: duplicate the members under a second key. Shallow
+    // copy on purpose — native members are functions/values created
+    // by the setup call and are safe to share.
+    if (!alias.empty()) {
+        uint32_t aliasId = StringPool::instance().intern(alias);
+        if (env.find(aliasId) == env.end()) env[aliasId] = SymbolTable();
+        auto& src = env[moduleName];
+        auto& dst = env[aliasId];
+        for (const auto& [id, val] : src) dst[id] = val;
+        groupTable[aliasId] = Value(aliasId, alias, true);
     }
 
     return groupTable[moduleId];

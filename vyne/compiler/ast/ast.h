@@ -251,6 +251,7 @@ enum class NodeType {
     DISMISS,
     DEPLOY,
     IMPORT,
+    NATIVE_MODULE,
     INTERFACE,
     ENUM,
 
@@ -1077,6 +1078,33 @@ public:
     const std::string& getFilePath() const { return filePath; }
     const std::string& getAlias()    const { return alias; }
     bool isExternImport() const { return isExtern; }
+};
+
+class NativeModuleNode : public ASTNode {
+    uint32_t    moduleId;
+    std::string moduleName;
+    std::string alias;      // empty when no `as` clause was written
+
+public:
+    NativeModuleNode(uint32_t id, std::string name, std::string al = "")
+        : ASTNode(NodeType::NATIVE_MODULE),
+          moduleId(id),
+          moduleName(std::move(name)),
+          alias(std::move(al)) {}
+
+    Value evaluate(SymbolContainer& env, uint32_t currentGroupId) const override;
+    void  compile(C_Emitter& e) const override;
+    std::string getCExpr(C_Emitter& e) const override { return "vyne_null()"; }
+    VType getStaticType() const override { return VType::Module; }
+
+    const std::string& getName()  const { return moduleName; }
+    const std::string& getAlias() const { return alias; }
+
+    // The name under which the module is visible in source:
+    // the alias if given, otherwise the module's own name.
+    const std::string& boundName() const {
+        return alias.empty() ? moduleName : alias;
+    }
 };
 
 class DeployNode : public ASTNode {
