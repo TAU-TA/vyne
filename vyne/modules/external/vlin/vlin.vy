@@ -5,6 +5,8 @@ use "Kernels.vy";
 use "Constructors.vy";
 use "Ops.vy";
 use "Reductions.vy";
+use "Activations.vy";
+use "Optimizers.vy";
 
 module vlin;
 
