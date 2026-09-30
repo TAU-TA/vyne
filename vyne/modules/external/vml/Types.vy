@@ -4,13 +4,12 @@
 # store a weight Matrix, a bias Array<Float64>, and the name of their
 # activation. Sequential composes layers. SGD carries a learning rate.
 # All numeric work is delegated to vlin.
-
-use lib "vlin/vlin.vy";
-
 ruleset { dynamic_casting };
 
+use native vmath;
+use external "vlin/vlin.vy";
+
 module vml;
-module vmath;
 
 group Types :: vml {
 
