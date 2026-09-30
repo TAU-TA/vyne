@@ -370,6 +370,13 @@ class VariableNode : public ASTNode {
     VType explicitType;
     bool isReference;
 
+    // Captured from the `:: Type` annotation by parseIdentifierExpr.
+    // Stays Unknown / empty when no annotation was written, or when the
+    // rarer `a.b :: Type` form routed the annotation through
+    // parseVariableAssignment instead.
+    VType arrayElemType_ = VType::Unknown;
+    std::string declaredTypeName_;
+
 public:
     VariableNode(
         uint32_t id, 
@@ -406,6 +413,16 @@ public:
     const std::string& getOriginalName() const { return originalName; }
     bool isRefVar() const { return isReference; }
     VType getStaticType() const override { return explicitType; }
+
+    // M4-C1: element type of the `Array<T>` annotation, if any.
+    VType getArrayElemType() const { return arrayElemType_; }
+    void  setArrayElemType(VType t) { arrayElemType_ = t; }
+
+    // M4-C1B: raw source text of the annotation path, e.g. "Array<Float64>".
+    const std::string& getDeclaredTypeName() const { return declaredTypeName_; }
+    void setDeclaredTypeName(std::string n) { declaredTypeName_ = std::move(n); }
+
+    bool hasExplicitTypeInfo() const { return !declaredTypeName_.empty(); }
 };
 
 class AssignmentNode : public ASTNode {

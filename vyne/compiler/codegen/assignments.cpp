@@ -504,9 +504,27 @@ void AssignmentNode::compile(C_Emitter& e) const {
         if (isDeclaration && declared.kind == CType::Kind::Array &&
             rhs->type() == NodeType::ARRAY) {
             auto* arrRhs = static_cast<const ArrayNode*>(rhs.get());
-            if (arrRhs->getElements().empty() &&
-                getArrayElemType() != VType::Unknown) {
+            if (arrRhs->getElements().empty()) {
+                // Preferred source: the parser's arrayElemType, set from
+                // the `Array<T>` annotation. Fall back to scanning the
+                // raw annotation text only when the parser missed it —
+                // and if that also fails, refuse to guess.
                 VType elem = getArrayElemType();
+                if (elem == VType::Unknown && !declaredTypeName.empty()) {
+                    const std::string& dt = declaredTypeName;
+                    if (dt.find("Int64")   != std::string::npos) elem = VType::Int64;
+                    else if (dt.find("Float64") != std::string::npos) elem = VType::Float64;
+                }
+
+                if (elem == VType::Unknown) {
+                    throw std::runtime_error(
+                        "Compile Error: cannot determine element type of "
+                        "empty array literal '" + originalName + "' at line " +
+                        std::to_string(lineNumber) + ". "
+                        "Annotate it, e.g. `" + originalName +
+                        " :: Array<Float64> = [];`.");
+                }
+
                 std::string ctor = (elem == VType::Float64)
                     ? "vyne_array_f64_create"
                     : "vyne_array_i64_create";

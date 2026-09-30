@@ -10,7 +10,7 @@ int64_t v_ITERS = 0;
 
 int main(void) {
     VyneValue n_ret_0 = vmath_seed(vyne_int(42));
-    v_CONFIG = 0;
+    v_CONFIG = 1;
     v_N = 1024;
     v_ITERS = 100;
     VyneValue str_1 = vyne_to_string(vyne_int(v_CONFIG));

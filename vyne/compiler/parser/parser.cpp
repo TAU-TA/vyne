@@ -1096,16 +1096,27 @@ std::unique_ptr<ASTNode> Parser::parseIdentifierExpr() {
         info->used = true;
     }
 
-    VType explicitType = VType::Unknown;
+    VType explicitType   = VType::Unknown;
+    VType arrayElemType  = VType::Unknown;
+    std::string declaredTypeName;
+
     if (peekToken().type == VTokenType::Extends) {
         consume(VTokenType::Extends);
         Token startTypeTok = peekToken();
-        explicitType = resolveType(parseTypePath());
+
+        // Capture the raw source path so parseVariableAssignment can
+        // stash it on the AssignmentNode — otherwise resolveType()
+        // swallows the string and codegen has no way to recover the
+        // inner element type of `Array<Float64>`.
+        declaredTypeName = parseTypePath();
+        explicitType     = resolveType(declaredTypeName);
+        arrayElemType    = resolveArrayElementType(declaredTypeName);
 
         if (peekToken().type == VTokenType::Referencer) {
             consume(VTokenType::Referencer);
-            isRefVar = true;
-            explicitType = VType::Reference;
+            isRefVar      = true;
+            explicitType  = VType::Reference;
+            arrayElemType = VType::Unknown;   // references are not typed arrays
         }
 
         if (explicitType == VType::Unknown) {
@@ -1173,7 +1184,12 @@ std::unique_ptr<ASTNode> Parser::parseIdentifierExpr() {
         }
         node = std::move(funcCall);
     } else {
-        node = std::make_unique<VariableNode>(currentId, tok.name, explicitType, std::vector<std::string>{}, isRefVar);
+        auto varNode = std::make_unique<VariableNode>(
+            currentId, tok.name, explicitType,
+            std::vector<std::string>{}, isRefVar);
+        varNode->setArrayElemType(arrayElemType);
+        varNode->setDeclaredTypeName(std::move(declaredTypeName));
+        node = std::move(varNode);
     }
 
     while (peekToken().type == VTokenType::Dot || peekToken().type == VTokenType::Left_Bracket) {
@@ -1485,20 +1501,30 @@ std::unique_ptr<ASTNode> Parser::parseVariableAssignment(
     }
     bool isReference = var->isRefVar();
     std::string customTypeName = "";
+    VType varArrayElem = VType::Unknown;
 
-    bool hasTypeDecl = (peekToken().type == VTokenType::Extends) && (varType == VType::Unknown);
-    VType varArrayElem = VType::Unknown;   // M4-C1
-
-    if (hasTypeDecl) {
+    // The `:: Type` annotation is normally consumed by parseIdentifierExpr
+    // (which sees `IDENT ::` and eagerly parses the type). It stashed the
+    // raw path and element type on the VariableNode; pull them back out
+    // here so the AssignmentNode carries them to codegen.
+    //
+    // The `else if` below is the fallback for the rarer case where the
+    // identifier was followed by member/index access before `::` — see
+    // `a.b :: Type` — so parseIdentifierExpr's top-of-function check
+    // didn't fire and the `::` is still sitting in the token stream.
+    if (var->hasExplicitTypeInfo()) {
+        varArrayElem   = var->getArrayElemType();
+        customTypeName = var->getDeclaredTypeName();
+    } else if ((peekToken().type == VTokenType::Extends) && (varType == VType::Unknown)) {
         consume(VTokenType::Extends);
         customTypeName = parseTypePath();
-        varType = resolveType(customTypeName);
-        varArrayElem = resolveArrayElementType(customTypeName);   // M4-C1
+        varType        = resolveType(customTypeName);
+        varArrayElem   = resolveArrayElementType(customTypeName);
 
         if (peekToken().type == VTokenType::Referencer) {
             consume(VTokenType::Referencer);
-            isReference = true;
-            varArrayElem = VType::Unknown;   // references are not typed arrays
+            isReference   = true;
+            varArrayElem  = VType::Unknown;
         }
     } else if (varType == VType::Unknown) {
         if (Vyne::isTypeStrict()) {

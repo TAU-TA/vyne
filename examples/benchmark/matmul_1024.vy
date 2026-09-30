@@ -23,7 +23,7 @@ module vmem;
 
 vmath.seed(42);
 
-CONFIG :: Int64 = 0;
+CONFIG :: Int64 = 1;
 N      :: Int64 = 1024;
 ITERS  :: Int64 = 100;
 
