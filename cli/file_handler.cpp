@@ -259,8 +259,28 @@ static int runTranspile(const std::string& filename,
     if (opts.mode == RunMode::CompileRun) {
         sectionOpen("output");
 
+        // cmd.exe on Windows treats '/' as a switch prefix and does not
+        // resolve a bare relative path against the CWD when the first
+        // token isn't the exe name. Normalise to backslashes and force
+        // a `.\` prefix for relative paths. POSIX shells are happy with
+        // what we already have.
+#ifdef _WIN32
+        std::string runExe = exeName;
+        std::replace(runExe.begin(), runExe.end(), '/', '\\');
+        bool isAbsolute =
+            (runExe.size() >= 2 && runExe[1] == ':') ||
+            (runExe.size() >= 2 && runExe[0] == '\\' && runExe[1] == '\\') ||
+            (!runExe.empty()    && runExe[0] == '\\');
+        if (!isAbsolute && runExe.rfind(".\\", 0) != 0) {
+            runExe = ".\\" + runExe;
+        }
+        std::string runCmd = "\"" + runExe + "\"";
+#else
+        std::string runCmd = "\"" + exeName + "\"";
+#endif
+
         auto start_exec = std::chrono::high_resolution_clock::now();
-        int run_result = system(("\"" + exeName + "\"").c_str());
+        int run_result = system(runCmd.c_str());
         auto end_exec = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double, std::milli> exec_ms = end_exec - start_exec;
 
