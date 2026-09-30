@@ -76,364 +76,358 @@ int main(void) {
                 for (int64_t i_34 = lo_i_32; i_34 <= hi_i_33; ++i_34) {
                     int64_t v_iter = i_34;
                     {
-                        VyneValue arr_35 = vyne_array_create(0);
-                        VyneValue v_C = arr_35;
-                        int64_t bin_36 = v_N - 1;
-                        int64_t lo_i_37 = 0;
-                        int64_t hi_i_38 = bin_36;
-                        for (int64_t i_39 = lo_i_37; i_39 <= hi_i_38; ++i_39) {
-                            int64_t v_r = i_39;
+                        VyneArray_f64 v_C = vyne_array_f64_create(0);
+                        int64_t bin_35 = v_N - 1;
+                        int64_t lo_i_36 = 0;
+                        int64_t hi_i_37 = bin_35;
+                        for (int64_t i_38 = lo_i_36; i_38 <= hi_i_37; ++i_38) {
+                            int64_t v_r = i_38;
                             {
-                                int64_t bin_40 = v_N - 1;
-                                int64_t lo_i_41 = 0;
-                                int64_t hi_i_42 = bin_40;
-                                for (int64_t i_43 = lo_i_41; i_43 <= hi_i_42; ++i_43) {
-                                    int64_t v_c = i_43;
+                                int64_t bin_39 = v_N - 1;
+                                int64_t lo_i_40 = 0;
+                                int64_t hi_i_41 = bin_39;
+                                for (int64_t i_42 = lo_i_40; i_42 <= hi_i_41; ++i_42) {
+                                    int64_t v_c = i_42;
                                     {
                                         double v_acc0 = 0;
                                         double v_acc1 = 0;
                                         double v_acc2 = 0;
                                         double v_acc3 = 0;
                                         if (4 == 0) { fprintf(stderr, "Runtime error: Division by zero!\n"); exit(1); }
-                                        int64_t bin_44 = v_N / 4;
-                                        int64_t bin_45 = bin_44 - 1;
-                                        int64_t lo_i_46 = 0;
-                                        int64_t hi_i_47 = bin_45;
-                                        for (int64_t i_48 = lo_i_46; i_48 <= hi_i_47; ++i_48) {
-                                            int64_t v_k4 = i_48;
+                                        int64_t bin_43 = v_N / 4;
+                                        int64_t bin_44 = bin_43 - 1;
+                                        int64_t lo_i_45 = 0;
+                                        int64_t hi_i_46 = bin_44;
+                                        for (int64_t i_47 = lo_i_45; i_47 <= hi_i_46; ++i_47) {
+                                            int64_t v_k4 = i_47;
                                             {
-                                                int64_t bin_49 = v_k4 * 4;
-                                                int64_t v_k0 = bin_49;
-                                                int64_t bin_50 = v_k0 + 0;
-                                                double sid_51 = v_A[(v_r) * 1024 + (bin_50)];
-                                                int64_t bin_52 = v_k0 + 0;
-                                                double sid_53 = v_B_T[(v_c) * 1024 + (bin_52)];
-                                                double bin_54 = sid_51 * sid_53;
-                                                double bin_55 = v_acc0 + bin_54;
-                                                v_acc0 = bin_55;
-                                                int64_t bin_56 = v_k0 + 1;
-                                                double sid_57 = v_A[(v_r) * 1024 + (bin_56)];
-                                                int64_t bin_58 = v_k0 + 1;
-                                                double sid_59 = v_B_T[(v_c) * 1024 + (bin_58)];
-                                                double bin_60 = sid_57 * sid_59;
-                                                double bin_61 = v_acc1 + bin_60;
-                                                v_acc1 = bin_61;
-                                                int64_t bin_62 = v_k0 + 2;
-                                                double sid_63 = v_A[(v_r) * 1024 + (bin_62)];
-                                                int64_t bin_64 = v_k0 + 2;
-                                                double sid_65 = v_B_T[(v_c) * 1024 + (bin_64)];
-                                                double bin_66 = sid_63 * sid_65;
-                                                double bin_67 = v_acc2 + bin_66;
-                                                v_acc2 = bin_67;
-                                                int64_t bin_68 = v_k0 + 3;
-                                                double sid_69 = v_A[(v_r) * 1024 + (bin_68)];
-                                                int64_t bin_70 = v_k0 + 3;
-                                                double sid_71 = v_B_T[(v_c) * 1024 + (bin_70)];
-                                                double bin_72 = sid_69 * sid_71;
-                                                double bin_73 = v_acc3 + bin_72;
-                                                v_acc3 = bin_73;
+                                                int64_t bin_48 = v_k4 * 4;
+                                                int64_t v_k0 = bin_48;
+                                                int64_t bin_49 = v_k0 + 0;
+                                                double sid_50 = v_A[(v_r) * 1024 + (bin_49)];
+                                                int64_t bin_51 = v_k0 + 0;
+                                                double sid_52 = v_B_T[(v_c) * 1024 + (bin_51)];
+                                                double bin_53 = sid_50 * sid_52;
+                                                double bin_54 = v_acc0 + bin_53;
+                                                v_acc0 = bin_54;
+                                                int64_t bin_55 = v_k0 + 1;
+                                                double sid_56 = v_A[(v_r) * 1024 + (bin_55)];
+                                                int64_t bin_57 = v_k0 + 1;
+                                                double sid_58 = v_B_T[(v_c) * 1024 + (bin_57)];
+                                                double bin_59 = sid_56 * sid_58;
+                                                double bin_60 = v_acc1 + bin_59;
+                                                v_acc1 = bin_60;
+                                                int64_t bin_61 = v_k0 + 2;
+                                                double sid_62 = v_A[(v_r) * 1024 + (bin_61)];
+                                                int64_t bin_63 = v_k0 + 2;
+                                                double sid_64 = v_B_T[(v_c) * 1024 + (bin_63)];
+                                                double bin_65 = sid_62 * sid_64;
+                                                double bin_66 = v_acc2 + bin_65;
+                                                v_acc2 = bin_66;
+                                                int64_t bin_67 = v_k0 + 3;
+                                                double sid_68 = v_A[(v_r) * 1024 + (bin_67)];
+                                                int64_t bin_69 = v_k0 + 3;
+                                                double sid_70 = v_B_T[(v_c) * 1024 + (bin_69)];
+                                                double bin_71 = sid_68 * sid_70;
+                                                double bin_72 = v_acc3 + bin_71;
+                                                v_acc3 = bin_72;
                                             }
                                         }
-                                        VyneValue m_recv_74 = v_C;
-                                        double bin_75 = v_acc0 + v_acc1;
-                                        double bin_76 = v_acc2 + v_acc3;
-                                        double bin_77 = bin_75 + bin_76;
-                                        vyne_array_push(m_recv_74, vyne_float(bin_77));
+                                        double bin_73 = v_acc0 + v_acc1;
+                                        double bin_74 = v_acc2 + v_acc3;
+                                        double bin_75 = bin_73 + bin_74;
+                                        vyne_array_f64_push(&v_C, bin_75);
                                     }
                                 }
                             }
                         }
-                        VyneValue bin_78 = vyne_bool(v_iter == v_ITERS);
-                        if (vyne_is_truthy(bin_78)) {
+                        VyneValue bin_76 = vyne_bool(v_iter == v_ITERS);
+                        if (vyne_is_truthy(bin_76)) {
                             {
-                                VyneValue idx_80 = vyne_index_get(v_C, vyne_int(0));
-                                VyneValue str_79 = vyne_to_string(idx_80);
-                                VyneValue bin_81 = vyne_binop(vyne_string_static("checksum: "), str_79, 29);
-                                vyne_out(bin_81);
+                                double idx_78 = v_C.data[0];
+                                VyneValue str_77 = vyne_to_string(vyne_float(idx_78));
+                                VyneValue bin_79 = vyne_binop(vyne_string_static("checksum: "), str_77, 29);
+                                vyne_out(bin_79);
                             }
                         }
                     }
                 }
             }
         }
-        VyneValue bin_82 = vyne_bool(v_CONFIG == 1);
-        if (vyne_is_truthy(bin_82)) {
+        VyneValue bin_80 = vyne_bool(v_CONFIG == 1);
+        if (vyne_is_truthy(bin_80)) {
             {
-                int64_t lo_i_83 = 1;
-                int64_t hi_i_84 = v_ITERS;
-                for (int64_t i_85 = lo_i_83; i_85 <= hi_i_84; ++i_85) {
-                    int64_t v_iter = i_85;
+                int64_t lo_i_81 = 1;
+                int64_t hi_i_82 = v_ITERS;
+                for (int64_t i_83 = lo_i_81; i_83 <= hi_i_82; ++i_83) {
+                    int64_t v_iter = i_83;
                     {
                         // --- region: inner ---
-                        VyneValue vmem_cp_86 = vmem_runtime_checkpoint();
+                        VyneValue vmem_cp_84 = vmem_runtime_checkpoint();
                         {
-                            VyneValue arr_87 = vyne_array_create(0);
-                            VyneValue v_C = arr_87;
-                            int64_t bin_88 = v_N - 1;
-                            int64_t lo_i_89 = 0;
-                            int64_t hi_i_90 = bin_88;
-                            for (int64_t i_91 = lo_i_89; i_91 <= hi_i_90; ++i_91) {
-                                int64_t v_r = i_91;
+                            VyneArray_f64 v_C = vyne_array_f64_create(0);
+                            int64_t bin_85 = v_N - 1;
+                            int64_t lo_i_86 = 0;
+                            int64_t hi_i_87 = bin_85;
+                            for (int64_t i_88 = lo_i_86; i_88 <= hi_i_87; ++i_88) {
+                                int64_t v_r = i_88;
                                 {
-                                    int64_t bin_92 = v_N - 1;
-                                    int64_t lo_i_93 = 0;
-                                    int64_t hi_i_94 = bin_92;
-                                    for (int64_t i_95 = lo_i_93; i_95 <= hi_i_94; ++i_95) {
-                                        int64_t v_c = i_95;
+                                    int64_t bin_89 = v_N - 1;
+                                    int64_t lo_i_90 = 0;
+                                    int64_t hi_i_91 = bin_89;
+                                    for (int64_t i_92 = lo_i_90; i_92 <= hi_i_91; ++i_92) {
+                                        int64_t v_c = i_92;
                                         {
                                             double v_acc0 = 0;
                                             double v_acc1 = 0;
                                             double v_acc2 = 0;
                                             double v_acc3 = 0;
                                             if (4 == 0) { fprintf(stderr, "Runtime error: Division by zero!\n"); exit(1); }
-                                            int64_t bin_96 = v_N / 4;
-                                            int64_t bin_97 = bin_96 - 1;
-                                            int64_t lo_i_98 = 0;
-                                            int64_t hi_i_99 = bin_97;
-                                            for (int64_t i_100 = lo_i_98; i_100 <= hi_i_99; ++i_100) {
-                                                int64_t v_k4 = i_100;
+                                            int64_t bin_93 = v_N / 4;
+                                            int64_t bin_94 = bin_93 - 1;
+                                            int64_t lo_i_95 = 0;
+                                            int64_t hi_i_96 = bin_94;
+                                            for (int64_t i_97 = lo_i_95; i_97 <= hi_i_96; ++i_97) {
+                                                int64_t v_k4 = i_97;
                                                 {
-                                                    int64_t bin_101 = v_k4 * 4;
-                                                    int64_t v_k0 = bin_101;
-                                                    int64_t bin_102 = v_k0 + 0;
-                                                    double sid_103 = v_A[(v_r) * 1024 + (bin_102)];
-                                                    int64_t bin_104 = v_k0 + 0;
-                                                    double sid_105 = v_B_T[(v_c) * 1024 + (bin_104)];
-                                                    double bin_106 = sid_103 * sid_105;
-                                                    double bin_107 = v_acc0 + bin_106;
-                                                    v_acc0 = bin_107;
-                                                    int64_t bin_108 = v_k0 + 1;
-                                                    double sid_109 = v_A[(v_r) * 1024 + (bin_108)];
-                                                    int64_t bin_110 = v_k0 + 1;
-                                                    double sid_111 = v_B_T[(v_c) * 1024 + (bin_110)];
-                                                    double bin_112 = sid_109 * sid_111;
-                                                    double bin_113 = v_acc1 + bin_112;
-                                                    v_acc1 = bin_113;
-                                                    int64_t bin_114 = v_k0 + 2;
-                                                    double sid_115 = v_A[(v_r) * 1024 + (bin_114)];
-                                                    int64_t bin_116 = v_k0 + 2;
-                                                    double sid_117 = v_B_T[(v_c) * 1024 + (bin_116)];
-                                                    double bin_118 = sid_115 * sid_117;
-                                                    double bin_119 = v_acc2 + bin_118;
-                                                    v_acc2 = bin_119;
-                                                    int64_t bin_120 = v_k0 + 3;
-                                                    double sid_121 = v_A[(v_r) * 1024 + (bin_120)];
-                                                    int64_t bin_122 = v_k0 + 3;
-                                                    double sid_123 = v_B_T[(v_c) * 1024 + (bin_122)];
-                                                    double bin_124 = sid_121 * sid_123;
-                                                    double bin_125 = v_acc3 + bin_124;
-                                                    v_acc3 = bin_125;
+                                                    int64_t bin_98 = v_k4 * 4;
+                                                    int64_t v_k0 = bin_98;
+                                                    int64_t bin_99 = v_k0 + 0;
+                                                    double sid_100 = v_A[(v_r) * 1024 + (bin_99)];
+                                                    int64_t bin_101 = v_k0 + 0;
+                                                    double sid_102 = v_B_T[(v_c) * 1024 + (bin_101)];
+                                                    double bin_103 = sid_100 * sid_102;
+                                                    double bin_104 = v_acc0 + bin_103;
+                                                    v_acc0 = bin_104;
+                                                    int64_t bin_105 = v_k0 + 1;
+                                                    double sid_106 = v_A[(v_r) * 1024 + (bin_105)];
+                                                    int64_t bin_107 = v_k0 + 1;
+                                                    double sid_108 = v_B_T[(v_c) * 1024 + (bin_107)];
+                                                    double bin_109 = sid_106 * sid_108;
+                                                    double bin_110 = v_acc1 + bin_109;
+                                                    v_acc1 = bin_110;
+                                                    int64_t bin_111 = v_k0 + 2;
+                                                    double sid_112 = v_A[(v_r) * 1024 + (bin_111)];
+                                                    int64_t bin_113 = v_k0 + 2;
+                                                    double sid_114 = v_B_T[(v_c) * 1024 + (bin_113)];
+                                                    double bin_115 = sid_112 * sid_114;
+                                                    double bin_116 = v_acc2 + bin_115;
+                                                    v_acc2 = bin_116;
+                                                    int64_t bin_117 = v_k0 + 3;
+                                                    double sid_118 = v_A[(v_r) * 1024 + (bin_117)];
+                                                    int64_t bin_119 = v_k0 + 3;
+                                                    double sid_120 = v_B_T[(v_c) * 1024 + (bin_119)];
+                                                    double bin_121 = sid_118 * sid_120;
+                                                    double bin_122 = v_acc3 + bin_121;
+                                                    v_acc3 = bin_122;
                                                 }
                                             }
-                                            VyneValue m_recv_126 = v_C;
-                                            double bin_127 = v_acc0 + v_acc1;
-                                            double bin_128 = v_acc2 + v_acc3;
-                                            double bin_129 = bin_127 + bin_128;
-                                            vyne_array_push(m_recv_126, vyne_float(bin_129));
+                                            double bin_123 = v_acc0 + v_acc1;
+                                            double bin_124 = v_acc2 + v_acc3;
+                                            double bin_125 = bin_123 + bin_124;
+                                            vyne_array_f64_push(&v_C, bin_125);
                                         }
                                     }
                                 }
                             }
-                            VyneValue bin_130 = vyne_bool(v_iter == v_ITERS);
-                            if (vyne_is_truthy(bin_130)) {
+                            VyneValue bin_126 = vyne_bool(v_iter == v_ITERS);
+                            if (vyne_is_truthy(bin_126)) {
                                 {
-                                    VyneValue idx_132 = vyne_index_get(v_C, vyne_int(0));
-                                    VyneValue str_131 = vyne_to_string(idx_132);
-                                    VyneValue bin_133 = vyne_binop(vyne_string_static("checksum: "), str_131, 29);
-                                    vyne_out(bin_133);
+                                    double idx_128 = v_C.data[0];
+                                    VyneValue str_127 = vyne_to_string(vyne_float(idx_128));
+                                    VyneValue bin_129 = vyne_binop(vyne_string_static("checksum: "), str_127, 29);
+                                    vyne_out(bin_129);
                                 }
                             }
                         }
-                        vmem_runtime_rewind(vmem_cp_86);
+                        vmem_runtime_rewind(vmem_cp_84);
                     }
                 }
             }
         }
-        VyneValue bin_134 = vyne_bool(v_CONFIG == 2);
-        if (vyne_is_truthy(bin_134)) {
+        VyneValue bin_130 = vyne_bool(v_CONFIG == 2);
+        if (vyne_is_truthy(bin_130)) {
             {
-                int64_t lo_i_135 = 1;
-                int64_t hi_i_136 = v_ITERS;
-                for (int64_t i_137 = lo_i_135; i_137 <= hi_i_136; ++i_137) {
-                    int64_t v_iter = i_137;
+                int64_t lo_i_131 = 1;
+                int64_t hi_i_132 = v_ITERS;
+                for (int64_t i_133 = lo_i_131; i_133 <= hi_i_132; ++i_133) {
+                    int64_t v_iter = i_133;
                     {
                         // --- region: inner ---
-                        VyneValue vmem_cp_138 = vmem_runtime_checkpoint();
+                        VyneValue vmem_cp_134 = vmem_runtime_checkpoint();
                         {
                             double v_C[1048576];
-                            int64_t bin_139 = v_N - 1;
-                            int64_t lo_i_140 = 0;
-                            int64_t hi_i_141 = bin_139;
-                            for (int64_t i_142 = lo_i_140; i_142 <= hi_i_141; ++i_142) {
-                                int64_t v_r = i_142;
+                            int64_t bin_135 = v_N - 1;
+                            int64_t lo_i_136 = 0;
+                            int64_t hi_i_137 = bin_135;
+                            for (int64_t i_138 = lo_i_136; i_138 <= hi_i_137; ++i_138) {
+                                int64_t v_r = i_138;
                                 {
-                                    int64_t bin_143 = v_N - 1;
-                                    int64_t lo_i_144 = 0;
-                                    int64_t hi_i_145 = bin_143;
-                                    for (int64_t i_146 = lo_i_144; i_146 <= hi_i_145; ++i_146) {
-                                        int64_t v_c = i_146;
+                                    int64_t bin_139 = v_N - 1;
+                                    int64_t lo_i_140 = 0;
+                                    int64_t hi_i_141 = bin_139;
+                                    for (int64_t i_142 = lo_i_140; i_142 <= hi_i_141; ++i_142) {
+                                        int64_t v_c = i_142;
                                         {
                                             double v_acc0 = 0;
                                             double v_acc1 = 0;
                                             double v_acc2 = 0;
                                             double v_acc3 = 0;
                                             if (4 == 0) { fprintf(stderr, "Runtime error: Division by zero!\n"); exit(1); }
-                                            int64_t bin_147 = v_N / 4;
-                                            int64_t bin_148 = bin_147 - 1;
-                                            int64_t lo_i_149 = 0;
-                                            int64_t hi_i_150 = bin_148;
-                                            for (int64_t i_151 = lo_i_149; i_151 <= hi_i_150; ++i_151) {
-                                                int64_t v_k4 = i_151;
+                                            int64_t bin_143 = v_N / 4;
+                                            int64_t bin_144 = bin_143 - 1;
+                                            int64_t lo_i_145 = 0;
+                                            int64_t hi_i_146 = bin_144;
+                                            for (int64_t i_147 = lo_i_145; i_147 <= hi_i_146; ++i_147) {
+                                                int64_t v_k4 = i_147;
                                                 {
-                                                    int64_t bin_152 = v_k4 * 4;
-                                                    int64_t v_k0 = bin_152;
-                                                    int64_t bin_153 = v_k0 + 0;
-                                                    double sid_154 = v_A[(v_r) * 1024 + (bin_153)];
-                                                    int64_t bin_155 = v_k0 + 0;
-                                                    double sid_156 = v_B_T[(v_c) * 1024 + (bin_155)];
-                                                    double bin_157 = sid_154 * sid_156;
-                                                    double bin_158 = v_acc0 + bin_157;
-                                                    v_acc0 = bin_158;
-                                                    int64_t bin_159 = v_k0 + 1;
-                                                    double sid_160 = v_A[(v_r) * 1024 + (bin_159)];
-                                                    int64_t bin_161 = v_k0 + 1;
-                                                    double sid_162 = v_B_T[(v_c) * 1024 + (bin_161)];
-                                                    double bin_163 = sid_160 * sid_162;
-                                                    double bin_164 = v_acc1 + bin_163;
-                                                    v_acc1 = bin_164;
-                                                    int64_t bin_165 = v_k0 + 2;
-                                                    double sid_166 = v_A[(v_r) * 1024 + (bin_165)];
-                                                    int64_t bin_167 = v_k0 + 2;
-                                                    double sid_168 = v_B_T[(v_c) * 1024 + (bin_167)];
-                                                    double bin_169 = sid_166 * sid_168;
-                                                    double bin_170 = v_acc2 + bin_169;
-                                                    v_acc2 = bin_170;
-                                                    int64_t bin_171 = v_k0 + 3;
-                                                    double sid_172 = v_A[(v_r) * 1024 + (bin_171)];
-                                                    int64_t bin_173 = v_k0 + 3;
-                                                    double sid_174 = v_B_T[(v_c) * 1024 + (bin_173)];
-                                                    double bin_175 = sid_172 * sid_174;
-                                                    double bin_176 = v_acc3 + bin_175;
-                                                    v_acc3 = bin_176;
+                                                    int64_t bin_148 = v_k4 * 4;
+                                                    int64_t v_k0 = bin_148;
+                                                    int64_t bin_149 = v_k0 + 0;
+                                                    double sid_150 = v_A[(v_r) * 1024 + (bin_149)];
+                                                    int64_t bin_151 = v_k0 + 0;
+                                                    double sid_152 = v_B_T[(v_c) * 1024 + (bin_151)];
+                                                    double bin_153 = sid_150 * sid_152;
+                                                    double bin_154 = v_acc0 + bin_153;
+                                                    v_acc0 = bin_154;
+                                                    int64_t bin_155 = v_k0 + 1;
+                                                    double sid_156 = v_A[(v_r) * 1024 + (bin_155)];
+                                                    int64_t bin_157 = v_k0 + 1;
+                                                    double sid_158 = v_B_T[(v_c) * 1024 + (bin_157)];
+                                                    double bin_159 = sid_156 * sid_158;
+                                                    double bin_160 = v_acc1 + bin_159;
+                                                    v_acc1 = bin_160;
+                                                    int64_t bin_161 = v_k0 + 2;
+                                                    double sid_162 = v_A[(v_r) * 1024 + (bin_161)];
+                                                    int64_t bin_163 = v_k0 + 2;
+                                                    double sid_164 = v_B_T[(v_c) * 1024 + (bin_163)];
+                                                    double bin_165 = sid_162 * sid_164;
+                                                    double bin_166 = v_acc2 + bin_165;
+                                                    v_acc2 = bin_166;
+                                                    int64_t bin_167 = v_k0 + 3;
+                                                    double sid_168 = v_A[(v_r) * 1024 + (bin_167)];
+                                                    int64_t bin_169 = v_k0 + 3;
+                                                    double sid_170 = v_B_T[(v_c) * 1024 + (bin_169)];
+                                                    double bin_171 = sid_168 * sid_170;
+                                                    double bin_172 = v_acc3 + bin_171;
+                                                    v_acc3 = bin_172;
                                                 }
                                             }
-                                            double bin_177 = v_acc0 + v_acc1;
-                                            double bin_178 = v_acc2 + v_acc3;
-                                            double bin_179 = bin_177 + bin_178;
-                                            v_C[(v_r) * 1024 + (v_c)] = bin_179;
+                                            double bin_173 = v_acc0 + v_acc1;
+                                            double bin_174 = v_acc2 + v_acc3;
+                                            double bin_175 = bin_173 + bin_174;
+                                            v_C[(v_r) * 1024 + (v_c)] = bin_175;
                                         }
                                     }
                                 }
                             }
-                            VyneValue bin_180 = vyne_bool(v_iter == v_ITERS);
-                            if (vyne_is_truthy(bin_180)) {
+                            VyneValue bin_176 = vyne_bool(v_iter == v_ITERS);
+                            if (vyne_is_truthy(bin_176)) {
                                 {
-                                    double sid_182 = v_C[(0) * 1024 + (0)];
-                                    VyneValue str_181 = vyne_to_string(vyne_float(sid_182));
-                                    VyneValue bin_183 = vyne_binop(vyne_string_static("checksum: "), str_181, 29);
-                                    vyne_out(bin_183);
+                                    double sid_178 = v_C[(0) * 1024 + (0)];
+                                    VyneValue str_177 = vyne_to_string(vyne_float(sid_178));
+                                    VyneValue bin_179 = vyne_binop(vyne_string_static("checksum: "), str_177, 29);
+                                    vyne_out(bin_179);
                                 }
                             }
                         }
-                        vmem_runtime_rewind(vmem_cp_138);
+                        vmem_runtime_rewind(vmem_cp_134);
                     }
                 }
             }
         }
-        VyneValue bin_184 = vyne_bool(v_CONFIG == 3);
-        if (vyne_is_truthy(bin_184)) {
+        VyneValue bin_180 = vyne_bool(v_CONFIG == 3);
+        if (vyne_is_truthy(bin_180)) {
             {
-                VyneValue arr_185 = vyne_array_create(0);
-                VyneValue v_C = arr_185;
-                int64_t bin_186 = v_N * v_N;
-                int64_t bin_187 = bin_186 - 1;
-                int64_t lo_i_188 = 0;
-                int64_t hi_i_189 = bin_187;
-                for (int64_t i_190 = lo_i_188; i_190 <= hi_i_189; ++i_190) {
-                    int64_t v_i = i_190;
+                VyneArray_f64 v_C = vyne_array_f64_create(0);
+                int64_t bin_181 = v_N * v_N;
+                int64_t bin_182 = bin_181 - 1;
+                int64_t lo_i_183 = 0;
+                int64_t hi_i_184 = bin_182;
+                for (int64_t i_185 = lo_i_183; i_185 <= hi_i_184; ++i_185) {
+                    int64_t v_i = i_185;
                     {
-                        VyneValue m_recv_191 = v_C;
-                        vyne_array_push(m_recv_191, vyne_float(0));
+                        vyne_array_f64_push(&v_C, 0);
                     }
                 }
-                int64_t lo_i_192 = 1;
-                int64_t hi_i_193 = v_ITERS;
-                for (int64_t i_194 = lo_i_192; i_194 <= hi_i_193; ++i_194) {
-                    int64_t v_iter = i_194;
+                int64_t lo_i_186 = 1;
+                int64_t hi_i_187 = v_ITERS;
+                for (int64_t i_188 = lo_i_186; i_188 <= hi_i_187; ++i_188) {
+                    int64_t v_iter = i_188;
                     {
-                        int64_t bin_195 = v_N - 1;
-                        int64_t lo_i_196 = 0;
-                        int64_t hi_i_197 = bin_195;
-                        for (int64_t i_198 = lo_i_196; i_198 <= hi_i_197; ++i_198) {
-                            int64_t v_r = i_198;
+                        int64_t bin_189 = v_N - 1;
+                        int64_t lo_i_190 = 0;
+                        int64_t hi_i_191 = bin_189;
+                        for (int64_t i_192 = lo_i_190; i_192 <= hi_i_191; ++i_192) {
+                            int64_t v_r = i_192;
                             {
-                                int64_t bin_199 = v_N - 1;
-                                int64_t lo_i_200 = 0;
-                                int64_t hi_i_201 = bin_199;
-                                for (int64_t i_202 = lo_i_200; i_202 <= hi_i_201; ++i_202) {
-                                    int64_t v_c = i_202;
+                                int64_t bin_193 = v_N - 1;
+                                int64_t lo_i_194 = 0;
+                                int64_t hi_i_195 = bin_193;
+                                for (int64_t i_196 = lo_i_194; i_196 <= hi_i_195; ++i_196) {
+                                    int64_t v_c = i_196;
                                     {
                                         double v_acc0 = 0;
                                         double v_acc1 = 0;
                                         double v_acc2 = 0;
                                         double v_acc3 = 0;
                                         if (4 == 0) { fprintf(stderr, "Runtime error: Division by zero!\n"); exit(1); }
-                                        int64_t bin_203 = v_N / 4;
-                                        int64_t bin_204 = bin_203 - 1;
-                                        int64_t lo_i_205 = 0;
-                                        int64_t hi_i_206 = bin_204;
-                                        for (int64_t i_207 = lo_i_205; i_207 <= hi_i_206; ++i_207) {
-                                            int64_t v_k4 = i_207;
+                                        int64_t bin_197 = v_N / 4;
+                                        int64_t bin_198 = bin_197 - 1;
+                                        int64_t lo_i_199 = 0;
+                                        int64_t hi_i_200 = bin_198;
+                                        for (int64_t i_201 = lo_i_199; i_201 <= hi_i_200; ++i_201) {
+                                            int64_t v_k4 = i_201;
                                             {
-                                                int64_t bin_208 = v_k4 * 4;
-                                                int64_t v_k0 = bin_208;
-                                                int64_t bin_209 = v_k0 + 0;
+                                                int64_t bin_202 = v_k4 * 4;
+                                                int64_t v_k0 = bin_202;
+                                                int64_t bin_203 = v_k0 + 0;
+                                                double sid_204 = v_A[(v_r) * 1024 + (bin_203)];
+                                                int64_t bin_205 = v_k0 + 0;
+                                                double sid_206 = v_B_T[(v_c) * 1024 + (bin_205)];
+                                                double bin_207 = sid_204 * sid_206;
+                                                double bin_208 = v_acc0 + bin_207;
+                                                v_acc0 = bin_208;
+                                                int64_t bin_209 = v_k0 + 1;
                                                 double sid_210 = v_A[(v_r) * 1024 + (bin_209)];
-                                                int64_t bin_211 = v_k0 + 0;
+                                                int64_t bin_211 = v_k0 + 1;
                                                 double sid_212 = v_B_T[(v_c) * 1024 + (bin_211)];
                                                 double bin_213 = sid_210 * sid_212;
-                                                double bin_214 = v_acc0 + bin_213;
-                                                v_acc0 = bin_214;
-                                                int64_t bin_215 = v_k0 + 1;
+                                                double bin_214 = v_acc1 + bin_213;
+                                                v_acc1 = bin_214;
+                                                int64_t bin_215 = v_k0 + 2;
                                                 double sid_216 = v_A[(v_r) * 1024 + (bin_215)];
-                                                int64_t bin_217 = v_k0 + 1;
+                                                int64_t bin_217 = v_k0 + 2;
                                                 double sid_218 = v_B_T[(v_c) * 1024 + (bin_217)];
                                                 double bin_219 = sid_216 * sid_218;
-                                                double bin_220 = v_acc1 + bin_219;
-                                                v_acc1 = bin_220;
-                                                int64_t bin_221 = v_k0 + 2;
+                                                double bin_220 = v_acc2 + bin_219;
+                                                v_acc2 = bin_220;
+                                                int64_t bin_221 = v_k0 + 3;
                                                 double sid_222 = v_A[(v_r) * 1024 + (bin_221)];
-                                                int64_t bin_223 = v_k0 + 2;
+                                                int64_t bin_223 = v_k0 + 3;
                                                 double sid_224 = v_B_T[(v_c) * 1024 + (bin_223)];
                                                 double bin_225 = sid_222 * sid_224;
-                                                double bin_226 = v_acc2 + bin_225;
-                                                v_acc2 = bin_226;
-                                                int64_t bin_227 = v_k0 + 3;
-                                                double sid_228 = v_A[(v_r) * 1024 + (bin_227)];
-                                                int64_t bin_229 = v_k0 + 3;
-                                                double sid_230 = v_B_T[(v_c) * 1024 + (bin_229)];
-                                                double bin_231 = sid_228 * sid_230;
-                                                double bin_232 = v_acc3 + bin_231;
-                                                v_acc3 = bin_232;
+                                                double bin_226 = v_acc3 + bin_225;
+                                                v_acc3 = bin_226;
                                             }
                                         }
-                                        int64_t bin_233 = v_r * v_N;
-                                        int64_t bin_234 = bin_233 + v_c;
-                                        double bin_235 = v_acc0 + v_acc1;
-                                        double bin_236 = v_acc2 + v_acc3;
-                                        double bin_237 = bin_235 + bin_236;
-                                        vyne_index_set(v_C, vyne_int(bin_234), vyne_float(bin_237));
+                                        int64_t bin_227 = v_r * v_N;
+                                        int64_t bin_228 = bin_227 + v_c;
+                                        double bin_229 = v_acc0 + v_acc1;
+                                        double bin_230 = v_acc2 + v_acc3;
+                                        double bin_231 = bin_229 + bin_230;
+                                        v_C.data[bin_228] = bin_231;
                                     }
                                 }
                             }
                         }
-                        VyneValue bin_238 = vyne_bool(v_iter == v_ITERS);
-                        if (vyne_is_truthy(bin_238)) {
+                        VyneValue bin_232 = vyne_bool(v_iter == v_ITERS);
+                        if (vyne_is_truthy(bin_232)) {
                             {
-                                VyneValue idx_240 = vyne_index_get(v_C, vyne_int(0));
-                                VyneValue str_239 = vyne_to_string(idx_240);
-                                VyneValue bin_241 = vyne_binop(vyne_string_static("checksum: "), str_239, 29);
-                                vyne_out(bin_241);
+                                double idx_234 = v_C.data[0];
+                                VyneValue str_233 = vyne_to_string(vyne_float(idx_234));
+                                VyneValue bin_235 = vyne_binop(vyne_string_static("checksum: "), str_233, 29);
+                                vyne_out(bin_235);
                             }
                         }
                     }

@@ -50,7 +50,7 @@ region outer {
 
     if CONFIG == 0 {
         through iter :: 1..ITERS -> loop {
-            C :: Array = [];
+            C :: Array<Float64> = [];
             through r :: 0..N-1 -> loop {
                 through c :: 0..N-1 -> loop {
                     acc0 :: Float64 = 0.0;
@@ -74,7 +74,7 @@ region outer {
     if CONFIG == 1 {
         through iter :: 1..ITERS -> loop {
             region inner {
-                C :: Array = [];
+                C :: Array<Float64> = [];
                 through r :: 0..N-1 -> loop {
                     through c :: 0..N-1 -> loop {
                         acc0 :: Float64 = 0.0;
@@ -127,7 +127,7 @@ region outer {
         # do without a region system — the fairest non-region baseline.
         # C is still a boxed Array (VyneValue elements), so per-element
         # reads/writes still box, but there is no per-iteration alloc.
-        C :: Array = [];
+        C :: Array<Float64> = [];
         through i :: 0..N*N-1 -> loop { C.push(0.0); };
 
         through iter :: 1..ITERS -> loop {
