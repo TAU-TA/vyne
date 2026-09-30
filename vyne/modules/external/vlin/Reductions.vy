@@ -6,7 +6,7 @@ use "Kernels.vy";
 ruleset { dynamic_casting };
 
 module vlin;
-module vmath;
+use native vmath;
 
 fn :: vlin sum(m :: vlin.Types.Matrix) -> Float64 {
     n :: Int64 = m.row * m.col;

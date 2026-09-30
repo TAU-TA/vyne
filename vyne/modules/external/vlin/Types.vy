@@ -4,7 +4,7 @@
 # emitter to lower `m.data` reads to a `VyneArray_f64` local, so
 # passing `m.data` to a kernel function matches the native array ABI.
 
-use lib "vcolors.vy";
+use external "vcolors.vy";
 
 ruleset { dynamic_casting };
 

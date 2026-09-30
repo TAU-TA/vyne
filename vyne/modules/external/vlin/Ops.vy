@@ -3,12 +3,12 @@
 use "Types.vy";
 use "Kernels.vy";
 use "Constructors.vy";
-use lib "vcolors.vy";
+use external "vcolors.vy";
 
 ruleset { dynamic_casting };
 
 module vlin;
-module vmath;
+use native vmath;
 
 # ============================================================================
 # ELEMENT-WISE BINARY

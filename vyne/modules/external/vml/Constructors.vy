@@ -1,13 +1,12 @@
 # vml/Constructors.vy — factories for ML objects.
 
-use "Types.vy";
-
-use lib "vlin/vlin.vy";
-
 ruleset { dynamic_casting };
 
+use "Types.vy";
+use native vmath;
+use external "vlin/vlin.vy";
+
 module vml;
-module vmath;
 
 fn :: vml dense(in_features :: Int64, out_features :: Int64,
                 activation :: String) -> vml.Types.Dense {

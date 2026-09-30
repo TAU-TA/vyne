@@ -1,13 +1,11 @@
 # vml/Reductions.vy — scalar losses and metrics.
-
-use "Types.vy";
-
-use lib "vlin/vlin.vy";
-
 ruleset { dynamic_casting };
 
+use "Types.vy";
+use native vmath;
+use external "vlin/vlin.vy";
+
 module vml;
-module vmath;
 
 fn :: vml cross_entropy(pred :: vlin.Types.Matrix,
                         target :: vlin.Types.Matrix) -> Float64 {

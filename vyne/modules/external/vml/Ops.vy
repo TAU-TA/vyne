@@ -2,7 +2,7 @@
 
 use "Types.vy";
 
-use lib "vlin/vlin.vy";
+use external "vlin/vlin.vy";
 
 ruleset { dynamic_casting };
 

@@ -9,7 +9,7 @@ use "Constructors.vy";
 use "Ops.vy";
 use "Reductions.vy";
 
-use lib "vlin/vlin.vy";
+use external "vlin/vlin.vy";
 
 module vml;
 

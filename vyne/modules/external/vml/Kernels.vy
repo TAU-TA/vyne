@@ -5,8 +5,9 @@
 
 ruleset { dynamic_casting };
 
+use native vmath;
+
 module vml;
-module vmath;
 
 # db[c] = sum over rows r of delta[r * cols + c].
 # delta is row-major, shape [rows x cols].

@@ -11,7 +11,7 @@
 ruleset { dynamic_casting };
 
 module vlin;
-module vmath;
+use native vmath;
 
 # ============================================================================
 # ELEMENT-WISE BINARY

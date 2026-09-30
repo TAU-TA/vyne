@@ -6,8 +6,7 @@ use "Kernels.vy";
 ruleset { dynamic_casting };
 
 module vlin;
-module vmath;
-
+use native vmath;
 # ---- raw typed-array allocators (ABI-returning) ---------------------------
 
 fn :: vlin zeros_f64(n :: Int64) -> Array<Float64> {
