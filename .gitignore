@@ -34,3 +34,4 @@ nul
 *.bak
 *.ps1
 vendor/openblas
+*.json
