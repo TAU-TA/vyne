@@ -61,7 +61,7 @@ int main(int argc, char* argv[]) {
         auto setMode = [&](RunMode m) { opts.mode = m; haveMode = true; };
 
         if (arg == "-h" || arg == "--help")   { printHelp();    return 0; }
-        if (arg == "-V" || arg == "--version"){ std::cout << "vynec 1.0\n"; return 0; }
+        if (arg == "-V" || arg == "--version"){ std::cout << "vynec 0.3.0"; return 0; }
 
         if      (arg == "--native")            opts.nativeIsa = true;
         else if (arg == "--no-scratch-bounds") opts.scratchBounds = false;
