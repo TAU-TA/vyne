@@ -23,6 +23,7 @@ struct NativeMapEntry {
 // --- vcore -----------------------------------------------------------------
 static const NativeMapEntry VCORE_MAP[] = {
     {"now",             "vcore_runtime_now",              false},
+    {"now_ns",          "vcore_runtime_now_ns",           false},
     {"sleep",           "vcore_runtime_sleep",            false},
     {"platform",        "vcore_runtime_platform",         false},
     {"input",           "vcore_runtime_input",            false, true},
