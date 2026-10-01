@@ -173,6 +173,73 @@ static VType resolveRHSKind(C_Emitter& e, const ASTNode* rhs) {
         }
     }
 
+    if (rhs->type() == NodeType::FUNCTION_CALL) {
+        auto* fc = static_cast<const FunctionCallNode*>(rhs);
+        const std::string& name = fc->getOriginalName();
+
+        // Bare name — covers top-level and interface methods.
+        if (const CType* ct = e.getFunctionReturnType(name))
+            return ct->toVType();
+
+        // Dotted name → underscore-mangled form, e.g.
+        // `alias.fn` → `alias_fn`, registered by
+        // ImportNode::compile's alias branch.
+        std::string mangled = name;
+        std::replace(mangled.begin(), mangled.end(), '.', '_');
+        if (mangled != name) {
+            if (const CType* ct = e.getFunctionReturnType(mangled))
+                return ct->toVType();
+        }
+
+        return VType::Unknown;
+    }
+
+    if (rhs->type() == NodeType::METHOD_CALL) {
+        auto* mc = static_cast<const MethodCallNode*>(rhs);
+        const std::string& name = mc->getMethodName();
+
+        // Bare method name.
+        if (const CType* ct = e.getFunctionReturnType(name))
+            return ct->toVType();
+
+        std::string mangled = name;
+        std::replace(mangled.begin(), mangled.end(), '.', '_');
+        if (mangled != name) {
+            if (const CType* ct = e.getFunctionReturnType(mangled))
+                return ct->toVType();
+        }
+
+        // Receiver-qualified forms. `vml.cross_entropy(...)` registers
+        // as `vml_cross_entropy` (group-method mangling) and
+        // `vml.cross_entropy` (dotted form); `a.b.Ctor(...)` on an
+        // interface registers as the underscore-mangled interface name
+        // plus the method.
+        const ASTNode* recv = mc->getReceiver();
+        if (recv) {
+            std::string recvPath;
+            if (recv->type() == NodeType::VARIABLE) {
+                recvPath = static_cast<const VariableNode*>(recv)
+                               ->getOriginalName();
+            } else if (recv->type() == NodeType::MEMBER_ACCESS) {
+                recvPath = static_cast<const MemberAccessNode*>(recv)
+                               ->getFullPath();
+            }
+
+            if (!recvPath.empty()) {
+                std::string qualified = recvPath + "_" + name;
+                std::replace(qualified.begin(), qualified.end(), '.', '_');
+                if (const CType* ct = e.getFunctionReturnType(qualified))
+                    return ct->toVType();
+
+                std::string dotted = recvPath + "." + name;
+                if (const CType* ct = e.getFunctionReturnType(dotted))
+                    return ct->toVType();
+            }
+        }
+
+        return VType::Unknown;
+    }
+
     return VType::Unknown;
 }
 
