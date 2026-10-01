@@ -1,0 +1,90 @@
+            <div class="page-eyebrow">Language Reference</div>
+            <h1>Functions</h1>
+            <p class="lede">
+              Declaration, parameters, return values, and named arguments.
+            </p>
+
+            <h2 id="declaration">Declaration</h2>
+            <p>
+              Functions start with <code class="inline">fn</code>. The parameter
+              list can annotate each parameter's type with
+              <code class="inline">::</code>. The return type follows
+              <code class="inline">-&gt;</code>. Both are optional; missing
+              types default to dynamic.
+            </p>
+
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">fn.vy</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body"><span class="c-kw">fn</span> <span class="c-fn">add</span>(a <span class="c-op">::</span> <span class="c-ty">Int64</span>, b <span class="c-op">::</span> <span class="c-ty">Int64</span>) <span class="c-op">-&gt;</span> <span class="c-ty">Int64</span> {
+  <span class="c-kw">return</span> a <span class="c-op">+</span> b; };
+
+<span class="c-com">// No types — dynamic mode only</span>
+<span class="c-kw">fn</span> <span class="c-fn">square</span>(x) { x <span class="c-op">*</span> x };
+
+<span class="c-com">// Explicit null return</span>
+<span class="c-kw">fn</span> <span class="c-fn">log</span>(msg <span class="c-op">::</span> <span class="c-ty">String</span>) <span class="c-op">-&gt;</span> <span class="c-ty">Null</span> {
+  <span class="c-fn">out</span>(msg); };</div>
+            </div>
+
+            <h2 id="return">return</h2>
+            <p>
+              A function without an explicit
+              <code class="inline">return</code> returns
+              <code class="inline">null</code>. A bare
+              <code class="inline">return;</code> is equivalent to
+              <code class="inline">return null;</code>.
+            </p>
+            <p>
+              If a function is inside a <code class="inline">region</code>,
+              returning a non-primitive value is handled specially — see
+              <a data-page="regions">Memory &amp; Regions</a>.
+            </p>
+
+            <h2 id="named-arguments">Named arguments</h2>
+            <p>
+              At the call site, you can supply arguments by name. You cannot mix
+              positional and named arguments in the same call.
+            </p>
+
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">named.vy</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body"><span class="c-kw">fn</span> <span class="c-fn">draw_box</span>(x <span class="c-op">::</span> <span class="c-ty">Int64</span>, y <span class="c-op">::</span> <span class="c-ty">Int64</span>, w <span class="c-op">::</span> <span class="c-ty">Int64</span>, h <span class="c-op">::</span> <span class="c-ty">Int64</span>) <span class="c-op">-&gt;</span> <span class="c-ty">Null</span> {
+  <span class="c-com">// ...</span>
+};
+
+<span class="c-com">// Both valid:</span>
+<span class="c-fn">draw_box</span>(<span class="c-num">10</span
+                >, <span class="c-num">20</span>, <span class="c-num">100</span>, <span class="c-num">50</span>);
+<span class="c-fn">draw_box</span>(x: <span class="c-num">10</span>, y: <span class="c-num">20</span>, w: <span class="c-num">100</span>, h: <span class="c-num">50</span>);</div>
+            </div>
+
+            <h2 id="recursion">Recursion</h2>
+            <p>
+              Functions can call themselves. Vyne does not perform tail-call
+              optimisation, so deep recursion is bounded by the C stack.
+            </p>
+
+            <h2 id="type-parameters">
+              Type parameters <span class="badge badge-exp">experimental</span>
+            </h2>
+            <p>
+              Function-level generic parameters exist syntactically (<code
+                class="inline"
+                >fn max&lt;T&gt;(...)</code
+              >) but the emitter's instantiation strategy is not yet complete.
+              Do not depend on it in production code; the syntax may change
+              before v0.1.
+            </p>
+
+            <h2 id="interfaces-as-structs">Functions on interfaces</h2>
+            <p>
+              Methods are declared inside
+              <code class="inline">interface</code> blocks — see the next
+              chapter.
+            </p>

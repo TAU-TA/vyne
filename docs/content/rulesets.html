@@ -1,0 +1,106 @@
+            <div class="page-eyebrow">Language Reference</div>
+            <h1>Rulesets</h1>
+            <p class="lede">
+              Compile-time and program-wide configuration. Three flags are
+              currently implemented.
+            </p>
+
+            <h2 id="syntax">Syntax</h2>
+            <p>
+              A ruleset is written at the top of a file, before any executable
+              code:
+            </p>
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">ruleset.vy</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body"><span class="c-kw">ruleset</span> { dynamic_casting };
+<span class="c-kw">ruleset</span> { warnings };
+
+<span class="c-com">// ... your program ...</span></div>
+            </div>
+
+            <p>Or with a value:</p>
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">ruleset-value.vy</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body"><span class="c-kw">ruleset</span> { memory_limit = <span class="c-num">268435456</span> };
+<span class="c-com">// 256 MB</span></div>
+            </div>
+
+            <h2 id="available-flags">Available flags</h2>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Flag</th>
+                    <th>Form</th>
+                    <th>Effect</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>warnings</td>
+                    <td>
+                      flag or
+                      <code class="inline"
+                        >warnings = "all" \| "none" \| "error_only"</code
+                      >
+                    </td>
+                    <td>
+                      Enables diagnostic output. Without this, warnings are
+                      suppressed and only errors surface.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>dynamic_casting</td>
+                    <td>flag</td>
+                    <td>
+                      Relaxes type checking. Type annotations on variables
+                      become optional and implicit conversions are permitted. Do
+                      not use in production.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>memory_limit</td>
+                    <td>
+                      flag or
+                      <code class="inline">memory_limit = &lt;bytes&gt;</code>
+                    </td>
+                    <td>
+                      Enables the memory-usage check hook. Currently reports but
+                      does not enforce. Reserved for a future runtime check.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="strict-mode">Strict mode</h2>
+            <p>
+              By default, Vyne operates in <strong>strict mode</strong>: every
+              variable must have an explicit
+              <code class="inline">:: Type</code> annotation, and every
+              assignment is type-checked against the declared type. The
+              <code class="inline">dynamic_casting</code> flag is the only way
+              to relax this, and it is intended for scripts and one-offs.
+            </p>
+
+            <h2 id="warning-control">Warning control</h2>
+            <p>
+              When <code class="inline">warnings</code> is enabled, the compiler
+              reports unused variables, shadowed variables, and a few other
+              patterns. The granular ignore list form is:
+            </p>
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">ignore.vy</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body"><span class="c-kw">ruleset</span> { warnings <span class="c-op">=</span> <span class="c-str">"all"</span>, warnings_ignore <span class="c-op">=</span> [<span class="c-str"
+                  >"unused_variable"</span
+                >, <span class="c-str">"shadow_variable"</span>] };</div>
+            </div>

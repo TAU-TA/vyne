@@ -1,0 +1,85 @@
+            <div class="page-eyebrow">Language Reference</div>
+            <h1>Built-in Functions</h1>
+            <p class="lede">
+              Always in scope. No <code class="inline">module</code> statement
+              needed.
+            </p>
+
+            <h2 id="out">out</h2>
+            <p>
+              <code class="inline">out(value);</code> — writes the value to
+              stdout followed by a newline. Accepts any VyneValue. Multiple
+              arguments are allowed and each is printed on its own line.
+            </p>
+
+            <h2 id="string-builtin">string</h2>
+            <p>
+              <code class="inline">string(v) -&gt; String</code> — converts any
+              value to its display representation. Inverse operations are
+              <code class="inline">int64()</code> and
+              <code class="inline">float64()</code>.
+            </p>
+
+            <h2 id="int64-float64-builtins">int64 and float64</h2>
+            <p>
+              <code class="inline">int64(v) -&gt; Int64</code> and
+              <code class="inline">float64(v) -&gt; Float64</code>. Both accept
+              numbers or strings. Parsing failures throw a runtime error.
+            </p>
+
+            <h2 id="type-builtin">type</h2>
+            <p>
+              <code class="inline">type(v) -&gt; String</code> — returns the
+              runtime type name of a value as a string:
+              <code class="inline">"Int64"</code>,
+              <code class="inline">"Array"</code>,
+              <code class="inline">"Map"</code>, and so on.
+            </p>
+
+            <h2 id="sizeof-builtin">sizeof</h2>
+            <p>
+              <code class="inline">sizeof(v) -&gt; Int64</code> — for arrays and
+              strings, the element count or length. For maps, the number of
+              entries. For primitives, always 8.
+            </p>
+
+            <h2 id="sequence-builtin">sequence</h2>
+            <p>
+              <code class="inline">sequence(start, end) -&gt; Array</code> —
+              returns a half-open array
+              <code class="inline">[start, start+1, ..., end-1]</code>. Note
+              that this differs from the <code class="inline">..</code> range
+              operator, which is inclusive.
+            </p>
+
+            <h2 id="map-builtin">map</h2>
+            <p>
+              <code class="inline">map() -&gt; Map</code> — allocates a fresh
+              empty map. Equivalent to writing <code class="inline">{}</code>.
+            </p>
+
+            <h2 id="exit-builtin">exit</h2>
+            <p>
+              <code class="inline">exit(code);</code> — terminates the program
+              immediately with the given exit code. Bypasses any active defers
+              or finally blocks.
+            </p>
+
+            <h2 id="free-builtin">free</h2>
+            <p>
+              <code class="inline">free(v);</code> — a no-op in the current
+              compiler. Because Vyne uses arena allocation and regions,
+              individual values cannot be freed. The function exists for source
+              compatibility with earlier drafts; the emitted C contains only a
+              comment. Do not use it in new code; rely on regions instead.
+            </p>
+
+            <div class="admonition adm-warn">
+              <i class="fas fa-triangle-exclamation"></i>
+              <div class="adm-body">
+                <div class="adm-title">free() does nothing</div>
+                In the current backend, <code class="inline">free(v)</code> is
+                compiled to a comment. It does not release memory. Do not depend
+                on it, and do not expect C semantics.
+              </div>
+            </div>

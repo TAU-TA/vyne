@@ -1,0 +1,120 @@
+            <div class="page-eyebrow">Reference</div>
+            <h1>Error Codes</h1>
+            <p class="lede">
+              The compiler emits structured diagnostics with stable codes. Use
+              the code to look up the cause.
+            </p>
+
+            <h2 id="syntax-errors">Syntax errors (VNE-001 – VNE-014)</h2>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Code</th>
+                    <th>Meaning</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>VNE-001</td>
+                    <td>Unexpected token</td>
+                  </tr>
+                  <tr>
+                    <td>VNE-002</td>
+                    <td>Missing semicolon</td>
+                  </tr>
+                  <tr>
+                    <td>VNE-003</td>
+                    <td>Unknown type name</td>
+                  </tr>
+                  <tr>
+                    <td>VNE-010</td>
+                    <td>Warnings enabled</td>
+                  </tr>
+                  <tr>
+                    <td>VNE-011</td>
+                    <td>Dynamic casting enabled</td>
+                  </tr>
+                  <tr>
+                    <td>VNE-012</td>
+                    <td>Memory limit enabled</td>
+                  </tr>
+                  <tr>
+                    <td>VNE-013</td>
+                    <td>Unknown ruleset flag</td>
+                  </tr>
+                  <tr>
+                    <td>VNE-014</td>
+                    <td>Ruleset value expected</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="ruleset-errors">Ruleset diagnostics (VNE-015 – VNE-032)</h2>
+            <p>
+              Emitted when a ruleset is applied. These are informational notes,
+              not errors.
+            </p>
+
+            <h2 id="advanced-errors">Parser extensions (VNE-040 – VNE-050)</h2>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Code</th>
+                    <th>Meaning</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>VNE-040</td>
+                    <td>Malformed type parameter list on interface</td>
+                  </tr>
+                  <tr>
+                    <td>VNE-041</td>
+                    <td>Nested generic in type parameter position</td>
+                  </tr>
+                  <tr>
+                    <td>VNE-042</td>
+                    <td>Malformed type parameter list on function</td>
+                  </tr>
+                  <tr>
+                    <td>VNE-043</td>
+                    <td>Nested generic in function type parameter</td>
+                  </tr>
+                  <tr>
+                    <td>VNE-050</td>
+                    <td>
+                      Malformed region.commit — expected "commit" after
+                      "region."
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="reading-diagnostics">Reading a diagnostic</h2>
+            <p>Every diagnostic in the terminal is printed with:</p>
+            <ul>
+              <li>The severity (error, warning, note, perf hint).</li>
+              <li>The error code, which you can look up here.</li>
+              <li>The message text.</li>
+              <li>
+                The source location, in
+                <code class="inline">file:line</code> form.
+              </li>
+              <li>
+                A three-line excerpt from the offending file with a caret
+                pointing at the column.
+              </li>
+              <li>
+                Zero or more suggestions, when the compiler has a specific fix
+                in mind.
+              </li>
+            </ul>
+            <p>
+              If you see an error that is not in this list, please open an issue
+              — an undocumented error code is a bug in the documentation, not in
+              your code.
+            </p>

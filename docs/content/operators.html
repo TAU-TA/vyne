@@ -1,0 +1,158 @@
+            <div class="page-eyebrow">Reference</div>
+            <h1>Operators</h1>
+            <p class="lede">
+              Complete list, grouped by purpose, with precedence.
+            </p>
+
+            <h2 id="op-precedence">Precedence table</h2>
+            <p>
+              Level 1 binds loosest; level 13 binds tightest. Left/right
+              indicates associativity.
+            </p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Level</th>
+                    <th>Operators</th>
+                    <th>Assoc.</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>1</td>
+                    <td><code class="inline">?:</code></td>
+                    <td>right</td>
+                    <td>Ternary conditional</td>
+                  </tr>
+                  <tr>
+                    <td>2</td>
+                    <td><code class="inline">??</code></td>
+                    <td>right</td>
+                    <td>Null coalesce</td>
+                  </tr>
+                  <tr>
+                    <td>3</td>
+                    <td><code class="inline">|&gt;</code></td>
+                    <td>left</td>
+                    <td>Pipeline</td>
+                  </tr>
+                  <tr>
+                    <td>4</td>
+                    <td><code class="inline">||</code></td>
+                    <td>left</td>
+                    <td>Logical or (short-circuit)</td>
+                  </tr>
+                  <tr>
+                    <td>5</td>
+                    <td><code class="inline">&amp;&amp;</code></td>
+                    <td>left</td>
+                    <td>Logical and (short-circuit)</td>
+                  </tr>
+                  <tr>
+                    <td>6</td>
+                    <td><code class="inline">== !=</code></td>
+                    <td>left</td>
+                    <td>Equality (deep for composites)</td>
+                  </tr>
+                  <tr>
+                    <td>7</td>
+                    <td><code class="inline">in</code></td>
+                    <td>left</td>
+                    <td>Membership</td>
+                  </tr>
+                  <tr>
+                    <td>8</td>
+                    <td><code class="inline">&lt; &lt;= &gt; &gt;=</code></td>
+                    <td>left</td>
+                    <td>Comparison</td>
+                  </tr>
+                  <tr>
+                    <td>9</td>
+                    <td><code class="inline">..</code></td>
+                    <td>left</td>
+                    <td>Range</td>
+                  </tr>
+                  <tr>
+                    <td>10</td>
+                    <td><code class="inline">+ - // %</code></td>
+                    <td>left</td>
+                    <td>Additive, floor divide, modulo</td>
+                  </tr>
+                  <tr>
+                    <td>11</td>
+                    <td><code class="inline">* / **</code></td>
+                    <td>left</td>
+                    <td>Multiplicative, power</td>
+                  </tr>
+                  <tr>
+                    <td>12</td>
+                    <td><code class="inline">! - $</code></td>
+                    <td>prefix</td>
+                    <td>Not, negation, address-of</td>
+                  </tr>
+                  <tr>
+                    <td>13</td>
+                    <td><code class="inline">++ --</code></td>
+                    <td>postfix</td>
+                    <td>Increment / decrement</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="op-arithmetic">Arithmetic</h2>
+            <p>
+              All arithmetic follows IEEE-754 for Float64 and two's-complement
+              wraparound for Int64. Division and modulo by zero are runtime
+              errors that terminate the program with a message.
+            </p>
+            <p>
+              <code class="inline">**</code> always produces a Float64 result,
+              even for two Int64 operands. This matches the underlying
+              <code class="inline">pow()</code> semantics and avoids the
+              awkwardness of integer exponentiation overflow.
+            </p>
+
+            <h2 id="op-logical">Logical</h2>
+            <p>
+              Short-circuit. The right-hand side is not evaluated if the result
+              is already determined by the left. Any truthy value short-circuits
+              <code class="inline">||</code>; any falsy value short-circuits
+              <code class="inline">&amp;&amp;</code>.
+            </p>
+
+            <h2 id="op-assignment-forms">Special assignment forms</h2>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Operator</th>
+                    <th>Meaning</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code class="inline">??=</code></td>
+                    <td>Assign if current value is null</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <code class="inline">++</code> /
+                      <code class="inline">--</code>
+                    </td>
+                    <td>Postfix increment / decrement on numeric lvalues</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="op-reference">Reference operators</h2>
+            <p>
+              <code class="inline">&amp;</code> and
+              <code class="inline">$</code> are related to pass-by-reference
+              parameters. See the <em>Functions</em> chapter for usage; the
+              parser recognises them but the C backend currently rejects
+              reference variables at compile time.
+            </p>

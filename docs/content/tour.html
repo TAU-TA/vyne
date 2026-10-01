@@ -1,0 +1,205 @@
+            <div class="page-eyebrow">Getting Started</div>
+            <h1>Language Tour</h1>
+            <p class="lede">
+              One page, every construct. Read this end-to-end and you will
+              recognise any Vyne file you meet.
+            </p>
+
+            <h2 id="tour-values">Values</h2>
+            <p>
+              Vyne has four primitive types — <code class="inline">Int64</code>,
+              <code class="inline">Float64</code>,
+              <code class="inline">Bool</code>,
+              <code class="inline">Null</code> — and four composite ones:
+              <code class="inline">String</code>,
+              <code class="inline">Array</code>,
+              <code class="inline">Map</code>, and
+              <code class="inline">Struct</code> (declared with the
+              <code class="inline">interface</code> keyword).
+            </p>
+
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">tour.vy — values</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body">count <span class="c-op">::</span> <span class="c-ty">Int64</span> <span class="c-op">=</span> <span class="c-num">42</span>; ratio <span class="c-op">::</span> <span class="c-ty">Float64</span> <span class="c-op">=</span> <span class="c-num">3.14</span>;
+ready <span class="c-op">::</span> <span class="c-ty">Bool</span> <span class="c-op">=</span> <span class="c-kw">true</span>; nothing <span class="c-op">::</span> <span class="c-ty">Null</span> <span class="c-op">=</span> <span class="c-kw">null</span>; name <span class="c-op">::</span> <span class="c-ty">String</span> <span class="c-op">=</span> <span class="c-str">"vyne"</span>;
+items <span class="c-op">::</span> <span class="c-ty">Array</span> <span class="c-op">=</span> [<span class="c-num">1</span>, <span class="c-num">2</span>, <span class="c-num">3</span>];
+pair <span class="c-op">::</span> <span class="c-ty">Map</span> <span class="c-op">=</span> { <span class="c-str">"x"</span>: <span class="c-num">1</span>, <span class="c-str">"y"</span>: <span class="c-num">2</span> };</div>
+            </div>
+
+            <h2 id="tour-control">Control flow</h2>
+            <p>
+              Familiar <code class="inline">if</code> and
+              <code class="inline">while</code>, plus a distinctive iteration
+              construct called <code class="inline">through</code>. There are
+              five modes: <code class="inline">loop</code> (side effects),
+              <code class="inline">collect</code> (map),
+              <code class="inline">filter</code>,
+              <code class="inline">every</code> (all), and
+              <code class="inline">unique</code> (dedupe).
+            </p>
+
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">tour.vy — control</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body"><span class="c-kw">if</span> (count <span class="c-op">&gt;</span> <span class="c-num">10</span>) {
+  <span class="c-fn">out</span>(<span class="c-str">"big"</span>);
+} <span class="c-kw">else</span> {
+  <span class="c-fn">out</span>(<span class="c-str">"small"</span
+                >); };
+
+<span class="c-com"
+                  >// Loop over a range, side effects only</span
+                >
+<span class="c-kw">through</span> i <span class="c-op">::</span> <span class="c-num">1</span><span class="c-op">..</span
+                ><span class="c-num">5</span> <span class="c-op">-&gt;</span> <span class="c-kw">loop</span> {
+  <span class="c-fn">out</span>(i); };
+
+<span class="c-com">// Map: multiply every element by 2</span>
+doubled <span class="c-op">::</span> <span class="c-ty">Array</span> <span class="c-op">=</span> <span class="c-kw">through</span> x <span class="c-op">::</span> [<span class="c-num">1</span>,<span
+                  class="c-num"
+                  >2</span
+                >,<span class="c-num">3</span>] <span class="c-op">-&gt;</span> <span class="c-kw">collect</span> { x <span class="c-op">*</span> <span class="c-num">2</span> };
+
+<span class="c-com">// Filter: keep only even numbers</span>
+evens <span class="c-op">::</span> <span class="c-ty">Array</span> <span class="c-op">=</span> <span class="c-kw">through</span> n <span class="c-op">::</span> <span class="c-num">0</span><span class="c-op">..</span
+                ><span class="c-num">10</span> <span class="c-op">-&gt;</span> <span class="c-kw">filter</span> { n <span class="c-op">%</span> <span class="c-num">2</span> <span class="c-op">==</span> <span class="c-num">0</span> };</div>
+            </div>
+
+            <h2 id="tour-functions">Functions</h2>
+            <p>
+              Declared with <code class="inline">fn</code>. Parameters can be
+              typed with <code class="inline">::</code>; return type after
+              <code class="inline">-&gt;</code>.
+            </p>
+
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">tour.vy — functions</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body"><span class="c-kw">fn</span> <span class="c-fn">add</span>(a <span class="c-op">::</span> <span class="c-ty">Int64</span>, b <span class="c-op">::</span> <span class="c-ty">Int64</span>) <span class="c-op">-&gt;</span> <span class="c-ty">Int64</span> {
+  <span class="c-kw">return</span> a <span class="c-op">+</span> b; };
+
+<span class="c-com"
+                  >// Return type and param types are optional in dynamic mode</span
+                >
+<span class="c-kw">fn</span> <span class="c-fn">double</span>(x) { x <span class="c-op">*</span> <span class="c-num">2</span> };
+
+<span class="c-fn">out</span>(<span class="c-fn">add</span
+                >(<span class="c-num">2</span>, <span class="c-num">3</span>));
+<span class="c-com">// → 5</span>
+<span class="c-fn">out</span>(<span class="c-fn">double</span
+                >(<span class="c-num">7</span>));
+<span class="c-com">// → 14</span></div>
+            </div>
+
+            <h2 id="tour-structs">
+              Structs via <code class="inline">interface</code>
+            </h2>
+            <p>
+              Vyne has no separate <code class="inline">struct</code> or
+              <code class="inline">class</code> keyword. An
+              <code class="inline">interface</code> block declares fields and
+              methods together, and doubles as a positional constructor.
+            </p>
+
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">tour.vy — interface</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body"><span class="c-kw">interface</span> Circle { r <span class="c-op">::</span> <span class="c-ty">Float64</span>;
+  area() <span class="c-op">-&gt;</span> <span class="c-ty">Float64</span> {
+    <span class="c-kw">return</span> r <span class="c-op">*</span> r <span class="c-op">*</span> <span class="c-num">3.14159</span>;
+  }; }; c <span class="c-op">::</span> Circle <span class="c-op">=</span> <span class="c-fn">Circle</span>(<span class="c-num">4.0</span
+                >); <span class="c-fn">out</span>(c.area());
+<span class="c-com">// → 50.26544</span></div>
+            </div>
+
+            <h2 id="tour-regions">Memory and regions</h2>
+            <p>
+              Regions are the reason Vyne exists. A
+              <code class="inline">region</code> block marks a lexical scope
+              whose scratch allocations are released on exit. Values you need to
+              keep past the region boundary are marked with
+              <code class="inline">region.commit</code>.
+            </p>
+
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">tour.vy — regions</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body"><span class="c-kw">through</span> epoch <span class="c-op">::</span> <span class="c-num">1</span
+                ><span class="c-op">..</span><span class="c-num">1000</span> <span class="c-op">-&gt;</span> <span class="c-kw">loop</span> {
+  <span class="c-kw">region</span> scratch { xs <span class="c-op">::</span> <span class="c-ty">Array</span> <span class="c-op">=</span> [epoch, epoch <span class="c-op">+</span> <span class="c-num">1</span>, epoch <span class="c-op">+</span> <span class="c-num">2</span>]; msg <span class="c-op">::</span> <span class="c-ty">String</span> <span class="c-op">=</span> <span class="c-str">"epoch:"</span> <span class="c-op">+</span> <span class="c-fn">string</span>(epoch);
+
+    <span class="c-com"
+                  >// msg survives the region; xs does not.</span
+                >
+    <span class="c-kw">region.commit</span>(msg); };
+  <span class="c-fn">out</span>(msg); };</div>
+            </div>
+            <p>
+              On every iteration, everything allocated inside
+              <code class="inline">scratch</code> is reclaimed at the closing
+              brace — except <code class="inline">msg</code>, which was
+              committed. Total memory usage stays flat regardless of iteration
+              count.
+            </p>
+
+            <h2 id="tour-errors">Error handling</h2>
+            <p>
+              <code class="inline">try</code> /
+              <code class="inline">catch</code> /
+              <code class="inline">finally</code> work the way you expect, with
+              a jump-buffer implementation.
+            </p>
+
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">tour.vy — errors</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body"><span class="c-kw">try</span> { risky();
+  <span class="c-kw">throw</span> <span class="c-str">"boom"</span>; }
+<span class="c-kw">catch</span> (err) {
+  <span class="c-fn">out</span>(<span class="c-str"
+                  >"caught: "</span
+                > <span class="c-op">+</span> err); }
+<span class="c-kw">finally</span> {
+  <span class="c-fn">out</span>(<span class="c-str"
+                  >"cleanup"</span
+                >); };</div>
+            </div>
+
+            <h2 id="tour-modules">Modules</h2>
+            <p>
+              The <code class="inline">module</code> keyword pulls a built-in
+              library into scope. <code class="inline">group</code> organises
+              your own code into namespaces.
+              <code class="inline">use</code> imports another file.
+            </p>
+
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">tour.vy — modules</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body"><span class="c-kw">module</span> vmath;
+<span class="c-kw">module</span> vcore; r <span class="c-op">::</span> <span class="c-ty">Float64</span> <span class="c-op">=</span> vmath.sqrt(<span class="c-num"
+                  >16.0</span
+                >); <span class="c-fn">out</span>(r);
+<span class="c-com">// → 4.0</span></div>
+            </div>
+
+            <p>
+              That is the whole language in a page. The remaining chapters in
+              <em>Language Reference</em> expand each section with edge cases
+              and formal rules.
+            </p>

@@ -1,0 +1,84 @@
+            <div class="page-eyebrow">Getting Started</div>
+            <h1>Hello, World</h1>
+            <p class="lede">The smallest Vyne program is one line.</p>
+
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename"
+                  ><i class="far fa-file-code"></i>&nbsp;hello.vy</span
+                >
+                <span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body"><span class="c-fn">out</span>(<span class="c-str"
+                  >"hello, world"</span
+                >);</div>
+            </div>
+
+            <p>Save it as <code class="inline">hello.vy</code>, then:</p>
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename"
+                  ><i class="fas fa-terminal"></i>&nbsp;shell</span
+                >
+                <button class="copy-btn">
+                  <i class="far fa-copy"></i> copy
+                </button>
+              </div>
+              <div class="code-body">vynec hello.vy ./hello
+<span class="c-com"># → hello, world</span></div>
+            </div>
+
+            <h2 id="reading-it">Reading it line by line</h2>
+            <p>
+              <code class="inline">out</code> is a built-in function. It takes
+              any value, converts it to its display form, and writes it to
+              standard output followed by a newline. It is not a keyword — it is
+              defined by the runtime — but it is globally available and never
+              needs to be declared.
+            </p>
+            <p>
+              <code class="inline">"hello, world"</code> is a string literal.
+              Strings in Vyne are immutable and UTF-8.
+            </p>
+            <p>
+              The trailing <code class="inline">;</code> is a statement
+              terminator. Vyne does not have automatic semicolon insertion, so
+              you always write it.
+            </p>
+
+            <h2 id="with-a-variable">With a variable</h2>
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename"
+                  ><i class="far fa-file-code"></i>&nbsp;hello2.vy</span
+                >
+                <span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body"><span class="c-com"
+                  >// `::` declares the type; the value infers the rest.</span
+                >
+greeting <span class="c-op">::</span> <span class="c-ty">String</span> <span class="c-op">=</span> <span class="c-str">"hello"</span>; name <span class="c-op">::</span> <span class="c-ty">String</span> <span class="c-op">=</span> <span class="c-str">"world"</span>;
+
+<span class="c-fn">out</span>(greeting <span class="c-op">+</span> <span class="c-str">", "</span> <span class="c-op">+</span> name <span class="c-op">+</span> <span class="c-str">"!"</span>);</div>
+            </div>
+            <p>
+              <code class="inline">::</code> is Vyne's type-annotation operator.
+              It reads naturally: "greeting is a String". Once a variable has a
+              type, its storage layout is fixed for its lifetime — reassigning a
+              <code class="inline">String</code> to an
+              <code class="inline">Int64</code> will be a compile error.
+            </p>
+
+            <div class="admonition adm-note">
+              <i class="fas fa-circle-info"></i>
+              <div class="adm-body">
+                <div class="adm-title">String concatenation</div>
+                The <code class="inline">+</code> operator concatenates when at
+                least one side is a <code class="inline">String</code>. This is
+                the only implicit coercion Vyne performs; everything else
+                requires an explicit conversion with
+                <code class="inline">string()</code>,
+                <code class="inline">int64()</code>, or
+                <code class="inline">float64()</code>.
+              </div>
+            </div>

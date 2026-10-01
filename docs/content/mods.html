@@ -1,0 +1,119 @@
+            <div class="page-eyebrow">Language Reference</div>
+            <h1>Groups &amp; Modules</h1>
+            <p class="lede">
+              Namespacing, imports, and the built-in module system.
+            </p>
+
+            <h2 id="module-declaration">module — pull in a built-in</h2>
+            <p>
+              Every built-in library must be declared before use. A
+              <code class="inline">module</code> statement brings its names into
+              scope.
+            </p>
+
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">modules.vy</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body"><span class="c-kw">module</span> vcore;
+<span class="c-kw">module</span> vmath;
+
+<span class="c-fn">out</span>(vmath.sqrt(<span class="c-num"
+                  >16.0</span
+                >));</div>
+            </div>
+
+            <h2 id="group-declaration">group — user namespaces</h2>
+            <p>Groups organise related declarations. They can nest.</p>
+
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">groups.vy</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body"><span class="c-kw">group</span> Physics { gravity <span class="c-op">::</span> <span class="c-ty">Float64</span> <span class="c-op">=</span> <span class="c-num">9.81</span>;
+
+  <span class="c-kw">group</span> Constants { lightSpeed <span class="c-op">::</span> <span class="c-ty">Float64</span> <span class="c-op">=</span> <span class="c-num">299792458.0</span>; }; };
+
+<span class="c-fn">out</span>(Physics.gravity);
+<span class="c-fn">out</span>(Physics.Constants.lightSpeed);</div>
+            </div>
+
+            <h2 id="use-import">use — import another file</h2>
+            <p>
+              <code class="inline">use</code> reads a
+              <code class="inline">.vy</code> file and executes it in a fresh
+              module scope. Its top-level bindings become members of a namespace
+              named after the file stem.
+            </p>
+
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">main.vy</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body"><span class="c-kw">use</span> <span class="c-str">"./math_utils.vy"</span>;
+
+<span class="c-fn">out</span>(math_utils.double(<span
+                  class="c-num"
+                  >7</span
+                >));</div>
+            </div>
+
+            <p>Or bind under an alias:</p>
+
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">main.vy</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body"><span class="c-kw">use</span> <span class="c-str">"./math_utils.vy"</span> <span class="c-kw">as</span> m;
+<span class="c-fn">out</span>(m.double(<span class="c-num"
+                  >7</span
+                >));</div>
+            </div>
+
+            <h2 id="use-lib">use lib — external modules</h2>
+            <p>
+              <code class="inline">use lib "..."</code> loads an external module
+              from the install directory. Paths are resolved relative to the
+              <code class="inline">vyne/modules/external/</code> folder in your
+              Vyne installation.
+            </p>
+
+            <h2 id="deploy-dismiss">deploy and dismiss</h2>
+            <p>For lifecycle control of loaded modules:</p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Statement</th>
+                    <th>Effect</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code class="inline">deploy name;</code></td>
+                    <td>Marks a module as used; makes its members visible.</td>
+                  </tr>
+                  <tr>
+                    <td><code class="inline">dismiss name;</code></td>
+                    <td>Removes a module from the current scope.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="admonition adm-note">
+              <i class="fas fa-circle-info"></i>
+              <div class="adm-body">
+                <div class="adm-title">In practice</div>
+                The compiler resolves all imports at build time.
+                <code class="inline">deploy</code> and
+                <code class="inline">dismiss</code> are mostly relevant when
+                writing tools that load Vyne modules dynamically; for typical
+                programs, <code class="inline">module</code> and
+                <code class="inline">use</code> are all you need.
+              </div>
+            </div>

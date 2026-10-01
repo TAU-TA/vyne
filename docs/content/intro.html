@@ -1,0 +1,145 @@
+            <div class="hero">
+              <div class="hero-inner">
+                <div class="page-eyebrow">
+                  <i
+                    class="fas fa-circle"
+                    style="font-size: 0.5rem; vertical-align: middle"
+                  ></i>
+                  Active development · v0.0.4
+                </div>
+                <h1>The <span class="grad">Vyne</span> language</h1>
+                <p class="lede">
+                  A small, statically typed language with
+                  <strong>arena-based memory</strong>, explicit lexical
+                  <strong>regions</strong>, and a
+                  <strong>C transpiler</strong> backend. No GC pauses. No manual
+                  <code class="inline">free</code>. Build games, audio tools,
+                  and web servers from one toolchain.
+                </p>
+                <div class="hero-stats">
+                  <div class="hero-stat"><b>0</b><span>GC pauses</span></div>
+                  <div class="hero-stat">
+                    <b>1</b><span>compiled target: C</span>
+                  </div>
+                  <div class="hero-stat">
+                    <b>11</b><span>standard modules</span>
+                  </div>
+                  <div class="hero-stat">
+                    <b>~3ms</b><span>hello-world compile</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <h2 id="what-is-vyne">What Vyne is</h2>
+            <p>
+              Vyne is a general-purpose programming language designed around one
+              idea:
+              <strong
+                >memory lifetime should be visible in the source code, and it
+                should not be a garbage collector's job</strong
+              >. You tell the compiler where a chunk of work begins and where
+              its scratch memory ends. The runtime does the rest.
+            </p>
+            <p>
+              The language draws its surface syntax from C, Lua, and Python —
+              C-style operators, Lua-style iteration with
+              <code class="inline">through ... loop</code>, and Python-like
+              string formatting. Under the hood, every Vyne program is lowered
+              to a single C translation unit and handed to a C compiler. That
+              means
+              <strong
+                >Vyne runs at native speed without a runtime interpreter</strong
+              >, and it interops trivially with any C library you can link.
+            </p>
+
+            <h2 id="design-goals">Design goals</h2>
+            <div class="grid-3">
+              <div class="card">
+                <div class="card-title">
+                  <i class="fas fa-gauge-high"></i>Predictable memory
+                </div>
+                <div class="card-desc">
+                  Regions give you explicit control over when scratch memory is
+                  reclaimed. No GC sweeps, no pauses, no surprises.
+                </div>
+              </div>
+              <div class="card">
+                <div class="card-title">
+                  <i class="fas fa-feather"></i>Small surface
+                </div>
+                <div class="card-desc">
+                  One file format, one type system, no metaprogramming, no
+                  macros. Learn the whole language in an afternoon.
+                </div>
+              </div>
+              <div class="card">
+                <div class="card-title">
+                  <i class="fas fa-bolt"></i>Native code
+                </div>
+                <div class="card-desc">
+                  Everything compiles to C, which compiles to machine code. No
+                  interpreter overhead, no JIT warm-up.
+                </div>
+              </div>
+            </div>
+
+            <h2 id="what-you-need-to-know">What you need to know first</h2>
+            <p>
+              This manual assumes you are comfortable with at least one
+              curly-brace language (C, JavaScript, Go, Rust, or similar). If you
+              can read
+              <code class="inline">for (int i = 0; i &lt; n; ++i) { ... }</code>
+              and know what <code class="inline">null</code> means, you are
+              ready.
+            </p>
+
+            <div class="admonition adm-note">
+              <i class="fas fa-circle-info"></i>
+              <div class="adm-body">
+                <div class="adm-title">No interpreter mode</div>
+                As of v0.0.4, Vyne only compiles to C. Earlier releases also
+                shipped a tree-walking interpreter for fast iteration; that path
+                has been removed. If you find a reference to
+                <code class="inline">--interp</code> anywhere in the docs, it is
+                stale — please report it.
+              </div>
+            </div>
+
+            <h2 id="how-the-compiler-runs">How the compiler runs</h2>
+            <p>
+              You write <code class="inline">.vy</code> files. The
+              <code class="inline">vynec</code> compiler runs three stages:
+            </p>
+            <ol>
+              <li>
+                <strong>Lexer + parser.</strong> Source text becomes an abstract
+                syntax tree.
+              </li>
+              <li>
+                <strong>Semantic analysis.</strong> Types are checked, symbols
+                resolved, regions validated. Diagnostics are reported with
+                source-context carets.
+              </li>
+              <li>
+                <strong>C emission.</strong> The AST is lowered into a single C
+                translation unit that includes
+                <code class="inline">vyne_runtime.h</code> and any module
+                headers you imported. That C file is then compiled by your
+                system C compiler (GCC, Clang, or MSVC) and linked into a
+                standalone binary.
+              </li>
+            </ol>
+            <p>
+              You never see the generated C unless you want to. The compiler
+              cleans it up by default.
+            </p>
+
+            <h2 id="where-to-go-next">Where to go next</h2>
+            <p>
+              If you want to start writing code immediately, jump to
+              <a data-page="hello">Hello, World</a>. If you want to understand
+              the whole language before writing anything,
+              <a data-page="tour">Language Tour</a> is a single pass over every
+              construct you will meet in practice.
+            </p>

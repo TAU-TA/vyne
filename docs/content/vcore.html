@@ -1,0 +1,137 @@
+            <div class="page-eyebrow">Standard Library</div>
+            <h1>VCore</h1>
+            <p class="lede">System, time, platform, and process utilities.</p>
+
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">import</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body"><span class="c-kw">module</span> vcore;</div>
+            </div>
+
+            <h2 id="vcore-functions">Functions</h2>
+            <div class="api-block">
+              <div class="api-block-head">
+                <div class="api-block-title">
+                  <i class="fas fa-terminal"></i>Runtime
+                </div>
+                <div class="api-block-count">5 functions</div>
+              </div>
+              <div class="api-block-body">
+                <div class="api-fn">
+                  <div class="api-sig">
+                    <span class="n">vcore.now</span>() <span class="x">→</span>
+                    <span class="r">String</span>
+                  </div>
+                  <div class="api-desc-text">
+                    Current local time as a formatted string
+                    <code class="inline">"YYYY-MM-DD HH:MM:SS"</code>.
+                  </div>
+                </div>
+                <div class="api-fn">
+                  <div class="api-sig">
+                    <span class="n">vcore.sleep</span>(ms
+                    <span class="x">::</span> <span class="p">Int64</span>)
+                    <span class="x">→</span> <span class="r">Int64</span>
+                  </div>
+                  <div class="api-desc-text">
+                    Blocks the calling thread for
+                    <code class="inline">ms</code> milliseconds. Returns 1.
+                  </div>
+                </div>
+                <div class="api-fn">
+                  <div class="api-sig">
+                    <span class="n">vcore.platform</span>()
+                    <span class="x">→</span> <span class="r">String</span>
+                  </div>
+                  <div class="api-desc-text">
+                    Compile-time platform string, e.g.
+                    <code class="inline">"Linux"</code>,
+                    <code class="inline">"Windows x64"</code>,
+                    <code class="inline">"Mac OSX"</code>.
+                  </div>
+                </div>
+                <div class="api-fn">
+                  <div class="api-sig">
+                    <span class="n">vcore.input</span>([prompt])
+                    <span class="x">→</span> <span class="r">String</span>
+                  </div>
+                  <div class="api-desc-text">
+                    Reads one line from stdin, optionally printing a prompt
+                    first. Returns <code class="inline">null</code> at EOF.
+                  </div>
+                </div>
+                <div class="api-fn">
+                  <div class="api-sig">
+                    <span class="n">vcore.parse_array</span>(s
+                    <span class="x">::</span> <span class="p">String</span>)
+                    <span class="x">→</span> <span class="r">Array</span>
+                  </div>
+                  <div class="api-desc-text">
+                    Parses a bracketed literal
+                    <code class="inline">"[1, 2, [3, 4]]"</code> into an Array.
+                    Supports nesting.
+                  </div>
+                </div>
+                <div class="api-fn">
+                  <div class="api-sig">
+                    <span class="n">vcore.hex_to_int64</span>(s
+                    <span class="x">::</span> <span class="p">String</span>)
+                    <span class="x">→</span> <span class="r">Int64</span>
+                  </div>
+                  <div class="api-desc-text">
+                    Parses <code class="inline">"0xFF2D809A"</code> to Int64.
+                    Accepts optional <code class="inline">0x</code> prefix.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <h2 id="vcore-properties">Properties</h2>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>vcore.version</td>
+                    <td>String</td>
+                    <td>
+                      Compiler version, e.g.
+                      <code class="inline">"v0.0.4-alpha"</code>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>vcore.engine</td>
+                    <td>String</td>
+                    <td><code class="inline">"Vyne Native"</code></td>
+                  </tr>
+                  <tr>
+                    <td>vcore.build</td>
+                    <td>String</td>
+                    <td>Build timestamp</td>
+                  </tr>
+                  <tr>
+                    <td>vcore.processor_count</td>
+                    <td>Int64</td>
+                    <td>Number of logical CPUs</td>
+                  </tr>
+                  <tr>
+                    <td>vcore.pid</td>
+                    <td>Float64</td>
+                    <td>Process ID (Float64 for interpreter parity)</td>
+                  </tr>
+                  <tr>
+                    <td>vcore.memory_usage</td>
+                    <td>Float64</td>
+                    <td>Resident set size in bytes</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>

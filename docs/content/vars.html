@@ -1,0 +1,142 @@
+            <div class="page-eyebrow">Language Reference</div>
+            <h1>Variables &amp; Assignment</h1>
+            <p class="lede">
+              Declaration, type annotation, reassignment, and mutability rules.
+            </p>
+
+            <h2 id="declaration-syntax">Declaration syntax</h2>
+            <p>
+              The form is
+              <code class="inline">name :: Type = expression;</code>. The type
+              annotation is mandatory under strict mode and optional under
+              dynamic mode. The initializer is optional only when the type has a
+              default (primitives, empty array, empty map, empty string).
+            </p>
+
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">vars.vy</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body"><span class="c-com">// Explicit</span>
+count <span class="c-op">::</span> <span class="c-ty">Int64</span> <span class="c-op">=</span> <span class="c-num">0</span>; label <span class="c-op">::</span> <span class="c-ty">String</span> <span class="c-op">=</span> <span class="c-str">""</span>; xs <span class="c-op">::</span> <span class="c-ty">Array</span> <span class="c-op">=</span> [];
+
+<span class="c-com"
+                  >// Default-initialised (no initializer)</span
+                >
+ready <span class="c-op">::</span> <span class="c-ty">Bool</span>;
+<span class="c-com">// false</span>
+total <span class="c-op">::</span> <span class="c-ty">Int64</span>;
+<span class="c-com">// 0</span>
+ratio <span class="c-op">::</span> <span class="c-ty">Float64</span>;
+<span class="c-com">// 0.0</span>
+
+<span class="c-com">// Inferred (dynamic mode only)</span>
+x <span class="c-op">=</span> <span class="c-num">42</span>;
+<span class="c-com">// x : Int64</span></div>
+            </div>
+
+            <h2 id="reassignment">Reassignment</h2>
+            <p>
+              Use <code class="inline">=</code> to reassign an existing
+              variable. Its type is fixed at declaration; assigning a value of a
+              different type is a compile error.
+            </p>
+
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">reassign.vy</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body">x <span class="c-op">::</span> <span class="c-ty">Int64</span> <span class="c-op">=</span> <span class="c-num">1</span>; x <span class="c-op">=</span> <span class="c-num">2</span>;
+<span class="c-com">// OK</span>
+x <span class="c-op">=</span> <span class="c-str">"hello"</span>;
+<span class="c-com"
+                  >// Compile error: cannot assign String to Int64</span
+                ></div>
+            </div>
+
+            <h2 id="constants">Constants</h2>
+            <p>
+              Prefix a declaration with <code class="inline">const</code> to
+              make it read-only. Reassignment of a const is a compile error.
+            </p>
+
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">const.vy</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body"><span class="c-kw">const</span> pi <span class="c-op">::</span> <span class="c-ty">Float64</span> <span class="c-op">=</span> <span class="c-num">3.14159</span>;
+<span class="c-com">// pi = 3.0; // Compile error</span></div>
+            </div>
+
+            <h2 id="indexed-assignment">Indexed assignment</h2>
+            <p>
+              Arrays and maps support element assignment with the same
+              <code class="inline">[]</code> syntax used for reads.
+            </p>
+
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">indexed.vy</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body">xs <span class="c-op">::</span> <span class="c-ty">Array</span> <span class="c-op">=</span> [<span class="c-num">1</span>, <span class="c-num">2</span>, <span class="c-num">3</span>];
+xs[<span class="c-num">0</span>] <span class="c-op">=</span> <span class="c-num">99</span>; <span class="c-com">// OK</span>
+
+m <span class="c-op">::</span> <span class="c-ty">Map</span> <span class="c-op">=</span> { <span class="c-str">"a"</span>: <span class="c-num">1</span> }; m[<span class="c-str">"b"</span
+                >] <span class="c-op">=</span> <span class="c-num">2</span>;
+<span class="c-com">// inserts "b"</span></div>
+            </div>
+
+            <div class="admonition adm-warn">
+              <i class="fas fa-triangle-exclamation"></i>
+              <div class="adm-body">
+                <div class="adm-title">Out-of-bounds writes are silent</div>
+                Writing to an array index that is out of range is a no-op — it
+                does not throw, grow the array, or report an error. Always
+                ensure your index is valid before writing.
+              </div>
+            </div>
+
+            <h2 id="no-destructuring">No destructuring</h2>
+            <p>
+              Vyne does <strong>not</strong> support destructuring assignment.
+              The following is not valid:
+            </p>
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">nope.vy</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body"><span class="c-com">// NOT valid Vyne</span>
+[x, y] <span class="c-op">=</span> pair;
+<span class="c-com">// ✗</span>
+{ a, b }
+<span class="c-op">=</span> map; <span class="c-com">// ✗</span></div>
+            </div>
+            <p>Assign each element individually instead.</p>
+
+            <h2 id="scope-rules">Scope</h2>
+            <p>
+              Variables live in the block where they are declared. Blocks are
+              introduced by <code class="inline">{ ... }</code>, function
+              bodies, loop bodies, and
+              <code class="inline">region</code> bodies. A variable declared
+              inside a block is not visible outside it.
+            </p>
+
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-filename">scope.vy</span
+                ><span class="code-lang">vyne</span>
+              </div>
+              <div class="code-body">x <span class="c-op">::</span> <span class="c-ty">Int64</span> <span class="c-op">=</span> <span class="c-num">1</span>; { y <span class="c-op">::</span> <span class="c-ty">Int64</span> <span class="c-op">=</span> <span class="c-num">2</span>;
+  <span class="c-fn">out</span>(x <span class="c-op">+</span> y);
+  <span class="c-com">// → 3, outer visible</span>
+};
+<span class="c-com"
+                  >// out(y); // Compile error: y not in scope</span
+                ></div>
+            </div>
