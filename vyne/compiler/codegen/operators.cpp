@@ -196,6 +196,63 @@ std::string BinOpNode::getCExpr(C_Emitter& e) const {
         }
     }
 
+    {
+        bool ltNum = (lt == VType::Int64 || lt == VType::Float64);
+        bool rtNum = (rt == VType::Int64 || rt == VType::Float64);
+        if (ltNum && rtNum) {
+            std::string lv = operand(leftNode.get(), l, VType::Float64);
+            std::string rv = operand(rightNode.get(), r, VType::Float64);
+            switch (op) {
+                case VTokenType::Add:
+                    e.emit("double " + temp + " = " + lv + " + " + rv + ";");
+                    e.declareNativeTemp(temp, CType::fromVType(VType::Float64));
+                    return temp;
+                case VTokenType::Substract:
+                    e.emit("double " + temp + " = " + lv + " - " + rv + ";");
+                    e.declareNativeTemp(temp, CType::fromVType(VType::Float64));
+                    return temp;
+                case VTokenType::Multiply:
+                    e.emit("double " + temp + " = " + lv + " * " + rv + ";");
+                    e.declareNativeTemp(temp, CType::fromVType(VType::Float64));
+                    return temp;
+                case VTokenType::Division:
+                    e.emit("if (" + rv + " == 0.0) { fprintf(stderr, \"Runtime error: Division by zero!\\n\"); exit(1); }");
+                    e.emit("double " + temp + " = " + lv + " / " + rv + ";");
+                    e.declareNativeTemp(temp, CType::fromVType(VType::Float64));
+                    return temp;
+                case VTokenType::Modulo:
+                    e.emit("if (" + rv + " == 0.0) { fprintf(stderr, \"Runtime error: Modulo by zero!\\n\"); exit(1); }");
+                    e.emit("double " + temp + " = fmod(" + lv + ", " + rv + ");");
+                    e.declareNativeTemp(temp, CType::fromVType(VType::Float64));
+                    return temp;
+                case VTokenType::Power:
+                    e.emit("double " + temp + " = pow(" + lv + ", " + rv + ");");
+                    e.declareNativeTemp(temp, CType::fromVType(VType::Float64));
+                    return temp;
+                case VTokenType::Double_Equals:
+                    e.emit("VyneValue " + temp + " = vyne_bool(" + lv + " == " + rv + ");");
+                    return temp;
+                case VTokenType::Not_Equal:
+                    e.emit("VyneValue " + temp + " = vyne_bool(" + lv + " != " + rv + ");");
+                    return temp;
+                case VTokenType::Greater:
+                    e.emit("VyneValue " + temp + " = vyne_bool(" + lv + " > " + rv + ");");
+                    return temp;
+                case VTokenType::Smaller:
+                    e.emit("VyneValue " + temp + " = vyne_bool(" + lv + " < " + rv + ");");
+                    return temp;
+                case VTokenType::Greater_Or_Equal:
+                    e.emit("VyneValue " + temp + " = vyne_bool(" + lv + " >= " + rv + ");");
+                    return temp;
+                case VTokenType::Smaller_Or_Equal:
+                    e.emit("VyneValue " + temp + " = vyne_bool(" + lv + " <= " + rv + ");");
+                    return temp;
+                default:
+                    break; // AND / OR / Floor_Divide → slow path
+            }
+        }
+    }
+
     // =========================================================
     // SLOW PATH: dynamic dispatch through vyne_binop()
     // =========================================================

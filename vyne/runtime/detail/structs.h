@@ -7,12 +7,19 @@
 static inline VyneValue vyne_struct_get(VyneValue s_val, uint32_t field_id) {
     if (s_val.type != V_STRUCT) return vyne_null();
     VyneStruct* s = s_val.as.strct;
+    int last = s->last_field_idx;
+    if (last >= 0 && last < s->field_count &&
+        s->fields[last].id == field_id) {
+        return s->fields[last].value;
+    }
     for (int i = 0; i < s->field_count; i++) {
-        if (s->fields[i].id == field_id) return s->fields[i].value;
+        if (s->fields[i].id == field_id) {
+            s->last_field_idx = (int16_t)i;
+            return s->fields[i].value;
+        }
     }
     return vyne_null();
 }
-
 static inline void vyne_struct_set(VyneValue s_val, uint32_t field_id,
                                    const char* field_name, VyneValue val) {
     if (s_val.type != V_STRUCT) return;
@@ -37,12 +44,22 @@ static inline void vyne_struct_set(VyneValue s_val, uint32_t field_id,
 }
 
 static inline void vyne_register_method(const char* type, const char* method, VyneMethodFn fn) {
-    if (g_method_count < VYNE_MAX_METHODS) {
-        g_method_table[g_method_count].type_name = type;
-        g_method_table[g_method_count].method_name = method;
-        g_method_table[g_method_count].fn = fn;
-        g_method_count++;
+    // Loud on overflow. The previous silent-drop turned "why doesn't my
+    // method dispatch?" into a debugging session: the call still compiled,
+    // still ran, and returned vyne_null() with no diagnostic. If you hit
+    // this, raise VYNE_MAX_METHODS — do NOT reduce the number of registered
+    // methods, because that means a module silently vanished from the table.
+    if (VYNE_UNLIKELY(g_method_count >= VYNE_MAX_METHODS)) {
+        fprintf(stderr,
+                "Runtime error (VNE-100): method table full (%d entries). "
+                "Registration of %s.%s failed. Raise VYNE_MAX_METHODS.\n",
+                VYNE_MAX_METHODS, type, method);
+        exit(1);
     }
+    g_method_table[g_method_count].type_name   = type;
+    g_method_table[g_method_count].method_name = method;
+    g_method_table[g_method_count].fn          = fn;
+    g_method_count++;
 }
 
 static inline VyneValue vyne_struct_call(VyneValue self, const char* method, int argc, VyneValue* args) {

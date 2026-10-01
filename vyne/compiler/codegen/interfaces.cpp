@@ -82,6 +82,7 @@ void InterfaceNode::compile(C_Emitter& e) const {
            std::to_string(members.size()) + ");");
     e.emit(temp + "->methods = NULL;");
     e.emit(temp + "->method_count = 0;");
+    e.emit(temp + "->last_field_idx = -1;");
 
     for (size_t i = 0; i < members.size(); ++i) {
         uint32_t fid = StringPool::intern(members[i].name);

@@ -96,6 +96,7 @@ static inline VyneValue vyne_blas_matmul(
     s->fields = (VyneField*)arena_alloc(sizeof(VyneField) * 3);
     s->methods = NULL;
     s->method_count = 0;
+    s->last_field_idx = -1;
 
     s->fields[0].id = fid_row;  s->fields[0].name = "row";
     s->fields[0].value = vyne_int(M);

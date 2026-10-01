@@ -25,7 +25,11 @@
 #endif
 
 #define VYNE_ARENA_BLOCK_SIZE (8 * 1024 * 1024)
-#define VYNE_MAX_METHODS 256
+// Method dispatch table size. 256 was too small the moment a program
+// imported more than two or three `use external` modules. Every group
+// function AND every interface method registers an entry. 4096 entries
+// × ~32 B = ~128 KB of .bss, which is nothing against the arena.
+#define VYNE_MAX_METHODS 4096
 #define VYNE_MAX_FRAME_SIZE 1024
 
 // ============================================================================

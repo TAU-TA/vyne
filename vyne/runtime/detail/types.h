@@ -102,6 +102,13 @@ typedef struct VyneStruct {
     int field_count;
     struct VyneMethodEntry** methods;
     int method_count;
+    // Last-field cache. Every field read was a linear scan, and the
+    // access pattern (`A.data`, then `A.data` again next instruction)
+    // makes a one-slot cache nearly free and nearly always hit.
+    // -1 = cold. Appends via vyne_struct_set do not invalidate: indices
+    // of existing fields never change, and the appended field has a new
+    // index the cache cannot be pointing at.
+    int16_t last_field_idx;
 } VyneStruct;
 
 static inline bool vyne_values_equal(VyneValue a, VyneValue b);

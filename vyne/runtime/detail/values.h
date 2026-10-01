@@ -93,6 +93,7 @@ static inline VyneValue vyne_struct_create(const char* type_name) {
     s->field_count = 0;
     s->methods = NULL;
     s->method_count = 0;
+    s->last_field_idx = -1;
     val.as.strct = s;
     return val;
 }

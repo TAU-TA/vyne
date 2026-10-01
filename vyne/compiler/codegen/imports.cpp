@@ -175,6 +175,7 @@ void ImportNode::compile(C_Emitter& e) const {
     e.emit(tempS + "->fields = NULL;");
     e.emit(tempS + "->methods = NULL;");
     e.emit(tempS + "->method_count = 0;");
+    e.emit(tempS + "->last_field_idx = -1;");
     e.emit(modVirtualVar + ".type = V_STRUCT; " + modVirtualVar + ".as.strct = " + tempS + ";");
 
     for (const auto& stmt : externalAst->statements) {
