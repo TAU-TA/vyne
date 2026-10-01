@@ -422,9 +422,10 @@ void AssignmentNode::compile(C_Emitter& e) const {
                         CType arrType;
                         arrType.kind = CType::Kind::Array;
                         arrType.args.push_back(CType::fromVType(elem));
-                        e.declareLocal(varName, arrType);
-                        e.emit(CType::arrayContainerName(elem) + " " + varName +
-                            " = " + ctor + "(0);");
+                        e.declareGlobal(varName, arrType);
+                        e.emitGlobalDecl(CType::arrayContainerName(elem) +
+                                         " " + varName + ";");
+                        e.emit(varName + " = " + ctor + "(0);");
                         return;
                     }
                 }
@@ -436,9 +437,10 @@ void AssignmentNode::compile(C_Emitter& e) const {
                     CType arrType;
                     arrType.kind = CType::Kind::Array;
                     arrType.args.push_back(CType::fromVType(elem));
-                    e.declareLocal(varName, arrType);
-                    e.emit(CType::arrayContainerName(elem) + " " + varName +
-                        " = " + val + ";");
+                    e.declareGlobal(varName, arrType);
+                    e.emitGlobalDecl(CType::arrayContainerName(elem) +
+                                     " " + varName + ";");
+                    e.emit(varName + " = " + val + ";");
                     return;
                 }
 
@@ -453,6 +455,23 @@ void AssignmentNode::compile(C_Emitter& e) const {
         if (existing && existing->kind == CType::Kind::Array &&
             !existing->args.empty()) {
             VType elem = existing->args[0].toVType();
+
+            // Empty array literal on the RHS of a reassignment:
+            //   re = [];
+            // is the canonical "reset and refill" idiom. It allocates a
+            // fresh typed container of the same element type as the
+            // destination, no RHS boxing involved.
+            if (rhs->type() == NodeType::ARRAY) {
+                auto* arrRhs = static_cast<const ArrayNode*>(rhs.get());
+                if (arrRhs->getElements().empty()) {
+                    std::string ctor = (elem == VType::Float64)
+                        ? "vyne_array_f64_create"
+                        : "vyne_array_i64_create";
+                    e.emit(bareName + " = " + ctor + "(0);");
+                    return;
+                }
+            }
+
             std::string val = rhs->getCExpr(e);
             const CType* rt = e.lookupType(val);
             if (rt && rt->kind == CType::Kind::Array && !rt->args.empty() &&
