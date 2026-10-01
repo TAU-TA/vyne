@@ -57,6 +57,11 @@ static inline VyneValue vcore_runtime_now_ns(void) {
      * int64 for ~29 years. Loss of a couple of ns in the integer
      * divide is below the measurement noise floor. */
     int64_t ns = (int64_t)((counter.QuadPart * 100LL) / (freq.QuadPart / 10LL));
+#if defined(_MSC_VER)
+    _ReadWriteBarrier();
+#else
+    __asm__ __volatile__("" ::: "memory");
+#endif
     return vyne_int(ns);
 #else
     struct timespec ts;
