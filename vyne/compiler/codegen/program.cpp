@@ -62,11 +62,29 @@ void ProgramNode::compile(C_Emitter& e) const {
             }
 
             if (allNativeCallable && retNative && !hasDeferOrTry) {
-                std::string mangled = fn->getOriginalName();
+                std::string orig = fn->getOriginalName();
+                std::string mangled = orig;
                 std::replace(mangled.begin(), mangled.end(), '.', '_');
+                std::string moduleMangled = mangled;
                 if (!fn->getTargetModule().empty())
-                    mangled = fn->getTargetModule() + "_" + mangled;
-                e.registerNativeVariant(mangled, mangled + "_native");
+                    moduleMangled = fn->getTargetModule() + "_" + mangled;
+
+                // Primary: the module-qualified name. External callers
+                // (`vfft.fft_kernel(...)` from another module) look this up.
+                e.registerNativeVariant(moduleMangled,
+                                        moduleMangled + "_native");
+
+                // Secondary: the bare name. Calls from inside the same
+                // module (`fft_kernel(...)` inside forward/inverse) go
+                // through FunctionCallNode::getCExpr, which has no prefix
+                // at hand and can only query the bare name. Without this,
+                // intra-module calls silently fall back to the boxed ABI,
+                // producing `fn_vfft_fft_kernel(7, args)` instead of the
+                // native call.
+                if (moduleMangled != mangled) {
+                    e.registerNativeVariant(mangled,
+                                            moduleMangled + "_native");
+                }
             }
         }
     }

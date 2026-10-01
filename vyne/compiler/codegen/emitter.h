@@ -68,6 +68,11 @@ class C_Emitter {
     std::unordered_map<std::string, std::string> globalStructTypes;
     std::string currentInterfaceType;
 
+    // M4-C1B (extended): scalar interface fields (Int64/Float64) that can be
+    // unboxed at member access. Same key shape as interfaceArrayFields.
+    std::unordered_map<std::string,
+                       std::unordered_map<std::string, VType>> interfacePrimitiveFields;
+
     struct FieldCacheEntry { std::string temp; CType ct; };
     std::unordered_map<std::string, FieldCacheEntry> fieldCache;
 
@@ -314,6 +319,7 @@ public:
         dedent();
         emit("}" + suffix);
         if (localScopes.size() > 1) localScopes.pop_back();
+        fieldCache.clear();
     }
 
     std::string newTemp(const std::string& prefix = "t") {
@@ -353,9 +359,36 @@ public:
         return VType::Unknown;
     }
 
+    void registerInterfacePrimitiveField(const std::string& iface,
+                                         const std::string& field,
+                                         VType t) {
+        if (t == VType::Int64 || t == VType::Float64)
+            interfacePrimitiveFields[iface][field] = t;
+    }
+    VType getInterfacePrimitiveField(const std::string& iface,
+                                     const std::string& field) const {
+        auto probe = [&](const std::string& k) -> VType {
+            auto it = interfacePrimitiveFields.find(k);
+            if (it == interfacePrimitiveFields.end()) return VType::Unknown;
+            auto f = it->second.find(field);
+            return f == it->second.end() ? VType::Unknown : f->second;
+        };
+        VType v = probe(iface);
+        if (v != VType::Unknown) return v;
+        std::string tmp = iface;
+        size_t dot;
+        while ((dot = tmp.find('.')) != std::string::npos) {
+            tmp = tmp.substr(dot + 1);
+            v = probe(tmp);
+            if (v != VType::Unknown) return v;
+        }
+        return VType::Unknown;
+    }
+
     void setLocalStructType(const std::string& var, const std::string& t) {
         localStructTypes[var] = t;
     }
+    
     const std::string* lookupLocalStructType(const std::string& var) const {
         auto it = localStructTypes.find(var);
         return it == localStructTypes.end() ? nullptr : &it->second;
@@ -593,6 +626,7 @@ public:
         nativeReturnType = CType{};
 
         interfaceArrayFields.clear();
+        interfacePrimitiveFields.clear();
         localStructTypes.clear();
         globalStructTypes.clear();
         currentInterfaceType.clear();

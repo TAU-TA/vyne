@@ -35,6 +35,13 @@ void InterfaceNode::compile(C_Emitter& e) const {
         e.registerInterfaceArrayField(interfaceName, m.name, m.arrayElemType);
     }
 
+    for (const auto& m : members) {
+        e.registerInterfaceArrayField(fullName, m.name, m.arrayElemType);
+        e.registerInterfaceArrayField(interfaceName, m.name, m.arrayElemType);
+        e.registerInterfacePrimitiveField(fullName, m.name, m.type);
+        e.registerInterfacePrimitiveField(interfaceName, m.name, m.type);
+    }
+
     // Per-field defaults (used to pad short constructor calls).
     {
         std::vector<std::string> defaults;

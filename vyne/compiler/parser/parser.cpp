@@ -1521,19 +1521,17 @@ std::unique_ptr<ASTNode> Parser::parseVariableAssignment(
             varType = info->type;
         }
     }
+    
     bool isReference = var->isRefVar();
     std::string customTypeName = "";
     VType varArrayElem = VType::Unknown;
 
-    // The `:: Type` annotation is normally consumed by parseIdentifierExpr
-    // (which sees `IDENT ::` and eagerly parses the type). It stashed the
-    // raw path and element type on the VariableNode; pull them back out
-    // here so the AssignmentNode carries them to codegen.
-    //
-    // The `else if` below is the fallback for the rarer case where the
-    // identifier was followed by member/index access before `::` — see
-    // `a.b :: Type` — so parseIdentifierExpr's top-of-function check
-    // didn't fire and the `::` is still sitting in the token stream.
+    // A fresh declaration iff the user wrote `:: Type` on *this* statement.
+    // The symbol-table lookup above only serves the strict-mode check and
+    // must not be used to classify codegen behaviour — see the comment on
+    // AssignmentNode::isFreshDeclaration.
+    bool isFreshDecl = var->hasExplicitTypeInfo();
+
     if (var->hasExplicitTypeInfo()) {
         varArrayElem   = var->getArrayElemType();
         customTypeName = var->getDeclaredTypeName();
@@ -1542,6 +1540,7 @@ std::unique_ptr<ASTNode> Parser::parseVariableAssignment(
         customTypeName = parseTypePath();
         varType        = resolveType(customTypeName);
         varArrayElem   = resolveArrayElementType(customTypeName);
+        isFreshDecl    = true;              // `::` was still in the stream
 
         if (peekToken().type == VTokenType::Referencer) {
             consume(VTokenType::Referencer);
@@ -1609,8 +1608,9 @@ std::unique_ptr<ASTNode> Parser::parseVariableAssignment(
         isConst, isReference, varType, std::vector<std::string>{}
     );
     node->lineNumber = line;
-    node->setArrayElemType(varArrayElem);   // M4-C1
+    node->setArrayElemType(varArrayElem);        // M4-C1
     node->setDeclaredTypeName(customTypeName);   // M4-C1B
+    if (isFreshDecl) node->markFreshDeclaration();
     return node;
 }
 

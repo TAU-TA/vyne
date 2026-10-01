@@ -68,6 +68,38 @@ std::string MemberAccessNode::getCExpr(C_Emitter& e) const {
                 e.setFieldCache(cacheKey, temp, ct);
                 return temp;
             }
+
+            // M4-C1B: scalar (Int64/Float64) interface fields. Struct
+            // storage is always boxed VyneValue; unbox once into a native
+            // temp so downstream native dispatch (tryEmitNativeCall) sees
+            // a provably-typed operand.
+            VType ptype = e.getInterfacePrimitiveField(typeName, memberName);
+            if (ptype == VType::Int64 || ptype == VType::Float64) {
+                std::string cacheKey = recvName + "." + memberName + ":prim";
+                if (const auto* cached = e.getFieldCache(cacheKey))
+                    return cached->temp;
+
+                std::string recv = e.boxAny(receiver->getCExpr(e));
+                uint32_t fid = StringPool::intern(memberName);
+                std::string boxed = e.newTemp("fb");
+                e.emit("VyneValue " + boxed + " = vyne_struct_get(" +
+                       recv + ", " + std::to_string(fid) + ");");
+
+                std::string temp = e.newTemp("fp");
+                if (ptype == VType::Float64) {
+                    e.emit("double " + temp + " = (" + boxed +
+                           ".type == V_FLOAT64) ? " + boxed +
+                           ".as.f64 : (double)" + boxed + ".as.i64;");
+                    e.declareNativeTemp(temp, CType::fromVType(VType::Float64));
+                } else {
+                    e.emit("int64_t " + temp + " = (" + boxed +
+                           ".type == V_INT64) ? " + boxed +
+                           ".as.i64 : (int64_t)" + boxed + ".as.f64;");
+                    e.declareNativeTemp(temp, CType::fromVType(VType::Int64));
+                }
+                e.setFieldCache(cacheKey, temp, CType::fromVType(ptype));
+                return temp;
+            }
         }
     }
 

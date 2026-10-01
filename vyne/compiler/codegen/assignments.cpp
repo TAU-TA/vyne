@@ -380,7 +380,14 @@ void AssignmentNode::compile(C_Emitter& e) const {
     std::string prefix = e.getActiveFunctionPrefix();
     std::string bareName = "v_" + sanitized;
     bool hasGlobal = e.getGlobalVars().count(bareName) > 0;
-    bool isDeclaration = (expectedType != VType::Unknown);
+
+    // Use the parser's explicit "fresh decl" flag, not `expectedType`.
+    // The parser sets `expectedType` from the symbol table even for
+    // pure reassignments (to satisfy the strict-mode check), so
+    // `expectedType != Unknown` can't distinguish `x :: T = ...` from
+    // `x = ...` when x already exists. See the comment on
+    // AssignmentNode::isFreshDeclaration in ast.h.
+    bool isDeclaration = isFreshDeclaration();
 
     bool useGlobal;
     if (prefix.empty()) {
@@ -396,6 +403,11 @@ void AssignmentNode::compile(C_Emitter& e) const {
         varName = bareName;
     } else {
         varName = "v_" + prefix + "_" + sanitized;
+    }
+
+    if (!declaredTypeName.empty()) {
+        if (useGlobal) e.setGlobalStructType(bareName, declaredTypeName);
+        else           e.setLocalStructType(varName, declaredTypeName);
     }
 
     if (useGlobal) {
@@ -507,11 +519,6 @@ void AssignmentNode::compile(C_Emitter& e) const {
             e.emit(bareName + " = " + e.boxAny(val) + ";");
         }
         return;
-    }
-
-    if (!declaredTypeName.empty()) {
-        if (useGlobal) e.setGlobalStructType(bareName, declaredTypeName);
-        else           e.setLocalStructType(varName, declaredTypeName);
     }
 
     // --- fresh local declaration ---

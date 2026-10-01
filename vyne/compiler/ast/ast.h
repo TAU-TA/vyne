@@ -439,6 +439,8 @@ class AssignmentNode : public ASTNode {
     VType arrayElemType = VType::Unknown;   // M4-C1
     std::string declaredTypeName;   // M4-C1B: user-written type path, if any
 
+    bool isFreshDeclaration_ = false;
+
 public:
     AssignmentNode(uint32_t id, 
                    std::string on, 
@@ -485,6 +487,9 @@ public:
     void setDeclaredTypeName(std::string n) { declaredTypeName = std::move(n); }
 
     VType getExpectedType() const { return expectedType; }
+
+    bool isFreshDeclaration() const { return isFreshDeclaration_; }
+    void markFreshDeclaration() { isFreshDeclaration_ = true; }
 };
 
 class MemberAssignmentNode : public ASTNode {
