@@ -22,7 +22,7 @@
 # block comment at the bottom of this file for the four companion files
 # that should live under tests/negative/.
 
-ruleset { dynamic_casting };
+ruleset { dynamic_casting, verbose };
 
 out("=== @pool region policy test suite ===");
 out("");
