@@ -19,13 +19,14 @@ vmath.seed(42);
 # ======================================================================
 N_PER_CLASS = 120;
 SEQ_LEN     = 30;
-EPOCHS      = 50;
+EPOCHS      = 1000;
 LR          = 0.5;
 HIDDEN1     = 16;
 HIDDEN2     = 12;
 PRINT_EVERY = 50;
 
-N_SAMPLES = N_PER_CLASS * 2;
+N_FEATURES = 64;                  # codon usage is 64-dimensional
+N_SAMPLES  = N_PER_CLASS * 2;
 
 CODONS :: Array = [
     "AAA","AAC","AAG","AAU","ACA","ACC","ACG","ACU",
@@ -188,84 +189,135 @@ b3 = model.layers[2].b;
 # ======================================================================
 # TRAINING
 # ======================================================================
-h0    = vml.forward_all(model, X);
+
+# --- Optimizer config ---
+BATCH      :: Int64 = 32;
+N_BATCHES  :: Int64 = N_SAMPLES / BATCH;   # 240 / 32 = 7, with 16 left over.
+                                           # If N_SAMPLES % BATCH != 0, the
+                                           # last partial batch is dropped by
+                                           # this integer division. Cleaner
+                                           # than padding; adjust BATCH or
+                                           # N_SAMPLES to make it divide evenly.
+
+opt_adam :: vml.Types.Adam = vml.adam(0.001);
+
+# Per-weight Adam state. Size matches each weight matrix.
+state_W1 :: vml.Types.AdamState = vml.adam_state(HIDDEN1 * N_FEATURES);
+state_W2 :: vml.Types.AdamState = vml.adam_state(HIDDEN2 * HIDDEN1);
+state_W3 :: vml.Types.AdamState = vml.adam_state(1       * HIDDEN2);
+
+# Shuffleable index list. Initialised to [0, 1, ..., N_SAMPLES-1].
+indices :: Array = [];
+through i :: 0..N_SAMPLES-1 -> loop { indices.push(i); };
+
+# Reusable batch index buffer, refilled every batch.
+batch_idx :: Array = [];
+through i :: 0..BATCH-1 -> loop { batch_idx.push(0); };
+
+# Full-batch forward for the initial loss printout. Unchanged.
+h0    = vml.forward_all_fused(model, X);
 loss0 = vml.cross_entropy(h0[2], Y);
 
 out(vcolors.bold("Training:"));
 out("  initial loss  " + string(loss0));
 out("");
 
-lossN = loss0;
+lossN :: Float64 = loss0;
+
+# Global optimizer timestep. Incremented once per batch update,
+# across all epochs. Adam's bias correction depends on it.
+t :: Int64 = 0;
 
 through epoch :: 1..EPOCHS -> loop {
-    region train_step {
-        scratch db2_buf :: Float64[12];
-        scratch db1_buf :: Float64[16];
+    vml.shuffle_indices(indices, N_SAMPLES);
 
-        # ---- forward (vml) ----
-        h  = vml.forward_all(model, X);
-        A1 = h[0];
-        A2 = h[1];
-        A3 = h[2];
+    epoch_loss :: Float64 = 0.0;
+    epoch_acc  :: Float64 = 0.0;
 
-        # ---- backprop (manual, reaches into layer weights) ----
-        delta3 = vlin.subtract(A3, Y);
-        dW3    = vlin.multiply(vlin.transpose(A2), delta3);
+    through b :: 0..N_BATCHES-1 -> loop {
+        region train_step {
+            scratch db2_buf :: Float64[12];
+            scratch db1_buf :: Float64[16];
 
-        db3 = 0.0;
-        through r :: 0..N_SAMPLES-1 -> loop { db3 = db3 + delta3.data[r]; };
-
-        delta2 = vlin.hadamard(
-            vlin.multiply(delta3, vlin.transpose(W3)),
-            vlin.tanh_prime(A2));
-        dW2 = vlin.multiply(vlin.transpose(A1), delta2);
-
-        delta1 = vlin.hadamard(
-            vlin.multiply(delta2, vlin.transpose(W2)),
-            vlin.tanh_prime(A1));
-        dW1 = vlin.multiply(vlin.transpose(X), delta1);
-
-        # ---- weight updates via vml ----
-        vml.sgd_step(W1, dW1, scale);
-        vml.sgd_step(W2, dW2, scale);
-        vml.sgd_step(W3, dW3, scale);
-
-        # ---- bias gradient accumulation (unchanged) ----
-        through c :: 0..HIDDEN2-1 -> loop {
-            db2_buf[c] = 0.0;
-            through r :: 0..N_SAMPLES-1 -> loop {
-                db2_buf[c] = db2_buf[c] + delta2.data[r * HIDDEN2 + c];
+            # ---- gather batch rows ----
+            through j :: 0..BATCH-1 -> loop {
+                batch_idx[j] = indices[b * BATCH + j];
             };
-        };
+            X_b :: vlin.Types.Matrix = vml.gather_rows(X, batch_idx, BATCH);
+            Y_b :: vlin.Types.Matrix = vml.gather_rows(Y, batch_idx, BATCH);
 
-        through c :: 0..HIDDEN1-1 -> loop {
-            db1_buf[c] = 0.0;
-            through r :: 0..N_SAMPLES-1 -> loop {
-                db1_buf[c] = db1_buf[c] + delta1.data[r * HIDDEN1 + c];
+            # ---- forward (vml) ----
+            h  = vml.forward_all_fused(model, X_b);
+            A1 = h[0];
+            A2 = h[1];
+            A3 = h[2];
+
+            # ---- backprop (manual, reaches into layer weights) ----
+            delta3 = vlin.subtract(A3, Y_b);
+            dW3    = vlin.multiply(vlin.transpose(A2), delta3);
+
+            db3 = 0.0;
+            through r :: 0..BATCH-1 -> loop { db3 = db3 + delta3.data[r]; };
+
+            delta2 = vlin.hadamard(
+                vlin.multiply(delta3, vlin.transpose(W3)),
+                vlin.tanh_prime(A2));
+            dW2 = vlin.multiply(vlin.transpose(A1), delta2);
+
+            delta1 = vlin.hadamard(
+                vlin.multiply(delta2, vlin.transpose(W2)),
+                vlin.tanh_prime(A1));
+            dW1 = vlin.multiply(vlin.transpose(X_b), delta1);
+
+            # ---- weight updates via Adam ----
+            t = t + 1;
+            vml.adam_step(W1, dW1, state_W1, opt_adam, t);
+            vml.adam_step(W2, dW2, state_W2, opt_adam, t);
+            vml.adam_step(W3, dW3, state_W3, opt_adam, t);
+
+            # ---- bias gradients, over the batch ----
+            through c :: 0..HIDDEN2-1 -> loop {
+                db2_buf[c] = 0.0;
+                through r :: 0..BATCH-1 -> loop {
+                    db2_buf[c] = db2_buf[c] + delta2.data[r * HIDDEN2 + c];
+                };
             };
+            through c :: 0..HIDDEN1-1 -> loop {
+                db1_buf[c] = 0.0;
+                through r :: 0..BATCH-1 -> loop {
+                    db1_buf[c] = db1_buf[c] + delta1.data[r * HIDDEN1 + c];
+                };
+            };
+
+            # Biases get plain SGD with 1/BATCH scaling, not Adam.
+            # Adam on biases works too, but the classic result is that
+            # Adam's per-parameter scaling hurts on biases. Keep it
+            # simple; switch to Adam on biases later if you want.
+            bscale :: Float64 = opt_adam.lr / float64(BATCH);
+            through c :: 0..HIDDEN1-1 -> loop { b1[c] = b1[c] - bscale * db1_buf[c]; };
+            through c :: 0..HIDDEN2-1 -> loop { b2[c] = b2[c] - bscale * db2_buf[c]; };
+            b3[0] = b3[0] - bscale * db3;
+
+            # ---- accumulate epoch stats ----
+            epoch_loss = epoch_loss + vml.cross_entropy(A3, Y_b);
+            epoch_acc  = epoch_acc  + vml.accuracy(A3, Y_b, BATCH);
         };
-
-        # ---- bias updates (b1, b2 are Array<Float64> refs into the model) ----
-        through c :: 0..HIDDEN1-1 -> loop { b1[c] = b1[c] - scale * db1_buf[c]; };
-        through c :: 0..HIDDEN2-1 -> loop { b2[c] = b2[c] - scale * db2_buf[c]; };
-        b3[0] = b3[0] - scale * db3;
-
-        # ---- progress ----
-        if epoch % PRINT_EVERY == 0 {
-            lossN = vml.cross_entropy(A3, Y);
-            acc   = vml.accuracy(A3, Y, N_SAMPLES);
-            out("  " + pad_left(string(epoch), 5) + "/" + string(EPOCHS)
-                + "  loss " + string(lossN)
-                + "  acc  " + pct(acc)
-                + "  " + bar(acc, 18));
-        }
     };
+
+    if epoch % PRINT_EVERY == 0 {
+        lossN = epoch_loss / float64(N_BATCHES);
+        acc   = epoch_acc  / float64(N_BATCHES);
+        out("  " + pad_left(string(epoch), 5) + "/" + string(EPOCHS)
+            + "  loss " + string(lossN)
+            + "  acc  " + pct(acc)
+            + "  " + bar(acc, 18));
+    }
 };
 
 # ======================================================================
 # FINAL EVAL
 # ======================================================================
-h_final  = vml.forward_all(model, X);
+h_final  = vml.forward_all_fused(model, X);
 A3_final = h_final[2];
 
 final_acc = vml.accuracy(A3_final, Y, N_SAMPLES);
