@@ -56,4 +56,22 @@ group Types :: vml {
         lr :: Float64,
         lr_value() -> Float64 { return self.lr; }
     }
+
+    # Adam hyperparameters. The per-parameter state lives in a
+    # separate AdamState value — one per weight matrix — because Vyne
+    # has no way to attach auxiliary storage to an existing interface
+    # value without changing its constructor ABI.
+    interface Adam {
+        lr    :: Float64,
+        beta1 :: Float64,
+        beta2 :: Float64,
+        eps   :: Float64,
+    }
+
+    # Per-weight state. m and v are the first and second moment
+    # estimates, both flat Array<Float64> of length W.row * W.col.
+    interface AdamState {
+        m :: Array<Float64>,
+        v :: Array<Float64>,
+    }
 }
