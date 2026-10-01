@@ -112,10 +112,19 @@ class C_Emitter {
     };
     std::vector<PoolContext> poolStack;
 
+    // Active @speculative context. Tracks the C variable name of the
+    // per-region commit flag so `region.commit_if(pred)` — intercepted
+    // in RegionCommitIfNode::compile — knows which flag to assign. Only
+    // the innermost is visible; nested speculative regions shadow via
+    // LIFO, matching every other region-scoped construct.
+    struct SpeculativeContext {
+        std::string commitFlag;      // C variable name of the int flag
+    };
+    std::vector<SpeculativeContext> speculativeStack;
+
     bool scratchBoundsEnabled = true;
     bool blasEnabled          = false;
     bool poolRuntimeEmitted   = false;
-
     int tempVarCount = 0;
 
 public:
@@ -296,6 +305,8 @@ public:
         fieldCache.clear();
         currentInterfaceType.clear();
         regionStack.clear();
+        poolStack.clear();            // paired with regionStack: both are per-function
+        speculativeStack.clear();
         committedVars.clear();
         nativeReturnType = CType{};
         localScopes.clear();
@@ -569,6 +580,15 @@ public:
     bool isPoolRuntimeEmitted() const { return poolRuntimeEmitted; }
     void markPoolRuntimeEmitted()      { poolRuntimeEmitted = true; }
 
+    // --- Speculative context -----------------------------------------
+    // Pushed by compileSpeculativeRegion, read by RegionCommitIfNode.
+    // A speculative region still goes on regionStack; the speculative
+    // stack only carries the commit flag's C name.
+    void pushSpeculative(const SpeculativeContext& s) { speculativeStack.push_back(s); }
+    void popSpeculative() { if (!speculativeStack.empty()) speculativeStack.pop_back(); }
+    bool hasSpeculative() const { return !speculativeStack.empty(); }
+    const SpeculativeContext& currentSpeculative() const { return speculativeStack.back(); }
+
     void setReturnVars(const std::string& rv, const std::string& rf) {
         currentReturnVar = rv; currentReturningVar = rf;
     }
@@ -641,6 +661,7 @@ public:
         regionStack.clear(); 
         committedVars.clear();
         poolStack.clear();
+        speculativeStack.clear();
         poolRuntimeEmitted   = false;
         scratchBoundsEnabled = true;
         blasEnabled          = false;

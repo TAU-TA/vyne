@@ -2502,6 +2502,12 @@ Value RegionCommitNode::evaluate(SymbolContainer& env, uint32_t currentGroupId) 
         "[ line " + std::to_string(lineNumber) + " ]");
 }
 
+Value RegionCommitIfNode::evaluate(SymbolContainer& env, uint32_t currentGroupId) const {
+    throw std::runtime_error(
+        "Runtime Error: 'region.commit_if' is not supported by the interpreter "
+        "[ line " + std::to_string(lineNumber) + " ]");
+}
+
 Value ScratchNode::evaluate(SymbolContainer&, uint32_t) const {
     throw std::runtime_error(
         "Runtime Error: 'scratch' is a codegen-only construct and is not "

@@ -2482,21 +2482,35 @@ std::unique_ptr<ASTNode> Parser::parseRegionStatement() {
     if (peekToken().type == VTokenType::Dot) {
         consume(VTokenType::Dot);
         Token methodTok = consume(VTokenType::Identifier);
-        if (methodTok.name != "commit") {
-            emitError(
-                "Expected 'commit' after 'region.', but got '" + methodTok.name + "'",
-                line, "VNE-050",
-                {"Use 'region.commit(value)' to preserve a value past rewind"});
+
+        if (methodTok.name == "commit") {
+            consume(VTokenType::Left_Parenthese);
+            auto expr = parseExpression();
+            consume(VTokenType::Right_Parenthese);
+            consumeSemicolon();
+
+            auto node = std::make_unique<RegionCommitNode>(std::move(expr));
+            node->lineNumber = line;
+            return node;
         }
 
-        consume(VTokenType::Left_Parenthese);
-        auto expr = parseExpression();
-        consume(VTokenType::Right_Parenthese);
-        consumeSemicolon();
+        if (methodTok.name == "commit_if") {
+            consume(VTokenType::Left_Parenthese);
+            auto pred = parseExpression();
+            consume(VTokenType::Right_Parenthese);
+            consumeSemicolon();
 
-        auto node = std::make_unique<RegionCommitNode>(std::move(expr));
-        node->lineNumber = line;
-        return node;
+            auto node = std::make_unique<RegionCommitIfNode>(std::move(pred));
+            node->lineNumber = line;
+            return node;
+        }
+
+        emitError(
+            "Expected 'commit' or 'commit_if' after 'region.', but got '" +
+            methodTok.name + "'",
+            line, "VNE-050",
+            {"Use 'region.commit(value)' to preserve a single value past rewind",
+             "Use 'region.commit_if(pred)' inside @speculative to conditionally commit the whole region"});
     }
 
     // ---- A1: region name { ... }; -----------------------------------

@@ -139,6 +139,62 @@ static void compilePoolRegion(C_Emitter& e, const RegionNode& r) {
     e.emit("vmem_runtime_rewind(" + cpHandle + ");");
 }
 
+static void compileSpeculativeRegion(C_Emitter& e, const RegionNode& r) {
+    if (!r.getPolicyArgs().empty()) {
+        throw std::runtime_error(
+            "Compile Error (VNE-080): @speculative takes no arguments, "
+            "got " + std::to_string(r.getPolicyArgs().size()) +
+            " (line " + std::to_string(r.lineNumber) + ").");
+    }
+
+    ensureVmemInclude(e);
+
+    std::string cpHandle   = e.newTemp("vmem_cp");
+    std::string commitFlag = e.newTemp("spec_committed");
+
+    e.emit("// --- region: " + r.getRegionName() + " (speculative) ---");
+    e.emit("VyneValue " + cpHandle + " = vmem_runtime_checkpoint();");
+    e.emit("int " + commitFlag + " = 0;");
+
+    e.pushRegion(cpHandle);
+    e.pushSpeculative({ commitFlag });
+
+    e.emitBlockOpen("{");
+    for (const auto& stmt : r.getBody()) if (stmt) stmt->compile(e);
+    e.emitBlockClose();
+
+    e.popSpeculative();
+    e.popRegion();
+
+    e.emit("if (" + commitFlag + ") {");
+    e.emit("    vmem_runtime_pop_checkpoints(1);");
+    e.emit("} else {");
+    e.emit("    vmem_runtime_rewind(" + cpHandle + ");");
+    e.emit("}");
+}
+
+void RegionCommitIfNode::compile(C_Emitter& e) const {
+    if (!e.hasSpeculative()) {
+        throw std::runtime_error(
+            "Compile Error (VNE-085): region.commit_if() is only valid "
+            "inside a @speculative region (line " +
+            std::to_string(lineNumber) + ").\n"
+            "  Wrap the containing region in '@speculative' to make its "
+            "commit decision conditional.");
+    }
+
+    const auto& ctx = e.currentSpeculative();
+    std::string pred = e.boxAny(predicate->getCExpr(e));
+    // Last write wins. Multiple commit_if calls simply overwrite the flag;
+    // the region's fate is decided by whichever call fires last.
+    e.emit(ctx.commitFlag + " = vyne_is_truthy(" + pred + ") ? 1 : 0;");
+}
+
+std::string RegionCommitIfNode::getCExpr(C_Emitter& e) const {
+    compile(e);
+    return "vyne_null()";
+}
+
 void RegionNode::compile(C_Emitter& e) const {
     if (policy.empty() || policy == "bump") {
         compileBumpRegion(e, *this);
@@ -148,12 +204,16 @@ void RegionNode::compile(C_Emitter& e) const {
         compilePoolRegion(e, *this);
         return;
     }
+    if (policy == "speculative") {
+        compileSpeculativeRegion(e, *this);
+        return;
+    }
 
     throw std::runtime_error(
         "Compile Error (VNE-080): region policy '@" + policy + "' is "
         "recognized but not yet implemented (line " +
         std::to_string(lineNumber) + ").\n"
-        "  Implemented policies: bump (default), pool.");
+        "  Implemented policies: bump (default), pool, speculative.");
 }
 
 std::string RegionNode::getCExpr(C_Emitter& e) const {

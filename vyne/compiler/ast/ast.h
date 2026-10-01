@@ -275,6 +275,7 @@ enum class NodeType {
 
     REGION,          // A1: lexical region  { ... }
     REGION_COMMIT,   // A3: region.commit(expr)
+    REGION_COMMIT_IF,// region.commit_if(pred) — inside @speculative
 
     SCRATCH,
     SCRATCH_INDEX,
@@ -1469,6 +1470,21 @@ public:
     VType getStaticType() const override { return VType::Unknown; }
 
     ASTNode* getExpression() const { return expression.get(); }
+};
+
+class RegionCommitIfNode : public ASTNode {
+    std::unique_ptr<ASTNode> predicate;
+
+public:
+    RegionCommitIfNode(std::unique_ptr<ASTNode> pred)
+        : ASTNode(NodeType::REGION_COMMIT_IF), predicate(std::move(pred)) {}
+
+    Value evaluate(SymbolContainer& env, uint32_t currentGroupId) const override;
+    void  compile(C_Emitter& e) const override;
+    std::string getCExpr(C_Emitter& e) const override;
+    VType getStaticType() const override { return VType::Unknown; }
+
+    ASTNode* getPredicate() const { return predicate.get(); }
 };
 
 // ============================================================
