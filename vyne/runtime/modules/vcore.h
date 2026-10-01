@@ -44,6 +44,28 @@ static inline VyneValue vcore_runtime_now(void) {
     return vyne_string(buf);
 }
 
+/* ---------- now_ns() — monotonic nanoseconds ----------------------- */
+/* Used by benchmark harnesses. Monotonic on every platform: QPC on
+ * Windows, CLOCK_MONOTONIC elsewhere. The origin is arbitrary, which
+ * is fine for measuring durations. */
+static inline VyneValue vcore_runtime_now_ns(void) {
+#ifdef _WIN32
+    LARGE_INTEGER freq, counter;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&counter);
+    /* freq is usually 10 MHz on Windows, so counter * 100 stays in
+     * int64 for ~29 years. Loss of a couple of ns in the integer
+     * divide is below the measurement noise floor. */
+    int64_t ns = (int64_t)((counter.QuadPart * 100LL) / (freq.QuadPart / 10LL));
+    return vyne_int(ns);
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    int64_t ns = (int64_t)ts.tv_sec * 1000000000LL + (int64_t)ts.tv_nsec;
+    return vyne_int(ns);
+#endif
+}
+
 /* ---------- sleep(ms) ---------------------------------------------- */
 static inline VyneValue vcore_runtime_sleep(VyneValue ms_val) {
     int64_t ms = (ms_val.type == V_INT64) ? ms_val.as.i64
