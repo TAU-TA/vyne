@@ -13,7 +13,6 @@
 ruleset { dynamic_casting };
 
 use external "vlin/vlin.vy";
-module vlin;
 use native vmath;
 use native vmem;
 
