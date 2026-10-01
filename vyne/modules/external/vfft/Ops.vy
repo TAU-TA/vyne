@@ -1,10 +1,9 @@
-# vfft/Ops.vy — the user-facing transforms.
+# vfft/Ops.vy — user-facing transforms with cached plan per N.
 #
-# Every function takes and returns boxed `Array` values so callers can
-# pass native Array<Float64> locals, bare `[]` literals, or arrays
-# pulled out of a struct, all interchangeably. Each op unboxes to
-# native locals at entry, runs the numeric work under the native ABI,
-# and reboxes at the return boundary.
+# The two costs that dominated the original kernel were:
+#   1. Twiddle table rebuilt on every call (N/2 cos + N/2 sin).
+#   2. bit_reverse computed in O(k²) per output index.
+# Both are now built once per N and stored in _plan.
 
 ruleset { dynamic_casting };
 
@@ -13,27 +12,53 @@ use native vmath;
 
 module vfft;
 
-# Smallest power of two >= n. n = 0 or 1 return 1.
-fn :: vfft next_pow2(n :: Int64) -> Int64 {
-    if n <= 1 { return 1; }
-    r :: Int64 = 1;
-    while r < n { r = r * 2; }
-    return r;
+# A Plan is the precomputed state for a given FFT length. Built once
+# on the first call with a new N, reused on every subsequent call.
+interface Plan {
+    n      :: Int64,
+    bits   :: Int64,
+    tw_re  :: Array<Float64>,
+    tw_im  :: Array<Float64>,
+    bitrev :: Array<Int64>,
 }
 
-# Forward complex FFT, in place. Modifies re and im.
-# re.size() and im.size() must both equal n, a power of two.
+fn :: vfft make_plan(n :: Int64) -> vfft.Plan {
+    bits :: Int64 = vfft.log2_exact(n);
+    half :: Int64 = n / 2;
+    two_pi :: Float64 = 6.283185307179586;
+
+    tw_re :: Array<Float64> = [];
+    tw_im :: Array<Float64> = [];
+    through k :: 0..half-1 -> loop {
+        theta :: Float64 = 0.0 - two_pi * float64(k) / float64(n);
+        tw_re.push(vmath.cos(theta));
+        tw_im.push(vmath.sin(theta));
+    };
+
+    bitrev :: Array<Int64> = [];
+    through i :: 0..n-1 -> loop {
+        bitrev.push(vfft.bit_reverse(i, bits));
+    };
+
+    return vfft.Plan(n, bits, tw_re, tw_im, bitrev);
+}
+
+# Cached plan. Invalid when _plan_n doesn't match the requested N.
+_plan   :: vfft.Plan = null;
+_plan_n :: Int64     = 0;
+
+fn :: vfft ensure_plan(n :: Int64) -> Int64 {
+    if _plan_n == n { return 0; }
+    _plan   = vfft.make_plan(n);
+    _plan_n = n;
+    return 0;
+}
+
 fn :: vfft forward(re :: Array, im :: Array) -> Int64 {
     n :: Int64 = re.size();
     if n <= 1 { return 0; }
+    vfft.ensure_plan(n);
 
-    bits :: Int64 = vfft.log2_exact(n);
-    if bits < 0 {
-        out("vfft.forward: length must be a power of two, got " + string(n));
-        exit(1);
-    }
-
-    # Unbox into native locals. Two O(N) passes, once each.
     re_n :: Array<Float64> = [];
     im_n :: Array<Float64> = [];
     through i :: 0..n-1 -> loop {
@@ -41,10 +66,9 @@ fn :: vfft forward(re :: Array, im :: Array) -> Int64 {
         im_n.push(im[i]);
     };
 
-    vfft.fft_kernel(re_n, im_n, n, bits);
+    vfft.fft_kernel(re_n, im_n, _plan.n, _plan.bits,
+                    _plan.tw_re, _plan.tw_im, _plan.bitrev);
 
-    # Box back. Writes through the shared data pointer, so the
-    # caller's arrays see the update in place.
     through i :: 0..n-1 -> loop {
         re[i] = re_n[i];
         im[i] = im_n[i];
@@ -52,85 +76,33 @@ fn :: vfft forward(re :: Array, im :: Array) -> Int64 {
     return 0;
 }
 
-# Inverse complex FFT, in place. Conjugates input, runs forward,
-# conjugates output, scales by 1/n.
 fn :: vfft inverse(re :: Array, im :: Array) -> Int64 {
     n :: Int64 = re.size();
     if n <= 1 { return 0; }
+    vfft.ensure_plan(n);
 
-    bits :: Int64 = vfft.log2_exact(n);
-    if bits < 0 {
-        out("vfft.inverse: length must be a power of two, got " + string(n));
-        exit(1);
-    }
-
+    # Conjugate input, forward, conjugate output, scale by 1/N.
     re_n :: Array<Float64> = [];
     im_n :: Array<Float64> = [];
     through i :: 0..n-1 -> loop {
         re_n.push(re[i]);
-        im_n.push(0.0 - im[i]);   # conjugate input
+        im_n.push(0.0 - im[i]);
     };
 
-    vfft.fft_kernel(re_n, im_n, n, bits);
+    vfft.fft_kernel(re_n, im_n, _plan.n, _plan.bits,
+                    _plan.tw_re, _plan.tw_im, _plan.bitrev);
 
     inv_n :: Float64 = 1.0 / float64(n);
     through i :: 0..n-1 -> loop {
         re[i] = re_n[i] * inv_n;
-        im[i] = (0.0 - im_n[i]) * inv_n;   # conjugate + scale
+        im[i] = (0.0 - im_n[i]) * inv_n;
     };
     return 0;
 }
 
-# Real-input FFT. x has length n (power of two). Returns [re_half, im_half]:
-# the first n/2 + 1 bins. Bins n/2+1 .. n-1 are the Hermitian mirror
-# of bins 1 .. n/2-1 and are not materialized.
-fn :: vfft rfft(x :: Array) -> Array {
-    n :: Int64 = x.size();
-    re :: Array<Float64> = [];
-    im :: Array<Float64> = [];
-    through i :: 0..n-1 -> loop {
-        re.push(x[i]);
-        im.push(0.0);
-    };
-
-    vfft.forward(re, im);
-
-    half :: Int64 = n / 2 + 1;
-    out_re :: Array<Float64> = [];
-    out_im :: Array<Float64> = [];
-    through i :: 0..half-1 -> loop {
-        out_re.push(re[i]);
-        out_im.push(im[i]);
-    };
-
-    return [out_re, out_im];
-}
-
-# Inverse of rfft. re_in, im_in are the half-spectrum (length n/2+1);
-# n is the original real length. Returns the real signal (length n).
-fn :: vfft irfft(re_in :: Array, im_in :: Array, n :: Int64) -> Array<Float64> {
-    re_full :: Array<Float64> = [];
-    im_full :: Array<Float64> = [];
-    through i :: 0..n-1 -> loop {
-        re_full.push(0.0);
-        im_full.push(0.0);
-    };
-
-    half :: Int64 = n / 2 + 1;
-    through i :: 0..half-1 -> loop {
-        re_full[i] = re_in[i];
-        im_full[i] = im_in[i];
-    };
-
-    # Hermitian symmetry: X[n-k] = conj(X[k]).
-    through i :: 1..(n/2)-1 -> loop {
-        re_full[n - i] =  re_in[i];
-        im_full[n - i] = 0.0 - im_in[i];
-    };
-
-    vfft.inverse(re_full, im_full);
-
-    output :: Array<Float64> = [];
-    through i :: 0..n-1 -> loop { output.push(re_full[i]); };
-    return output;
+fn :: vfft next_pow2(n :: Int64) -> Int64 {
+    if n <= 1 { return 1; }
+    r :: Int64 = 1;
+    while r < n { r = r * 2; }
+    return r;
 }

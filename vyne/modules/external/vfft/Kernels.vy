@@ -51,22 +51,14 @@ fn :: vfft bit_reverse(i :: Int64, k :: Int64) -> Int64 {
 # In-place radix-2 Cooley-Tukey DIT FFT. n must be a power of two;
 # bits = log2(n). Modifies re and im.
 fn :: vfft fft_kernel(re :: Array<Float64>, im :: Array<Float64>,
-                      n :: Int64, bits :: Int64) -> Int64 {
-    # Precompute twiddle factors: w[k] = exp(-2πi k / n), k in [0, n/2).
-    half_n :: Int64 = n / 2;
-    tw_re :: Array<Float64> = [];
-    tw_im :: Array<Float64> = [];
-    two_pi :: Float64 = 6.283185307179586;
-    through k :: 0..half_n-1 -> loop {
-        theta :: Float64 = 0.0 - two_pi * float64(k) / float64(n);
-        tw_re.push(vmath.cos(theta));
-        tw_im.push(vmath.sin(theta));
-    };
-
-    # Bit-reversal permutation: swap i and bitrev(i) exactly once,
-    # guarded by i < j so each swap happens exactly once.
+                      n :: Int64, bits :: Int64,
+                      tw_re :: Array<Float64>,
+                      tw_im :: Array<Float64>,
+                      bitrev :: Array<Int64>) -> Int64 {
+    # Bit-reversal permutation via the cached table. O(N) instead of
+    # O(N·k²) — the pow2 and integer-division costs are gone.
     through i :: 0..n-1 -> loop {
-        j :: Int64 = vfft.bit_reverse(i, bits);
+        j :: Int64 = bitrev[i];
         if i < j {
             tr :: Float64 = re[i];
             re[i] = re[j];
@@ -77,8 +69,6 @@ fn :: vfft fft_kernel(re :: Array<Float64>, im :: Array<Float64>,
         }
     };
 
-    # Butterfly stages. Stage s has block size 2^s; half = 2^(s-1) is
-    # the twiddle stride for that stage.
     length :: Int64 = 2;
     through stage :: 0..bits-1 -> loop {
         half :: Int64 = length / 2;
