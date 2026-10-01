@@ -1418,6 +1418,13 @@ class RegionNode : public ASTNode {
     uint32_t    regionId;
     std::vector<std::shared_ptr<ASTNode>> body;
 
+    // Region policy. Empty or "bump" = today's behavior. Everything
+    // else is dispatched in RegionNode::compile. policyArgs carries
+    // the raw text of each `@policy<a, b, c>` argument — the compiler
+    // interprets them per-policy.
+    std::string              policy = "bump";
+    std::vector<std::string> policyArgs;
+
 public:
     RegionNode(std::string name,
                std::vector<std::shared_ptr<ASTNode>> b)
@@ -1434,8 +1441,14 @@ public:
 
     const std::string& getRegionName() const { return regionName; }
     const std::vector<std::shared_ptr<ASTNode>>& getBody() const { return body; }
-};
 
+    void setPolicy(std::string p, std::vector<std::string> args = {}) {
+        policy     = std::move(p);
+        policyArgs = std::move(args);
+    }
+    const std::string&              getPolicy()     const { return policy; }
+    const std::vector<std::string>& getPolicyArgs() const { return policyArgs; }
+};
 // ============================================================
 // A3 — REGION COMMIT
 // ------------------------------------------------------------

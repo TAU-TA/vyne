@@ -100,8 +100,21 @@ class C_Emitter {
     std::vector<std::string> regionStack;
     std::unordered_set<std::string> committedVars;
 
+    // Active @pool context. The pool's own C variable name lives here
+    // so `pool_alloc()` / `pool_free()` — intercepted in
+    // FunctionCallNode::getCExpr — can emit `&<handle>` without
+    // recomputing the mangling. Only the innermost pool is visible to
+    // the body; nested @pool regions shadow cleanly via LIFO.
+    struct PoolContext {
+        std::string handle;          // C variable name of the VynePool struct
+        VType       elemType;        // Float64 or Int64
+        int64_t     elemsPerSlot;    // buffer length per allocation
+    };
+    std::vector<PoolContext> poolStack;
+
     bool scratchBoundsEnabled = true;
     bool blasEnabled          = false;
+    bool poolRuntimeEmitted   = false;
 
     int tempVarCount = 0;
 
@@ -540,6 +553,22 @@ public:
             emit("vmem_runtime_rewind(" + *it + ");");
     }
 
+    // --- Pool context ------------------------------------------------
+    // The pool is purely a lookup layer over regionStack. A @pool region
+    // checkpoints on entry and rewinds on exit exactly like a bump
+    // region; the pool struct's arena chunk sits above the checkpoint
+    // so the rewind reclaims it. Early returns/breaks/continues rewind
+    // through the same emitRegionUnwind() path as bump regions.
+    void pushPool(const PoolContext& p) { poolStack.push_back(p); }
+    void popPool()  { if (!poolStack.empty()) poolStack.pop_back(); }
+    bool hasPool() const { return !poolStack.empty(); }
+    const PoolContext& currentPool() const { return poolStack.back(); }
+
+    // Idempotent include emit for vyne_pool_runtime.h — set on the
+    // first @pool region, no-op thereafter.
+    bool isPoolRuntimeEmitted() const { return poolRuntimeEmitted; }
+    void markPoolRuntimeEmitted()      { poolRuntimeEmitted = true; }
+
     void setReturnVars(const std::string& rv, const std::string& rf) {
         currentReturnVar = rv; currentReturningVar = rf;
     }
@@ -611,6 +640,8 @@ public:
         deferCtx = {};
         regionStack.clear(); 
         committedVars.clear();
+        poolStack.clear();
+        poolRuntimeEmitted   = false;
         scratchBoundsEnabled = true;
         blasEnabled          = false;
         currentReturnVar.clear();

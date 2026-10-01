@@ -133,6 +133,16 @@ static void checkRegionEscape(C_Emitter& e,
     int curDepth = e.currentRegionDepth();
     if (lhsDepth >= curDepth) return;  // LHS is as deep or deeper — safe
 
+    // Static string literals lower to `vyne_string_static("…")`, which
+    // returns a pointer into .rodata — never the arena. Such a pointer
+    // cannot dangle across a rewind, so a `StringNode` RHS is safe by
+    // construction. Computed strings (`+`, `string(...)`, interpolated
+    // literals) still lower to fresh arena allocations and fall through
+    // to the checks below.
+    if (rhs->type() == NodeType::STRING) {
+        return;
+    }
+
     // Primitive RHS: copied by value, always safe to escape.
     VType st = resolveRHSKind(e, rhs);
     if (st == VType::Int64 || st == VType::Float64 ||

@@ -18,26 +18,142 @@
 // its own handle and everything above it.
 // ============================================================
 
-void RegionNode::compile(C_Emitter& e) const {
-    // The user may not have written `module vmem;`. Region codegen
-    // depends on vmem.h's runtime helpers, so pull it in here.
+static void ensureVmemInclude(C_Emitter& e) {
     std::string base = FileUtils::getExeDir();
     std::filesystem::path moduleBase =
         std::filesystem::path(base) / "vyne" / "runtime" / "modules";
     e.addInclude((moduleBase / "vmem.h").string());
+}
+
+static void emitPoolRuntimeOnce(C_Emitter& e) {
+    if (e.isPoolRuntimeEmitted()) return;
+    std::string base = FileUtils::getExeDir();
+    std::filesystem::path moduleBase =
+        std::filesystem::path(base) / "vyne" / "runtime" / "modules";
+    e.addInclude((moduleBase / "vyne_pool_runtime.h").string());
+    e.markPoolRuntimeEmitted();
+}
+
+static void compileBumpRegion(C_Emitter& e, const RegionNode& r) {
+    ensureVmemInclude(e);
 
     std::string cpHandle = e.newTemp("vmem_cp");
 
-    e.emit("// --- region: " + regionName + " ---");
+    e.emit("// --- region: " + r.getRegionName() + " (bump) ---");
     e.emit("VyneValue " + cpHandle + " = vmem_runtime_checkpoint();");
 
     e.pushRegion(cpHandle);
     e.emitBlockOpen("{");
-    for (const auto& stmt : body) if (stmt) stmt->compile(e);
+    for (const auto& stmt : r.getBody()) if (stmt) stmt->compile(e);
     e.emitBlockClose();
     e.popRegion();
 
     e.emit("vmem_runtime_rewind(" + cpHandle + ");");
+}
+
+// ============================================================
+// @pool<T, N> — fixed-slot pool region
+// ------------------------------------------------------------
+// The pool is a bump region with a specialized allocator inside. The
+// checkpoint is taken BEFORE the pool struct is allocated, so the
+// rewind at region close reclaims the pool's backing store and free
+// list along with everything the body allocated.
+//
+// Early return/break/continue works through the existing
+// emitRegionUnwind() path: cpHandle is on the region stack, so
+// ReturnNode::compile and friends emit `vmem_runtime_rewind(cp)` for
+// it exactly like they do for a bump region.
+//
+// Pool buffers do NOT survive the region. Attempting to hand one to
+// `region.commit()` triggers VNE-084 from RegionCommitNode::compile.
+// ============================================================
+static void compilePoolRegion(C_Emitter& e, const RegionNode& r) {
+    const auto& args = r.getPolicyArgs();
+    const int   line = r.lineNumber;
+
+    if (args.size() != 2) {
+        throw std::runtime_error(
+            "Compile Error (VNE-080): @pool expects exactly 2 arguments "
+            "(element type, slot count), got " + std::to_string(args.size()) +
+            " (line " + std::to_string(line) + ").\n"
+            "  Syntax: @pool<Float64, 64> region name { ... };");
+    }
+
+    VType elem;
+    if      (args[0] == "Float64") elem = VType::Float64;
+    else if (args[0] == "Int64")   elem = VType::Int64;
+    else {
+        throw std::runtime_error(
+            "Compile Error (VNE-080): @pool element type must be "
+            "Float64 or Int64, got '" + args[0] + "' (line " +
+            std::to_string(line) + ").");
+    }
+
+    int64_t elemsPerSlot = 0;
+    try { elemsPerSlot = std::stoll(args[1]); }
+    catch (...) {
+        throw std::runtime_error(
+            "Compile Error (VNE-080): @pool slot count must be an integer, "
+            "got '" + args[1] + "' (line " + std::to_string(line) + ").");
+    }
+    if (elemsPerSlot <= 0) {
+        throw std::runtime_error(
+            "Compile Error (VNE-080): @pool slot count must be positive "
+            "(line " + std::to_string(line) + ").");
+    }
+
+    // Capacity is the number of concurrent live buffers the pool will
+    // hold. There is no third arg today — eight is the conservative
+    // default that covers the KV-cache / sliding-window shapes the
+    // policy was designed for. `@pool<T, N, K>` is a five-line
+    // extension when a workload needs more.
+    const int64_t capacity = 8;
+
+    ensureVmemInclude(e);
+    emitPoolRuntimeOnce(e);
+
+    std::string cpHandle = e.newTemp("vmem_cp");
+    std::string poolVar  = e.newTemp("vmem_pool");
+    std::string ctor = (elem == VType::Float64)
+        ? "vyne_pool_f64_create" : "vyne_pool_i64_create";
+    const char* poolCName = (elem == VType::Float64)
+        ? "VynePool_f64" : "VynePool_i64";
+
+    e.emit("// --- region: " + r.getRegionName() + " (pool<" +
+           args[0] + ", " + args[1] + ">) ---");
+    e.emit("VyneValue " + cpHandle + " = vmem_runtime_checkpoint();");
+    e.emit(std::string(poolCName) + " " + poolVar + " = " + ctor + "(" +
+           std::to_string(elemsPerSlot) + ", " +
+           std::to_string(capacity) + ");");
+
+    e.pushRegion(cpHandle);
+    e.pushPool({ poolVar, elem, elemsPerSlot });
+
+    e.emitBlockOpen("{");
+    for (const auto& stmt : r.getBody()) if (stmt) stmt->compile(e);
+    e.emitBlockClose();
+
+    e.popPool();
+    e.popRegion();
+
+    e.emit("vmem_runtime_rewind(" + cpHandle + ");");
+}
+
+void RegionNode::compile(C_Emitter& e) const {
+    if (policy.empty() || policy == "bump") {
+        compileBumpRegion(e, *this);
+        return;
+    }
+    if (policy == "pool") {
+        compilePoolRegion(e, *this);
+        return;
+    }
+
+    throw std::runtime_error(
+        "Compile Error (VNE-080): region policy '@" + policy + "' is "
+        "recognized but not yet implemented (line " +
+        std::to_string(lineNumber) + ").\n"
+        "  Implemented policies: bump (default), pool.");
 }
 
 std::string RegionNode::getCExpr(C_Emitter& e) const {
@@ -78,6 +194,23 @@ void RegionCommitNode::compile(C_Emitter& e) const {
         cVar = e.isLocalDeclared(localName) ? localName : ("v_" + sanitized);
     } else {
         cVar = "v_" + sanitized;
+    }
+
+    // vmem_runtime_commit() takes a VyneValue. A typed-array local
+    // (VyneArray_f64 / VyneArray_i64) is a struct, not a VyneValue —
+    // passing it straight through would fail at C-compile time with a
+    // struct/union mismatch. Reject up front so the diagnostic points
+    // at Vyne source instead of generated C.
+    if (const CType* ct = e.lookupType(cVar)) {
+        if (ct->kind == CType::Kind::Array && !ct->args.empty()) {
+            throw std::runtime_error(
+                "Compile Error (VNE-084): region.commit() on a typed-array "
+                "local is not supported yet (line " +
+                std::to_string(lineNumber) + ").\n"
+                "  Commit individual elements, or keep the array in a bump "
+                "region. Pool buffers are region-local by construction and "
+                "must not escape.");
+        }
     }
 
         std::string tmp = e.newTemp("commit");

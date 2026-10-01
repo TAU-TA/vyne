@@ -149,6 +149,7 @@ std::vector<Token> tokenize(std::string_view input) {
         }
 
         switch (character) {
+            case '@': tokens.emplace_back(VTokenType::At, currentLine, 0, "@"); break;
             case '(': tokens.emplace_back(VTokenType::Left_Parenthese, currentLine, 0, "("); break;
             case ')': tokens.emplace_back(VTokenType::Right_Parenthese, currentLine, 0, ")"); break;
             case '{': tokens.emplace_back(VTokenType::Left_CB, currentLine, 0, "{"); break;

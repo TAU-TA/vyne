@@ -7,6 +7,53 @@
 // ============================================================
 
 std::string FunctionCallNode::getCExpr(C_Emitter& e) const {
+    // ----------------------------------------------------------------
+    // Pool intrinsics. `pool_alloc` and `pool_free` are intercepted by
+    // name *only when a pool context is active*; outside a @pool region
+    // they fall through to normal function resolution, so a user-defined
+    // `fn pool_alloc()` at top level still works as written.
+    //
+    // This must run before named-arg resolution: the intrinsics take
+    // positional args only, and there's no signature for them in the
+    // emitter's function table anyway.
+    // ----------------------------------------------------------------
+    if (e.hasPool()) {
+        const auto& pool  = e.currentPool();
+        const bool  isF64 = (pool.elemType == VType::Float64);
+
+        if (originalName == "pool_alloc") {
+            if (!arguments.empty()) {
+                throw std::runtime_error(
+                    "Compile Error (VNE-083): pool_alloc() takes no "
+                    "arguments (line " + std::to_string(lineNumber) + ").");
+            }
+            std::string temp = e.newTemp("pool_arr");
+            std::string fn = isF64 ? "vyne_pool_f64_alloc"
+                                   : "vyne_pool_i64_alloc";
+            e.emit(std::string(isF64 ? "VyneArray_f64 " : "VyneArray_i64 ") +
+                   temp + " = " + fn + "(&" + pool.handle + ");");
+
+            CType arr;
+            arr.kind = CType::Kind::Array;
+            arr.args.push_back(CType::fromVType(pool.elemType));
+            e.declareNativeTemp(temp, arr);
+            return temp;
+        }
+
+        if (originalName == "pool_free") {
+            if (arguments.size() != 1) {
+                throw std::runtime_error(
+                    "Compile Error (VNE-083): pool_free(x) takes exactly "
+                    "one argument (line " + std::to_string(lineNumber) + ").");
+            }
+            std::string arg = arguments[0]->getCExpr(e);
+            std::string fn = isF64 ? "vyne_pool_f64_free"
+                                   : "vyne_pool_i64_free";
+            e.emit(fn + "(&" + pool.handle + ", &" + arg + ");");
+            return "vyne_null()";
+        }
+    }
+
     // --- Resolve named args (unchanged) -----------------------------
     std::vector<ASTNode*> orderedArgs;
     if (hasNamedArguments()) {

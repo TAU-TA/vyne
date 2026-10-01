@@ -132,9 +132,13 @@ void MemberAssignmentNode::compile(C_Emitter& e) const {
         int recvDepth = e.lookupLocalRegionDepth(rname);
         if (recvDepth < 0) recvDepth = 0;
         if (recvDepth < e.currentRegionDepth()) {
-            VType st = rhs->getStaticType();
-            bool safe = (st == VType::Int64 || st == VType::Float64 ||
-                         st == VType::Bool  || st == VType::Null);
+            // See the note in assignments.cpp:checkRegionEscape.
+            bool safe = (rhs->type() == NodeType::STRING);
+            if (!safe) {
+                VType st = rhs->getStaticType();
+                safe = (st == VType::Int64 || st == VType::Float64 ||
+                        st == VType::Bool  || st == VType::Null);
+            }
             if (!safe) {
                 throw std::runtime_error(
                     "Escape Error (VNE-070): member assignment writes a "

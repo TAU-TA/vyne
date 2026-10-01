@@ -105,6 +105,7 @@ enum class VTokenType {
     // --- SPECIAL ---
     BuiltIn,            // Pre-defined functions
     Defer,              // defer
+    At,                 // @
     End                 // End of File (EOF)
 };
 
@@ -256,19 +257,20 @@ inline std::string VTokenTypeToString(VTokenType type) {
         // --- DELIMITERS & SYMBOLS ---
         case VTokenType::Left_Parenthese:    return "'('";
         case VTokenType::Right_Parenthese:   return "')'";
-        case VTokenType::Left_CB:             return "'{'";
-        case VTokenType::Right_CB:            return "'}'";
-        case VTokenType::Left_Bracket:        return "'['";
-        case VTokenType::Right_Bracket:       return "']'";
-        case VTokenType::Comma:                return "','";
-        case VTokenType::Colon:         return "':'";
-        case VTokenType::Semicolon:           return "';'";
-        case VTokenType::Dot:                  return "'.'";
-        case VTokenType::Double_Dot:           return "'..'";
+        case VTokenType::Left_CB:            return "'{'";
+        case VTokenType::Right_CB:           return "'}'";
+        case VTokenType::Left_Bracket:       return "'['";
+        case VTokenType::Right_Bracket:      return "']'";
+        case VTokenType::Comma:              return "','";
+        case VTokenType::Colon:              return "':'";
+        case VTokenType::Semicolon:          return "';'";
+        case VTokenType::Dot:                return "'.'";
+        case VTokenType::Double_Dot:         return "'..'";
 
         // --- SPECIAL ---
-        case VTokenType::BuiltIn:             return "BuiltIn";
-        case VTokenType::End:                  return "EOF";
+        case VTokenType::BuiltIn:            return "BuiltIn";
+        case VTokenType::At:                 return "'@'";
+        case VTokenType::End:                return "EOF";
 
         default:                               return "Unknown (" + std::to_string(static_cast<int>(type)) + ")";
     }

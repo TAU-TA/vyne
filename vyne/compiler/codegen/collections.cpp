@@ -139,11 +139,16 @@ void IndexAssignmentNode::compile(C_Emitter& e) const {
             : ("v_" + prefix + "_" + bs);
         int baseDepth = e.lookupLocalRegionDepth(bname);
         if (baseDepth >= 0 && baseDepth < e.currentRegionDepth()) {
-            // Same resolution strategy as checkRegionEscape in
-            // assignments.cpp: emitter table first, AST fallback.
-            VType st = resolveRHSKind(e, rhs.get());
-            bool safe = (st == VType::Int64 || st == VType::Float64 ||
-                         st == VType::Bool  || st == VType::Null);
+            // String literals live in .rodata — see the full note in
+            // assignments.cpp:checkRegionEscape. Computed strings and
+            // anything else fall through to the AST/emitter resolution
+            // and are only accepted if provably primitive.
+            bool safe = (rhs->type() == NodeType::STRING);
+            if (!safe) {
+                VType st = resolveRHSKind(e, rhs.get());
+                safe = (st == VType::Int64 || st == VType::Float64 ||
+                        st == VType::Bool  || st == VType::Null);
+            }
             if (!safe) {
                 throw std::runtime_error(
                     "Escape Error (VNE-070): index assignment writes a "

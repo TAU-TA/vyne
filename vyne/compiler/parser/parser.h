@@ -96,6 +96,8 @@ private:
 	bool tryParseTypeArgs(std::vector<std::string>& out);
 	VType resolveArrayElementType(const std::string& typePath);
 
+	std::vector<std::string> parsePolicyArgs();
+
 	// Recursively parse `finalPath` and merge every interface name it
 	// declares (and transitively pulls in) into this parser's
 	// `declaredTypes`. Results are cached per canonical path so sibling

@@ -637,6 +637,7 @@ std::unique_ptr<ASTNode> Parser::parseStatement() {
         case VTokenType::Try:        return parseTryCatch();
         case VTokenType::Throw:      return parseThrowStatement();
         case VTokenType::Region:     return parseRegionStatement();
+        case VTokenType::At:         return parseRegionStatement();
         case VTokenType::Scratch:    return parseScratchDeclaration();
         case VTokenType::Identifier:
         case VTokenType::Const: {
@@ -2461,6 +2462,20 @@ std::unique_ptr<ASTNode> Parser::parseTryCatch() {
 //   `region name { ... }` → identifier  → A1 block
 std::unique_ptr<ASTNode> Parser::parseRegionStatement() {
     int line = peekToken().line;
+
+    std::string policy = "bump";
+    std::vector<std::string> policyArgs;
+
+    if (peekToken().type == VTokenType::At) {
+        consume(VTokenType::At);
+        Token policyTok = consume(VTokenType::Identifier);
+        policy = policyTok.name;
+
+        if (peekToken().type == VTokenType::Smaller) {
+            policyArgs = parsePolicyArgs();
+        }
+    }
+
     consume(VTokenType::Region);
 
     // ---- A3: region.commit(expr); -----------------------------------
@@ -2499,9 +2514,9 @@ std::unique_ptr<ASTNode> Parser::parseRegionStatement() {
 
     auto node = std::make_unique<RegionNode>(regionName, std::move(body));
     node->lineNumber = line;
+    node->setPolicy(policy, std::move(policyArgs));
     return node;
 }
-
 std::unique_ptr<ASTNode> Parser::parseScratchDeclaration() {
     int line = peekToken().line;
     consume(VTokenType::Scratch);
@@ -2554,4 +2569,34 @@ std::unique_ptr<ASTNode> Parser::parseScratchDeclaration() {
         varId, varName, elemType, std::move(shape), std::move(init));
     node->lineNumber = line;
     return node;
+}
+
+std::vector<std::string> Parser::parsePolicyArgs() {
+    std::vector<std::string> args;
+    consume(VTokenType::Smaller);
+
+    while (true) {
+        Token tok = peekToken();
+        if (tok.type == VTokenType::Identifier) {
+            args.push_back(consume(VTokenType::Identifier).name);
+        } else if (tok.type == VTokenType::Int64) {
+            Token n = consume(VTokenType::Int64);
+            args.push_back(std::to_string(std::get<int64_t>(n.literal)));
+        } else {
+            emitError(
+                "Expected policy argument (identifier or integer), but got " +
+                VTokenTypeToString(tok.type),
+                tok.line, "VNE-081",
+                {"Syntax: @pool<Float64, 64> region name { ... }"});
+        }
+
+        if (peekToken().type == VTokenType::Comma) {
+            consume(VTokenType::Comma);
+            continue;
+        }
+        break;
+    }
+
+    consume(VTokenType::Greater);
+    return args;
 }
