@@ -1,13 +1,11 @@
 # vml/Ops.vy — forward / activation / optimizer steps.
-
-use "Types.vy";
-
-use external "vlin/vlin.vy";
-
 ruleset { dynamic_casting };
 
+use "Types.vy";
+use native vmath;
+use external "vlin/vlin.vy";
+
 module vml;
-module vmath;
 
 fn :: vml apply_activation(m :: vlin.Types.Matrix, kind :: String) -> vlin.Types.Matrix {
     if kind == "tanh"    { return vlin.apply_tanh(m); }
