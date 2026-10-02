@@ -112,11 +112,31 @@ static void emitNativeFunctionBody(
 {
     e.pushFunctionContext();
     e.enterFunction(nativeName);         // prefix used for local resolution
-    e.setNativeReturnType(returnType);   // tells ReturnNode to emit native
+    e.setNativeReturnType(returnType);
 
-    // Resolve the native return type name once.
+    // Struct return: build out-param list. The native function becomes
+    // `void fn_...(...)` with one out-param per struct field prepended
+    // to the parameter list.
+    std::vector<std::string> structOutParams;
+    const std::vector<StructFieldDesc>* structReturnLayout = nullptr;
+    if (returnType.kind == CType::Kind::Struct &&
+        !returnType.mangledName.empty()) {
+        structReturnLayout = e.getInterfaceStructLayout(returnType.mangledName);
+        if (!structReturnLayout || structReturnLayout->empty()) {
+            throw std::runtime_error(
+                "Native variant returns Struct '" + returnType.mangledName +
+                "' but no field layout is registered for it.");
+        }
+        for (const auto& fd : *structReturnLayout) {
+            structOutParams.push_back("__ret_" + fd.name);
+        }
+    }
+    e.setStructReturnOutParams(structOutParams);
+
     std::string retCName;
-    if (returnType.kind == CType::Kind::Array && !returnType.args.empty()) {
+    if (returnType.kind == CType::Kind::Struct) {
+        retCName = "void";
+    } else if (returnType.kind == CType::Kind::Array && !returnType.args.empty()) {
         VType elem = returnType.args[0].toVType();
         retCName = (elem == VType::Float64) ? "VyneArray_f64" : "VyneArray_i64";
     } else {
@@ -131,8 +151,25 @@ static void emitNativeFunctionBody(
         parameters.size());
 
     std::string paramList;
+    if (structReturnLayout) {
+        for (size_t i = 0; i < structOutParams.size(); ++i) {
+            if (!paramList.empty()) paramList += ", ";
+            const auto& fd = (*structReturnLayout)[i];
+            const std::string& op = structOutParams[i];
+            if (fd.type.kind == CType::Kind::Int64) {
+                paramList += "int64_t* " + op;
+            } else if (fd.type.kind == CType::Kind::Float64) {
+                paramList += "double* " + op;
+            } else if (fd.type.kind == CType::Kind::Array &&
+                       !fd.type.args.empty()) {
+                bool isF64 = (fd.type.args[0].toVType() == VType::Float64);
+                paramList += std::string(isF64 ? "VyneArray_f64* "
+                                               : "VyneArray_i64* ") + op;
+            }
+        }
+    }
     for (size_t i = 0; i < parameters.size(); ++i) {
-        if (i > 0) paramList += ", ";
+        if (!paramList.empty()) paramList += ", ";
         std::string pName = "v_" + nativeName + "_" + parameters[i].name;
 
         if (parameters[i].type == VType::Array &&
@@ -263,6 +300,7 @@ static void emitNativeFunctionBody(
         case CType::Kind::Float64: e.emit("return 0.0;");   break;
         case CType::Kind::Int64:   e.emit("return 0;");     break;
         case CType::Kind::Bool:    e.emit("return false;"); break;
+        case CType::Kind::Struct:  e.emit("return;");       break;
         case CType::Kind::Array:
             if (!returnType.args.empty() &&
                 returnType.args[0].toVType() == VType::Float64) {
@@ -305,6 +343,9 @@ void FunctionNode::compile(C_Emitter& e) const {
         if (returnType == VType::Array &&
             getReturnArrayElemType() != VType::Unknown) {
             retCt.args.push_back(CType::fromVType(getReturnArrayElemType()));
+        }
+        if (returnType == VType::Struct && !getReturnTypePath().empty()) {
+            retCt.mangledName = getReturnTypePath();
         }
         std::string orig    = originalName;
         std::string mangled = orig;
@@ -349,6 +390,9 @@ void FunctionNode::compile(C_Emitter& e) const {
             if (returnType == VType::Array &&
                 getReturnArrayElemType() != VType::Unknown) {
                 retCt.args.push_back(CType::fromVType(getReturnArrayElemType()));
+            }
+            if (returnType == VType::Struct && !getReturnTypePath().empty()) {
+                retCt.mangledName = getReturnTypePath();
             }
             emitNativeFunctionBody(e, parameters, body, *nv, retCt);
         }

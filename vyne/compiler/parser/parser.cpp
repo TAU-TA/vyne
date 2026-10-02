@@ -524,11 +524,12 @@ std::unique_ptr<ASTNode> Parser::parseInterfaceDefinition() {
             
             VType retType = VType::Unknown;
             VType retArrayElem = VType::Unknown;
+            std::string retTypePath;   // NEW
             if (peekToken().type == VTokenType::Arrow) {
                 consume(VTokenType::Arrow);
-                std::string typePath = parseTypePath();
-                retType = resolveType(typePath);
-                retArrayElem = resolveArrayElementType(typePath);
+                retTypePath  = parseTypePath();
+                retType      = resolveType(retTypePath);
+                retArrayElem = resolveArrayElementType(retTypePath);
             }
             
             consume(VTokenType::Left_CB);
@@ -546,7 +547,12 @@ std::unique_ptr<ASTNode> Parser::parseInterfaceDefinition() {
                 std::move(body),
                 retType
             );
-            methodNode->setReturnArrayElemType(retArrayElem);   // M4-C1
+            methodNode->setReturnArrayElemType(retArrayElem);
+            // Struct returns: record the dotted interface path so codegen
+            // can look up the field layout.
+            if (retType == VType::Struct) {
+                methodNode->setReturnTypePath(std::move(retTypePath));
+            }
             methods.push_back(methodNode);
         } else {
             Token memberName = consume(VTokenType::Identifier);
@@ -1050,14 +1056,14 @@ std::unique_ptr<ASTNode> Parser::parseFunctionDefinition() {
     consume(VTokenType::Right_Parenthese);
     
     VType retType = VType::Unknown;
-    VType retArrayElem = VType::Unknown;   // NEW
-    std::string typeName = "null";
+    VType retArrayElem = VType::Unknown;
+    std::string retTypePath;   // CHANGED: hoisted out so we can stash it
 
     if (peekToken().type == VTokenType::Arrow) {
         consume(VTokenType::Arrow);
-        std::string typePath = parseTypePath();
-        retType      = resolveType(typePath);
-        retArrayElem = resolveArrayElementType(typePath);
+        retTypePath  = parseTypePath();
+        retType      = resolveType(retTypePath);
+        retArrayElem = resolveArrayElementType(retTypePath);
     }
 
     consume(VTokenType::Left_CB);
@@ -1077,6 +1083,11 @@ std::unique_ptr<ASTNode> Parser::parseFunctionDefinition() {
     node->lineNumber = line;
     node->setTypeParams(std::move(typeParams));
     node->setReturnArrayElemType(retArrayElem);
+    // Struct returns: record the dotted interface path so codegen can
+    // look up the field layout. Empty for every other return kind.
+    if (retType == VType::Struct) {
+        node->setReturnTypePath(std::move(retTypePath));
+    }
     return node;
 }
 

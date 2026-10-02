@@ -43,6 +43,10 @@ std::optional<std::string> tryEmitNativeCall(
     bool retIsNative = retCt->isPrimitive() ||
                        (retCt->kind == CType::Kind::Array &&
                         !retCt->args.empty());
+    if (retCt->kind == CType::Kind::Struct && !retCt->mangledName.empty()) {
+        const auto* layout = e.getInterfaceStructLayout(retCt->mangledName);
+        if (layout && !layout->empty()) retIsNative = true;
+    }
     if (!retIsNative) return std::nullopt;
 
     // Every argument must match the declared parameter type.
@@ -168,6 +172,66 @@ std::optional<std::string> tryEmitNativeCall(
             argList += coerceToNative(e, orderedArgs[i], argCExprs[i],
                                       want.toVType());
         }
+    }
+
+    if (retCt->kind == CType::Kind::Struct && !retCt->mangledName.empty()) {
+        const auto* layout = e.getInterfaceStructLayout(retCt->mangledName);
+        if (!layout || layout->empty()) return std::nullopt;
+
+        std::vector<std::string> outVars;
+        outVars.reserve(layout->size());
+        for (const auto& fd : *layout) {
+            std::string ov = e.newTemp("out_" + fd.name);
+            outVars.push_back(ov);
+            if (fd.type.kind == CType::Kind::Int64) {
+                e.emit("int64_t " + ov + " = 0;");
+            } else if (fd.type.kind == CType::Kind::Float64) {
+                e.emit("double " + ov + " = 0.0;");
+            } else if (fd.type.kind == CType::Kind::Array &&
+                       !fd.type.args.empty()) {
+                bool isF64 = (fd.type.args[0].toVType() == VType::Float64);
+                e.emit(std::string(isF64 ? "VyneArray_f64 "
+                                         : "VyneArray_i64 ") + ov + ";");
+            }
+        }
+
+        std::string fullArgs;
+        for (const auto& ov : outVars) {
+            if (!fullArgs.empty()) fullArgs += ", ";
+            fullArgs += "&" + ov;
+        }
+        if (!argList.empty()) {
+            if (!fullArgs.empty()) fullArgs += ", ";
+            fullArgs += argList;
+        }
+
+        e.emit("fn_" + *nativeName + "(" + fullArgs + ");");
+
+        std::string ctorName = "struct_" + retCt->mangledName;
+        std::replace(ctorName.begin(), ctorName.end(), '.', '_');
+        std::string ctorArgs;
+        for (size_t i = 0; i < layout->size(); ++i) {
+            if (i > 0) ctorArgs += ", ";
+            const auto& fd = (*layout)[i];
+            const std::string& ov = outVars[i];
+            if (fd.type.kind == CType::Kind::Int64) {
+                ctorArgs += "vyne_int(" + ov + ")";
+            } else if (fd.type.kind == CType::Kind::Float64) {
+                ctorArgs += "vyne_float(" + ov + ")";
+            } else if (fd.type.kind == CType::Kind::Array &&
+                       !fd.type.args.empty()) {
+                bool isF64 = (fd.type.args[0].toVType() == VType::Float64);
+                std::string wrap = isF64 ? "vyne_array_f64_to_value"
+                                         : "vyne_array_i64_to_value";
+                ctorArgs += wrap + "(&" + ov + ")";
+            }
+        }
+
+        std::string nret = e.newTemp("nret");
+        e.emit("VyneValue " + nret + " = " + ctorName +
+               "(" + ctorArgs + ");");
+        e.declareNativeTemp(nret, *retCt);
+        return nret;
     }
 
     std::string retCName;

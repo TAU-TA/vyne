@@ -62,14 +62,14 @@ group Types :: vbio {
 # `vbio.Types.DNA(s, "unnamed")`. Named variants go through the interface
 # constructor directly.
 
-fn :: vbio make_dna(seq :: String) -> bio.Types.DNA {
+fn :: vbio make_dna(seq :: String) -> vbio.Types.DNA {
     return vbio.Types.DNA(seq, "unnamed");
 }
 
-fn :: vbio make_rna(seq :: String) -> bio.Types.RNA {
+fn :: vbio make_rna(seq :: String) -> vbio.Types.RNA {
     return vbio.Types.RNA(seq, "unnamed");
 }
 
-fn :: vbio make_protein(seq :: String) -> bio.Types.Protein {
+fn :: vbio make_protein(seq :: String) -> vbio.Types.Protein {
     return vbio.Types.Protein(seq, "unnamed");
 }

@@ -68,6 +68,61 @@ void ReturnNode::compile(C_Emitter& e) const {
         return;
     }
 
+    // --- Native Struct return (via out-params) -----------------------
+    {
+        const CType& retCt = e.getNativeReturnType();
+        const auto& outParams = e.getStructReturnOutParams();
+        if (retCt.kind == CType::Kind::Struct && !outParams.empty()) {
+            const auto* layout = e.getInterfaceStructLayout(retCt.mangledName);
+            if (!layout) {
+                throw std::runtime_error(
+                    "Native variant returns Struct '" + retCt.mangledName +
+                    "' but no field layout is registered.");
+            }
+
+            std::string boxed = e.boxAny(expression
+                ? expression->getCExpr(e)
+                : "vyne_null()");
+            std::string slot = e.newTemp("ret_struct");
+            e.emit("VyneValue " + slot + " = " + boxed + ";");
+
+            for (size_t i = 0; i < layout->size(); ++i) {
+                const auto& fd = (*layout)[i];
+                const std::string& op = outParams[i];
+                std::string fieldVal =
+                    "vyne_struct_get(" + slot + ", " +
+                    std::to_string(fd.id) + ")";
+
+                if (fd.type.kind == CType::Kind::Int64) {
+                    std::string fb = e.newTemp("fb");
+                    e.emit("VyneValue " + fb + " = " + fieldVal + ";");
+                    e.emit("*" + op + " = (" + fb + ".type == V_INT64) ? " +
+                           fb + ".as.i64 : (int64_t)" + fb + ".as.f64;");
+                } else if (fd.type.kind == CType::Kind::Float64) {
+                    std::string fb = e.newTemp("fb");
+                    e.emit("VyneValue " + fb + " = " + fieldVal + ";");
+                    e.emit("*" + op + " = (" + fb + ".type == V_FLOAT64) ? " +
+                           fb + ".as.f64 : (double)" + fb + ".as.i64;");
+                } else if (fd.type.kind == CType::Kind::Array &&
+                           !fd.type.args.empty()) {
+                    bool isF64 = (fd.type.args[0].toVType() == VType::Float64);
+                    std::string conv = isF64 ? "vyne_value_to_array_f64"
+                                             : "vyne_value_to_array_i64";
+                    e.emit("*" + op + " = " + conv + "(" + fieldVal + ");");
+                }
+            }
+
+            if (e.hasRegion()) {
+                e.emit("vmem_runtime_pop_checkpoints(" +
+                       std::to_string(e.getRegionStack().size()) + ");");
+            } else {
+                e.emitRegionUnwind();
+            }
+            e.emit("return;");
+            return;
+        }
+    }
+
     // --- Native Array<T> return -------------------------------------
     // A native variant declared to return Array<Float64> or Array<Int64>
     // emits a C function whose return type is VyneArray_f64 / VyneArray_i64.

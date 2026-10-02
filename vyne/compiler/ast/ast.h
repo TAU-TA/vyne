@@ -870,6 +870,7 @@ class FunctionNode : public ASTNode {
     VType returnType;
     std::vector<std::string> typeParams;
     VType returnArrayElemType = VType::Unknown;   // M4-C1
+    std::string returnTypePath;
 
 public:
     FunctionNode(std::string tm, uint32_t n, std::string on, std::vector<Parameter> pid, 
@@ -901,6 +902,9 @@ public:
 
     VType getReturnArrayElemType() const { return returnArrayElemType; }
     void  setReturnArrayElemType(VType t) { returnArrayElemType = t; }
+
+    const std::string& getReturnTypePath() const { return returnTypePath; }
+    void setReturnTypePath(std::string path) { returnTypePath = std::move(path); }
 
     const std::string& getTargetModule() const { return targetModule; }
 };

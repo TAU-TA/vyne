@@ -58,6 +58,11 @@ class C_Emitter {
     std::unordered_map<std::string, CType> functionReturnTypes;
     std::unordered_map<std::string, std::string> nativeVariants;
     CType nativeReturnType;
+    // Out-parameter names for a native variant whose declared return
+    // type is a Struct. Empty for every other return kind. Populated by
+    // emitNativeFunctionBody; read by ReturnNode::compile to write the
+    // boxed result's fields into the out-params at return time.
+    std::vector<std::string> structReturnOutParams;
     std::unordered_map<std::string, std::vector<std::string>> interfaceDefaults;
     std::string groupPrefix;
 
@@ -322,6 +327,7 @@ public:
         speculativeStack.clear();
         committedVars.clear();
         nativeReturnType = CType{};
+        structReturnOutParams.clear();
         localScopes.clear();
         localScopes.emplace_back();
     }
@@ -591,6 +597,13 @@ public:
     void setNativeReturnType(const CType& ct) { nativeReturnType = ct; }
     void clearNativeReturnType() { nativeReturnType = CType{}; }
     const CType& getNativeReturnType() const { return nativeReturnType; }
+
+    void setStructReturnOutParams(std::vector<std::string> names) {
+        structReturnOutParams = std::move(names);
+    }
+    const std::vector<std::string>& getStructReturnOutParams() const {
+        return structReturnOutParams;
+    }
     const std::vector<std::string>* getFunctionSignature(const std::string& name) const {
         auto it = functionSignatures.find(name);
         return it == functionSignatures.end() ? nullptr : &it->second;
@@ -743,6 +756,7 @@ public:
         functionReturnTypes.clear();
         nativeVariants.clear();
         nativeReturnType = CType{};
+        structReturnOutParams.clear();
 
         interfaceArrayFields.clear();
         interfacePrimitiveFields.clear();

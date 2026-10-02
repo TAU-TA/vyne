@@ -65,8 +65,17 @@ void ProgramNode::compile(C_Emitter& e) const {
                 fn->getReturnArrayElemType() != VType::Unknown) {
                 retCt.args.push_back(CType::fromVType(fn->getReturnArrayElemType()));
             }
+            bool retStructHasLayout = false;
+            if (fn->getReturnType() == VType::Struct &&
+                !fn->getReturnTypePath().empty()) {
+                retCt.mangledName = fn->getReturnTypePath();
+                const auto* layout =
+                    e.getInterfaceStructLayout(retCt.mangledName);
+                retStructHasLayout = (layout != nullptr && !layout->empty());
+            }
             bool retNative = retCt.isPrimitive() ||
-                            (retCt.kind == CType::Kind::Array && !retCt.args.empty());
+                            (retCt.kind == CType::Kind::Array && !retCt.args.empty()) ||
+                            retStructHasLayout;
 
             // Conservative: reject functions with top-level defer or try/catch.
             bool hasDeferOrTry = false;
