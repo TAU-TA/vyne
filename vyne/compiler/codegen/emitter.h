@@ -540,6 +540,8 @@ public:
             for (const auto& m : VMATH_MAP) if (member == m.vyneName) return &m;
         if (module == "vmem")                                       
             for (const auto& m : VMEM_MAP)  if (member == m.vyneName) return &m;
+        if (module == "vfs")
+            for (const auto& m : VFS_MAP)   if (member == m.vyneName) return &m;
         return nullptr;
     }
     std::string getNativeMapping(const std::string& module,

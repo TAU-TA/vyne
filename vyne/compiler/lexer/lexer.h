@@ -158,6 +158,7 @@ static const std::unordered_map<std::string_view, VTokenType> keywords = {
     {"catch",           VTokenType::Catch},
     {"throw",           VTokenType::Throw},
     {"finally",         VTokenType::Finally},
+    {"map",             VTokenType::BuiltIn},
 };
 
 // tokens

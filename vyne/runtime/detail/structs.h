@@ -7,6 +7,7 @@
 static inline VyneValue vyne_struct_get(VyneValue s_val, uint32_t field_id) {
     if (s_val.type != V_STRUCT) return vyne_null();
     VyneStruct* s = s_val.as.strct;
+    if (VYNE_UNLIKELY(s->field_count == 0)) return vyne_null();
     int last = s->last_field_idx;
     if (last >= 0 && last < s->field_count &&
         s->fields[last].id == field_id) {

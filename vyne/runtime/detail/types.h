@@ -79,10 +79,16 @@ typedef struct VyneMapEntry {
 
 typedef struct VyneMap {
     VyneMapEntry* entries;   // 2^n slots
-    int size;                // occupied (not counting tombstones)
-    int capacity;            // == number of slots, always power of 2
+    int size;
+    int capacity;
     int tombstones;
 } VyneMap;
+
+// Control byte sentinels. H2 values are 0x00..0x7F from the top 7 bits
+// of the key hash; 0x80 is empty, 0xFE is deleted. Chosen so a SIMD
+// compare against (hash >> 25) finds candidates in a 16-byte group.
+#define VYNE_MAP_EMPTY   0x80u
+#define VYNE_MAP_DELETED 0xFEu
 
 // TODO IMPLEMENT TOMBSTONES
 

@@ -24,6 +24,47 @@
     #define VYNE_UNLIKELY(x) (x)
 #endif
 
+// ---------------------------------------------------------------------------
+// Block allocation shim. On Linux we use mmap + MADV_HUGEPAGE so the
+// TLB footprint for ML-sized typed arrays stays small; the kernel
+// promotes pages to 2 MB when the workload justifies it. Anywhere else
+// we fall back to plain malloc. The block's payload is always zero on
+// return on Linux; on the malloc path we cannot make that promise.
+// ---------------------------------------------------------------------------
+#if defined(__linux__)
+    #include <sys/mman.h>
+    static inline uint8_t* vyne_block_alloc(size_t cap) {
+        void* p = mmap(NULL, cap, PROT_READ | PROT_WRITE,
+                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (p == MAP_FAILED) return NULL;
+        madvise(p, cap, MADV_HUGEPAGE);
+        return (uint8_t*)p;
+    }
+    static inline void vyne_block_free(uint8_t* p, size_t cap) {
+        munmap(p, cap);
+    }
+#elif defined(_WIN32)
+    #define WIN32_LEAN_AND_MEAN
+    #include <windows.h>
+    static inline uint8_t* vyne_block_alloc(size_t cap) {
+        void* p = VirtualAlloc(NULL, cap, MEM_COMMIT | MEM_RESERVE,
+                               PAGE_READWRITE);
+        return (uint8_t*)p;
+    }
+    static inline void vyne_block_free(uint8_t* p, size_t cap) {
+        (void)cap;
+        VirtualFree(p, 0, MEM_RELEASE);
+    }
+#else
+    static inline uint8_t* vyne_block_alloc(size_t cap) {
+        return (uint8_t*)malloc(cap);
+    }
+    static inline void vyne_block_free(uint8_t* p, size_t cap) {
+        (void)cap;
+        free(p);
+    }
+#endif
+
 #define VYNE_ARENA_BLOCK_SIZE (8 * 1024 * 1024)
 // Method dispatch table size. 256 was too small the moment a program
 // imported more than two or three `use external` modules. Every group
@@ -46,14 +87,25 @@ typedef struct ArenaBlock {
 typedef struct {
     ArenaBlock* head;
     size_t total_allocated;
+    size_t peak_allocated;
 } VyneArena;
 
-static VyneArena g_arena = { NULL, 0 };
+static VyneArena g_arena =  { NULL, 0, 0 };
 
 // Fast-path bump pointers. Kept in sync with g_arena.head at all times.
 // g_arena_cur is the next free byte; g_arena_end is one-past-the-end.
 static uint8_t* g_arena_cur = NULL;
 static uint8_t* g_arena_end = NULL;
+
+// Set true for exactly the duration of the first allocation from a
+// freshly mmap'd block. Consumers that would otherwise memset their
+// region can read this to skip redundant zeroing. Reset to false at the
+// end of every arena_alloc and arena_rewind, so a stale true never
+// escapes to a subsequent allocation.
+static int g_arena_last_alloc_was_fresh_page = 0;
+
+typedef void (*VyneArenaCleanupFn)(void);
+static VyneArenaCleanupFn g_arena_cleanup_hook = NULL;
 
 // ============================================================================
 // COMMIT ARENA — survives region rewinds
@@ -69,7 +121,7 @@ static uint8_t* g_arena_end = NULL;
 //
 // Freed by arena_free_all() alongside the main arena.
 // ============================================================================
-static VyneArena g_commit_arena = { NULL, 0 };
+static VyneArena g_commit_arena =  { NULL, 0, 0 };
 static uint8_t* g_commit_cur    = NULL;
 static uint8_t* g_commit_end    = NULL;
 
@@ -81,7 +133,7 @@ static inline void* arena_alloc(size_t size) {
         size_t cap = size > VYNE_ARENA_BLOCK_SIZE ? size : VYNE_ARENA_BLOCK_SIZE;
         ArenaBlock* b = (ArenaBlock*)malloc(sizeof(ArenaBlock));
         if (!b) { fprintf(stderr, "vyne: out of memory\n"); exit(1); }
-        b->data = (uint8_t*)malloc(cap);
+        b->data = vyne_block_alloc(cap);
         if (!b->data) { fprintf(stderr, "vyne: out of memory\n"); exit(1); }
         b->used     = size;
         b->capacity = cap;
@@ -91,16 +143,66 @@ static inline void* arena_alloc(size_t size) {
         g_arena_cur = b->data + size;
         g_arena_end = b->data + cap;
         g_arena.total_allocated += size;
+        if (g_arena.total_allocated > g_arena.peak_allocated)
+            g_arena.peak_allocated = g_arena.total_allocated;
         return b->data;
     }
 
     g_arena_cur = p + size;
     g_arena.total_allocated += size;
+    if (g_arena.total_allocated > g_arena.peak_allocated)
+        g_arena.peak_allocated = g_arena.total_allocated;
     return p;
 }
 
+// Aligned variant. Pads to the requested boundary before bumping.
+// Intended for typed-array data only; small values and structs should
+// still use plain arena_alloc to avoid wasting space on padding.
+static inline void* arena_alloc_aligned(size_t size, size_t align) {
+    size = (size + 7) & ~(size_t)7;
+
+    uint8_t* p = g_arena_cur;
+    uintptr_t misalign = (uintptr_t)p & (align - 1);
+    size_t    pad      = misalign ? (align - misalign) : 0;
+
+    if (VYNE_UNLIKELY(p == NULL ||
+                      (size_t)(g_arena_end - p) < size + pad)) {
+        // Fresh block. Force the block start to be aligned so pad == 0
+        // for every allocation after the first.
+        size_t cap = size + pad > VYNE_ARENA_BLOCK_SIZE
+                   ? size + pad : VYNE_ARENA_BLOCK_SIZE;
+        ArenaBlock* b = (ArenaBlock*)malloc(sizeof(ArenaBlock));
+        if (!b) { fprintf(stderr, "vyne: out of memory\n"); exit(1); }
+        b->data = vyne_block_alloc(cap);
+        if (!b->data) { fprintf(stderr, "vyne: out of memory\n"); exit(1); }
+        b->used     = size + pad;
+        b->capacity = cap;
+        b->next     = g_arena.head;
+        g_arena.head = b;
+
+        // mmap/VirtualAlloc return page-aligned, which is >= align for
+        // every align we care about (<= 4096). malloc may not be, so
+        // pad the bump pointer to the boundary.
+        uintptr_t base = (uintptr_t)b->data;
+        uintptr_t mis  = base & (align - 1);
+        size_t    fpad = mis ? (align - mis) : 0;
+
+        g_arena_cur = b->data + fpad + size;
+        g_arena_end = b->data + cap;
+        g_arena.total_allocated += size + fpad;
+        if (g_arena.total_allocated > g_arena.peak_allocated)
+            g_arena.peak_allocated = g_arena.total_allocated;
+        return b->data + fpad;
+    }
+
+    g_arena_cur = p + pad + size;
+    g_arena.total_allocated += size + pad;
+    if (g_arena.total_allocated > g_arena.peak_allocated)
+        g_arena.peak_allocated = g_arena.total_allocated;
+    return p + pad;
+}
+
 // Reclaim the most-recent allocation iff it is still the arena tail.
-// Returns 1 on success, 0 if the allocation is not the tail.
 static inline int arena_try_reclaim(void* ptr, size_t size) {
     if (ptr == NULL) return 0;
     size = (size + 7) & ~(size_t)7;
@@ -112,10 +214,16 @@ static inline int arena_try_reclaim(void* ptr, size_t size) {
 }
 
 static inline void arena_free_all(void) {
+    // Fire the cleanup hook if anything registered one. The intern
+    // table registers itself on first allocation; its canonical
+    // pointers into arena blocks would dangle after this function
+    // returns, so clearing it here is mandatory, not optional.
+    if (g_arena_cleanup_hook) g_arena_cleanup_hook();
+
     ArenaBlock* block = g_arena.head;
     while (block) {
         ArenaBlock* next = block->next;
-        free(block->data);
+        vyne_block_free(block->data, block->capacity);
         free(block);
         block = next;
     }
@@ -123,12 +231,13 @@ static inline void arena_free_all(void) {
     g_arena_cur             = NULL;
     g_arena_end             = NULL;
     g_arena.total_allocated = 0;
+    g_arena.peak_allocated  = 0;
 
     // also free the commit arena if exists ( see the region part )
     ArenaBlock* cblock = g_commit_arena.head;
     while (cblock) {
         ArenaBlock* next = cblock->next;
-        free(cblock->data);
+        vyne_block_free(cblock->data, cblock->capacity);
         free(cblock);
         cblock = next;
     }
@@ -136,6 +245,7 @@ static inline void arena_free_all(void) {
     g_commit_cur                   = NULL;
     g_commit_end                   = NULL;
     g_commit_arena.total_allocated = 0;
+    g_commit_arena.peak_allocated  = 0;
 }
 
 // ============================================================================
@@ -171,7 +281,7 @@ static inline void arena_rewind(ArenaCheckpoint cp) {
     // Drop every block that was created after the checkpoint.
     while (g_arena.head != cp.block && g_arena.head != NULL) {
         ArenaBlock* next = g_arena.head->next;
-        free(g_arena.head->data);
+        vyne_block_free(g_arena.head->data, g_arena.head->capacity);
         free(g_arena.head);
         g_arena.head = next;
     }

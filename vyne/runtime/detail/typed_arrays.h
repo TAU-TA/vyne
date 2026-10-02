@@ -2,23 +2,30 @@
 #include "arrays.h"
 // ============================================================================
 // TYPED ARRAYS
-// ============================================================================
+// ============================================================================\
+
+static inline int64_t _vyne_next_pow2(int64_t n) {
+    if (n <= 4) return 4;
+    int64_t p = 8;
+    while (p < n) p <<= 1;
+    return p;
+}
 
 static inline VyneArray_f64 vyne_array_f64_create(int64_t n) {
     VyneArray_f64 a;
     a.size = n;
-    a.cap  = n > 0 ? n : 4;
+    a.cap  = _vyne_next_pow2(n);
     a.data = (double*)arena_alloc(sizeof(double) * (size_t)a.cap);
-    for (int64_t i = 0; i < n; ++i) a.data[i] = 0.0;
+    memset(a.data, 0, sizeof(double) * (size_t)n);
     return a;
 }
 
 static inline VyneArray_i64 vyne_array_i64_create(int64_t n) {
     VyneArray_i64 a;
     a.size = n;
-    a.cap  = n > 0 ? n : 4;
+    a.cap  = _vyne_next_pow2(n);
     a.data = (int64_t*)arena_alloc(sizeof(int64_t) * (size_t)a.cap);
-    for (int64_t i = 0; i < n; ++i) a.data[i] = 0;
+    memset(a.data, 0, sizeof(int64_t) * (size_t)n);
     return a;
 }
 

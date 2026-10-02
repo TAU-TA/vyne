@@ -97,8 +97,72 @@ static const NativeMapEntry VMATH_MAP[] = {
 
 // --- vmem ------------------------------------------------------------------
 static const NativeMapEntry VMEM_MAP[] = {
-    {"checkpoint",       "vmem_runtime_checkpoint",       false},
-    {"rewind",           "vmem_runtime_rewind",           false},
-    {"total_allocated",  "vmem_runtime_total_allocated",  false},
-    {"reset",            "vmem_runtime_reset",            false},
+    // Core (unchanged)
+    {"checkpoint",            "vmem_runtime_checkpoint",            false},
+    {"rewind",                "vmem_runtime_rewind",                false},
+    {"total_allocated",       "vmem_runtime_total_allocated",       false},
+    {"reset",                 "vmem_runtime_reset",                 false},
+
+    // Peak tracking
+    {"peak_allocated",        "vmem_runtime_peak_allocated",        false},
+    {"commit_peak_allocated", "vmem_runtime_commit_peak_allocated", false},
+    {"peak_reset",            "vmem_runtime_peak_reset",            false},
+
+    // Live state inspection
+    {"checkpoint_depth",      "vmem_runtime_checkpoint_depth",      false},
+    {"checkpoint_capacity",   "vmem_runtime_checkpoint_capacity",   false},
+    {"checkpoint_remaining",  "vmem_runtime_checkpoint_remaining",  false},
+    {"block_count",           "vmem_runtime_block_count",           false},
+    {"current_block_used",    "vmem_runtime_current_block_used",    false},
+    {"current_block_capacity","vmem_runtime_current_block_capacity",false},
+    {"commit_total_allocated","vmem_runtime_commit_total_allocated",false},
+
+    // Checkpoint management
+    {"pop",                   "vmem_runtime_pop",                   false},
+    {"pop_n",                 "vmem_runtime_pop_n",                 false},
+    {"rewind_freed",          "vmem_runtime_rewind_freed",          false},
+
+    // Diagnostics
+    {"is_balanced",           "vmem_runtime_is_balanced",           false},
+    {"assert_balanced",       "vmem_runtime_assert_balanced",       false},
+    {"verify_checkpoint",     "vmem_runtime_verify_checkpoint",     false},
+    {"dump",                  "vmem_runtime_dump",                  false},
+    {"stats",                 "vmem_runtime_stats",                 false},
+};
+
+static const NativeMapEntry VFS_MAP[] = {
+    // Read
+    {"read",        "vfs_read",         false},
+    {"read_lines",  "vfs_read_lines",   false},
+    {"read_bytes",  "vfs_read_bytes",   false},
+    // Write
+    {"write",       "vfs_write",        false},
+    {"append",      "vfs_append",       false},
+    {"write_lines", "vfs_write_lines",  false},
+    {"write_bytes", "vfs_write_bytes",  false},
+    // Metadata
+    {"exists",      "vfs_exists",       false},
+    {"is_file",     "vfs_is_file",      false},
+    {"is_dir",      "vfs_is_dir",       false},
+    {"size",        "vfs_size",         false},
+    {"mtime",       "vfs_mtime",        false},
+    {"atime",       "vfs_atime",        false},
+    // Directory
+    {"list_dir",    "vfs_list_dir",     false},
+    {"walk",        "vfs_walk",         false},
+    {"glob",        "vfs_glob",         false},
+    {"mkdir",       "vfs_mkdir",        false},
+    {"mkdir_p",     "vfs_mkdir_p",      false},
+    {"remove",      "vfs_remove",       false},
+    {"remove_dir",  "vfs_remove_dir",   false},
+    // Transfer
+    {"copy",        "vfs_copy",         false},
+    {"move",        "vfs_move",         false},
+    {"rename",      "vfs_move",         false},   // alias
+    // Path
+    {"basename",    "vfs_basename",     false},
+    {"dirname",     "vfs_dirname",      false},
+    {"stem",        "vfs_stem",         false},
+    {"extension",   "vfs_extension",    false},
+    {"join",        "vfs_join",         false},
 };
