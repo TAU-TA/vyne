@@ -73,6 +73,19 @@ class C_Emitter {
     std::unordered_map<std::string,
                        std::unordered_map<std::string, VType>> interfacePrimitiveFields;
 
+    // Ordered field layout for struct-typed native variants. Key is any
+    // spelling under which the interface was registered (bare, dotted,
+    // underscore-mangled). Value is the field list in declaration order.
+    //
+    // This is deliberately NOT cleared by push/popFunctionContext: it is
+    // process-global, mirroring functionReturnTypes and functionParamTypes.
+    // The callee's native signature is built from this map during
+    // emitNativeFunctionBody; a later caller rebuilds the argument list
+    // from the same map. If the map were per-function, the two sides
+    // could disagree on ordering.
+    std::unordered_map<std::string, std::vector<StructFieldDesc>>
+        interfaceStructLayout;
+
     struct FieldCacheEntry { std::string temp; CType ct; };
     std::unordered_map<std::string, FieldCacheEntry> fieldCache;
 
@@ -409,10 +422,64 @@ public:
         return VType::Unknown;
     }
 
+    // --- Struct-typed native ABI (Stage 1) ----------------------------
+    // Register the ordered field list for an interface under every
+    // spelling the caller might query with. Mirrors registerInterfaceArrayField
+    // and registerInterfacePrimitiveField's multi-spelling registration.
+    void registerInterfaceStructLayout(
+            const std::string& iface,
+            std::vector<StructFieldDesc> fields) {
+        interfaceStructLayout[iface] = std::move(fields);
+    }
+
+    // Probe-with-dot-suffix, matching getInterfaceArrayElem. Returns
+    // nullptr if nothing matches, so the caller can fall back to the
+    // boxed path rather than throw.
+    const std::vector<StructFieldDesc>*
+    getInterfaceStructLayout(const std::string& iface) const {
+        auto probe = [&](const std::string& k)
+                -> const std::vector<StructFieldDesc>* {
+            auto it = interfaceStructLayout.find(k);
+            return it == interfaceStructLayout.end() ? nullptr : &it->second;
+        };
+        if (const auto* r = probe(iface)) return r;
+        std::string tmp = iface;
+        size_t dot;
+        while ((dot = tmp.find('.')) != std::string::npos) {
+            tmp = tmp.substr(dot + 1);
+            if (const auto* r = probe(tmp)) return r;
+        }
+        return nullptr;
+    }
+
+    bool hasInterfaceStructLayout(const std::string& iface) const {
+        return getInterfaceStructLayout(iface) != nullptr;
+    }
+
     void setLocalStructType(const std::string& var, const std::string& t) {
         localStructTypes[var] = t;
     }
-    
+
+    // Resolve a Vyne variable's interface name from its *original* source
+    // name (not the mangled C name). Returns "" if the variable is not a
+    // tracked struct-typed local or global.
+    //
+    // Takes a `std::string` deliberately: emitter.h is included from
+    // ast.h, so this header cannot reference ASTNode / NodeType / any
+    // AST class. Callers that hold an AST node must first extract the
+    // variable's original name and pass it in. See
+    // `native_dispatch.cpp::nodeInterfaceName` for that unwrapping step.
+    std::string lookupStructInterfaceName(const std::string& originalName) const {
+        if (originalName.empty()) return "";
+        std::string prefix = getActiveFunctionPrefix();
+        std::string lookupKey = prefix.empty()
+            ? ("v_" + originalName)
+            : ("v_" + prefix + "_" + originalName);
+        if (const std::string* t = lookupLocalStructType(lookupKey)) return *t;
+        if (const std::string* t = lookupGlobalStructType("v_" + originalName)) return *t;
+        return "";
+    }
+
     const std::string* lookupLocalStructType(const std::string& var) const {
         auto it = localStructTypes.find(var);
         return it == localStructTypes.end() ? nullptr : &it->second;

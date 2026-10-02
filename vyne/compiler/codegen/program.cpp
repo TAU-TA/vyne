@@ -8,6 +8,16 @@
 
 void ProgramNode::compile(C_Emitter& e) const {
     for (const auto& stmt : statements) {
+        if (stmt && stmt->type() == NodeType::INTERFACE) {
+            auto* iface = static_cast<const InterfaceNode*>(stmt.get());
+            registerInterfaceLayoutsFromMembers(
+                e,
+                iface->getInterfaceName(),
+                iface->getModuleName(),
+                iface->getMembers());
+        }
+    }
+    for (const auto& stmt : statements) {
         if (stmt && stmt->type() == NodeType::FUNCTION) {
             auto* fn = static_cast<FunctionNode*>(stmt.get());
 
@@ -28,6 +38,25 @@ void ProgramNode::compile(C_Emitter& e) const {
 
                 bool paramOK = ct.isPrimitive() ||
                             (ct.kind == CType::Kind::Array && !ct.args.empty());
+
+                // Struct-typed parameter: only native-callable if the
+                // interface has a registered field layout. Registration
+                // is order-dependent — ProgramNode::compile processes
+                // statements in source order, and ImportNode::compile
+                // compiles the imported AST before the importing file's
+                // statements, so the interface is always registered before
+                // any function that mentions it in a parameter.
+                //
+                // If the layout is missing, allNativeCallable drops to
+                // false and the function is emitted only in its boxed
+                // form. That is the safe default: the caller side can
+                // always fall back to the boxed call path.
+                if (!paramOK && p.type == VType::Struct) {
+                    if (e.getInterfaceStructLayout(p.typePath)) {
+                        paramOK = true;
+                    }
+                }
+
                 if (!paramOK || p.isReference) allNativeCallable = false;
             }
 

@@ -257,3 +257,8 @@ std::optional<std::string> tryEmitNativeCall(
     const std::vector<std::string>& argCExprs,
     const std::vector<VType>& argVTypes,
     const std::vector<const CType*>& argCTypes);
+void registerInterfaceLayoutsFromMembers(
+    C_Emitter& e,
+    const std::string& interfaceName,
+    const std::string& moduleName,
+    const std::vector<InterfaceMember>& members);

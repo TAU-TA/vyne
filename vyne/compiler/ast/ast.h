@@ -1177,13 +1177,16 @@ class InterfaceNode : public ASTNode {
     std::vector<InterfaceMember> members;
     std::vector<std::shared_ptr<ASTNode>> methods;
     std::string moduleName;
-    std::vector<std::string> typeParams;   // NEW — e.g. ["T"] for interface Box<T>
+    std::vector<std::string> typeParams;   // e.g. ["T"] for interface Box<T>
+
 public:
 
-    InterfaceNode(std::string in, std::vector<InterfaceMember> m, std::vector<std::shared_ptr<ASTNode>> meth) 
-    : 
-    ASTNode(NodeType::INTERFACE), 
-    interfaceName(std::move(in)), 
+    InterfaceNode(std::string in,
+                  std::vector<InterfaceMember> m,
+                  std::vector<std::shared_ptr<ASTNode>> meth)
+    :
+    ASTNode(NodeType::INTERFACE),
+    interfaceName(std::move(in)),
     members(std::move(m)),
     methods(std::move(meth))
     {
@@ -1192,12 +1195,12 @@ public:
                 MethodSignature sig;
                 sig.name = funcNode->getOriginalName();
                 sig.returnType = funcNode->getReturnType();
-                
+
                 for (const auto& param : funcNode->getParameters()) {
                     sig.paramTypes.emplace_back(param.type);
                     sig.paramNames.emplace_back(param.name);
                 }
-                
+
                 methodSignatures.emplace_back(sig);
             }
         }
@@ -1213,6 +1216,12 @@ public:
 
     void setTypeParams(std::vector<std::string> tp) { typeParams = std::move(tp); }
     const std::vector<std::string>& getTypeParams() const { return typeParams; }
+
+    // Member list accessor. The element type is InterfaceMember — the
+    // per-field struct declared next to this class. Needed by the
+    // struct-typed native ABI pre-pass in ProgramNode::compile, which
+    // builds an ordered field layout before the function-native gate runs.
+    const std::vector<InterfaceMember>& getMembers() const { return members; }
 };
 
 class EnumNode : public ASTNode {

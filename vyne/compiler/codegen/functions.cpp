@@ -123,6 +123,13 @@ static void emitNativeFunctionBody(
         retCName = returnType.cTypeName();
     }
 
+    // Flat parameter list. Struct-typed parameters expand into one C
+    // parameter per field, in the same order the caller-side dispatcher
+    // iterates. `structFieldParamNames` captures the per-parameter field
+    // names so the entry-time reconstruction below can refer to them.
+    std::vector<std::vector<std::string>> structFieldParamNames(
+        parameters.size());
+
     std::string paramList;
     for (size_t i = 0; i < parameters.size(); ++i) {
         if (i > 0) paramList += ", ";
@@ -133,6 +140,43 @@ static void emitNativeFunctionBody(
             VType elem = parameters[i].arrayElemType;
             std::string elemC = (elem == VType::Float64) ? "double" : "int64_t";
             paramList += elemC + "* " + pName;
+        } else if (parameters[i].type == VType::Struct) {
+            const std::string& ifaceName = parameters[i].typePath;
+            const auto* layout = e.getInterfaceStructLayout(ifaceName);
+            if (!layout) {
+                // Registration gate should have prevented this. Guard
+                // anyway: a native variant without a resolvable layout
+                // cannot be emitted, and silently falling back to a
+                // boxed signature here would break the ABI contract
+                // with the caller, which emitted a flat call.
+                throw std::runtime_error(
+                    "Native variant of '" + nativeName + "' has a Struct "
+                    "parameter '" + parameters[i].name + "' whose interface '"
+                    + ifaceName + "' has no registered field layout. "
+                    "This is a compiler bug — report it with the Vyne source.");
+            }
+            bool first = true;
+            for (const auto& fd : *layout) {
+                if (!first) paramList += ", ";
+                first = false;
+                std::string fpName = pName + "_" + fd.name;
+                structFieldParamNames[i].push_back(fpName);
+
+                if (fd.type.kind == CType::Kind::Int64) {
+                    paramList += "int64_t " + fpName;
+                } else if (fd.type.kind == CType::Kind::Float64) {
+                    paramList += "double " + fpName;
+                } else if (fd.type.kind == CType::Kind::Array &&
+                           !fd.type.args.empty()) {
+                    bool isF64 = (fd.type.args[0].toVType() == VType::Float64);
+                    paramList += std::string(isF64 ? "VyneArray_f64* "
+                                                   : "VyneArray_i64* ") + fpName;
+                } else {
+                    throw std::runtime_error(
+                        "Unsupported struct field type in native variant of '"
+                        + nativeName + "': field '" + fd.name + "'");
+                }
+            }
         } else {
             CType pt = CType::fromVType(parameters[i].type);
             paramList += pt.cTypeName() + " " + pName;
@@ -156,6 +200,57 @@ static void emitNativeFunctionBody(
             raw.kind = CType::Kind::RawArrayPtr;
             raw.args.push_back(CType::fromVType(parameters[i].arrayElemType));
             e.declareLocal(pName, raw);
+        } else if (parameters[i].type == VType::Struct) {
+            // Reconstruct a boxed VyneValue struct from the flat
+            // parameters so the body (which uses vyne_struct_get and
+            // vyne_struct_set) compiles unchanged. This is the cost
+            // that Design B (native C struct type) eliminates.
+            //
+            // The result is declared at region depth 0: function
+            // parameters conceptually outlive any region opened in the
+            // body, so a subsequent `x = arg` inside a region must
+            // NOT trip the escape checker just because the parameter
+            // was reconstructed here.
+            const std::string& ifaceName = parameters[i].typePath;
+            const auto* layout = e.getInterfaceStructLayout(ifaceName);
+            std::string sVar = pName + "_boxed";
+            e.emit("VyneValue " + sVar + " = vyne_struct_create(\"" +
+                   ifaceName + "\");");
+            for (size_t f = 0; f < layout->size(); ++f) {
+                const auto& fd = (*layout)[f];
+                const std::string& fpName = structFieldParamNames[i][f];
+                if (fd.type.kind == CType::Kind::Int64) {
+                    e.emit("vyne_struct_set(" + sVar + ", " +
+                           std::to_string(fd.id) + ", \"" + fd.name +
+                           "\", vyne_int(" + fpName + "));");
+                } else if (fd.type.kind == CType::Kind::Float64) {
+                    e.emit("vyne_struct_set(" + sVar + ", " +
+                           std::to_string(fd.id) + ", \"" + fd.name +
+                           "\", vyne_float(" + fpName + "));");
+                } else if (fd.type.kind == CType::Kind::Array &&
+                           !fd.type.args.empty()) {
+                    // fpName is a pointer to a VyneArray_f64 / _i64 on
+                    // the caller's stack. Wrap it into a boxed VyneValue
+                    // that aliases the same backing buffer.
+                    bool isF64 = (fd.type.args[0].toVType() == VType::Float64);
+                    std::string wrap = isF64 ? "vyne_array_f64_to_value"
+                                             : "vyne_array_i64_to_value";
+                    std::string bv = pName + "_f" + std::to_string(f);
+                    e.emit("VyneValue " + bv + " = " + wrap + "(" +
+                           fpName + ");");
+                    e.emit("vyne_struct_set(" + sVar + ", " +
+                           std::to_string(fd.id) + ", \"" + fd.name +
+                           "\", " + bv + ");");
+                }
+            }
+            // Declare the boxed struct at depth 0 — parameters are
+            // conceptually outside any region in the body.
+            e.declareLocal(pName, CType::fromKind(CType::Kind::Struct), 0);
+            e.emit("VyneValue " + pName + " = " + sVar + ";");
+            // Register the struct's interface type so subsequent member
+            // accesses on `pName` resolve via the unboxing fast paths
+            // in MemberAccessNode::getCExpr.
+            e.setLocalStructType(pName, ifaceName);
         } else {
             e.declareLocal(pName, pt);
         }

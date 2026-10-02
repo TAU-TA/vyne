@@ -38,6 +38,19 @@ struct CType {
     std::string mangledName;    // mangled C name for monomorphized structs/interfaces
     std::string nativeName;     // "int64_t", "double", "bool", "VyneValue", ...
 
+    // Per-field descriptor for struct-typed native-variant parameters.
+    // Populated by InterfaceNode::compile from the interface member list,
+    // in declaration order. Consumed by tryEmitNativeCall (caller side)
+    // and emitNativeFunctionBody (callee side). Both sides MUST see the
+    // same ordering, which is guaranteed because both read from the
+    // emitter's interfaceStructLayout map.
+    //
+    // `type` is one of:
+    //   - Kind::Int64 / Kind::Float64          → scalar field
+    //   - Kind::Array with args[0] = Int64/Float64 → typed-array field
+    // Anything else is rejected at emission time by the callee-side
+    // signature builder, which throws rather than emit broken C.
+
     CType() = default;
     CType(Kind k) : kind(k) {} 
     CType(Kind k, std::vector<CType> a, std::vector<int64_t> s = {})
@@ -183,4 +196,35 @@ struct CType {
             default:             return "VyneValue";
         }
     }
+};
+
+// ============================================================================
+// StructFieldDesc — layout descriptor for struct-typed native-variant params
+// ----------------------------------------------------------------------------
+// A struct-typed parameter in a native variant expands into one C parameter
+// per field. This descriptor is what the caller-side dispatcher
+// (tryEmitNativeCall) and the callee-side signature builder
+// (emitNativeFunctionBody) both consult to agree on that expansion.
+//
+// It lives in the emitter's `interfaceStructLayout` map, keyed by every
+// spelling of the interface name under which the interface was registered.
+// It is NOT a member of CType: a CType describes a value's representation,
+// whereas this describes how an interface's members are laid out for the
+// flat ABI. Keeping them separate avoids both the incomplete-type cycle
+// (CType would need to hold a CType by value) and a redundant second copy
+// of the field list.
+//
+// Allowed field types:
+//   - Kind::Int64               → `int64_t` C parameter
+//   - Kind::Float64             → `double` C parameter
+//   - Kind::Array with args[0] = Int64 or Float64
+//                               → `VyneArray_i64*` / `VyneArray_f64*`
+// Any other field type disqualifies the whole interface from native
+// dispatch; InterfaceNode::compile refuses to register a layout in that
+// case, and the function is emitted in boxed form only.
+// ============================================================================
+struct StructFieldDesc {
+    uint32_t    id;     // StringPool::intern(name) — stable across the process
+    std::string name;   // for diagnostics and C parameter naming
+    CType       type;   // scalar kind, or Array with element kind
 };

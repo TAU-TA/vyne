@@ -42,6 +42,19 @@ void InterfaceNode::compile(C_Emitter& e) const {
         e.registerInterfacePrimitiveField(interfaceName, m.name, m.type);
     }
 
+    // Build the ordered field descriptor list once, from the same `members`
+    // vector that drives the constructor emission below. This is the single
+    // source of truth for struct-typed native-variant parameter expansion:
+    // the caller and the callee both read it back via getInterfaceStructLayout.
+    //
+    // Field types are constrained to what the flat ABI can carry:
+    //   - Int64, Float64                       → scalar param
+    //   - Array with element Int64 or Float64  → pointer-to-container param
+    // Anything else (String, Map, nested Struct, Unknown) is left out of
+    // the descriptor. A struct that contains such a field simply won't be
+    // eligible for native dispatch — see the gate in ProgramNode::compile.
+    registerInterfaceLayoutsFromMembers(e, interfaceName, moduleName, members);
+
     // Per-field defaults (used to pad short constructor calls).
     {
         std::vector<std::string> defaults;
@@ -184,5 +197,57 @@ void InterfaceNode::compile(C_Emitter& e) const {
     e.popFunctionContext();
 }
 
-std::string InterfaceNode::getCExpr(C_Emitter& e) const { return "vyne_null()"; }
+void registerInterfaceLayoutsFromMembers(
+    C_Emitter& e,
+    const std::string& interfaceName,
+    const std::string& moduleName,
+    const std::vector<InterfaceMember>& members)
+{
+    std::string effectiveModule = moduleName;
+    if (effectiveModule.empty()) effectiveModule = e.getGroupPrefix();
 
+    std::string fullName = effectiveModule.empty()
+        ? interfaceName
+        : (effectiveModule + "." + interfaceName);
+
+    std::vector<StructFieldDesc> layout;
+    layout.reserve(members.size());
+    for (const auto& m : members) {
+        StructFieldDesc fd;
+        fd.id   = StringPool::intern(m.name);
+        fd.name = m.name;
+
+        if (m.type == VType::Int64) {
+            fd.type = CType::fromKind(CType::Kind::Int64);
+        } else if (m.type == VType::Float64) {
+            fd.type = CType::fromKind(CType::Kind::Float64);
+        } else if (m.type == VType::Array &&
+                   (m.arrayElemType == VType::Int64 ||
+                    m.arrayElemType == VType::Float64)) {
+            fd.type.kind = CType::Kind::Array;
+            fd.type.args.push_back(CType::fromVType(m.arrayElemType));
+        } else {
+            // Unsupported field type (String, Map, nested Struct, Unknown).
+            // Do not register a partial layout: a partial layout would
+            // let the native dispatcher emit a call whose signature does
+            // not match the callee. Leaving the map entry absent forces
+            // both sides onto the boxed ABI, which is always available.
+            return;
+        }
+        layout.push_back(std::move(fd));
+    }
+
+    e.registerInterfaceStructLayout(interfaceName, layout);
+    if (!effectiveModule.empty()) {
+        e.registerInterfaceStructLayout(
+            effectiveModule + "." + interfaceName, layout);
+        e.registerInterfaceStructLayout(
+            effectiveModule + "_" + interfaceName, layout);
+    }
+    if (fullName != interfaceName &&
+        fullName != effectiveModule + "." + interfaceName) {
+        e.registerInterfaceStructLayout(fullName, layout);
+    }
+}
+
+std::string InterfaceNode::getCExpr(C_Emitter& e) const { return "vyne_null()"; }

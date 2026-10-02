@@ -17,6 +17,12 @@
 // to the boxed path. No argument is evaluated twice.
 // ============================================================================
 
+static std::string nodeInterfaceName(C_Emitter& e, const ASTNode* node) {
+    if (!node || node->type() != NodeType::VARIABLE) return "";
+    auto* var = static_cast<const VariableNode*>(node);
+    return e.lookupStructInterfaceName(var->getOriginalName());
+}
+
 std::optional<std::string> tryEmitNativeCall(
     C_Emitter& e,
     const std::string& mangledCallee,
@@ -42,6 +48,9 @@ std::optional<std::string> tryEmitNativeCall(
     // Every argument must match the declared parameter type.
     // Int64 → Float64 widening is permitted (matches the interpreter's
     // convertIfNeeded). Array element types must match exactly.
+    std::vector<const std::vector<StructFieldDesc>*> structLayouts(
+        orderedArgs.size(), nullptr);
+
     for (size_t i = 0; i < orderedArgs.size(); ++i) {
         const CType& want = (*paramTypes)[i];
 
@@ -52,6 +61,22 @@ std::optional<std::string> tryEmitNativeCall(
                 have->args[0].toVType() != want.args[0].toVType()) {
                 return std::nullopt;
             }
+        } else if (want.kind == CType::Kind::Struct) {
+            // The argument must be a struct whose static interface
+            // type is tracked by the emitter. `nodeInterfaceName` handles
+            // the AST-node → original-name unwrapping; the emitter's
+            // lookupStructInterfaceName handles name → interface.
+            const CType* have = argCTypes[i];
+            if (!have || have->kind != CType::Kind::Struct) {
+                return std::nullopt;
+            }
+            const std::string ifaceName =
+                nodeInterfaceName(e, orderedArgs[i]);
+            if (ifaceName.empty()) return std::nullopt;
+
+            const auto* layout = e.getInterfaceStructLayout(ifaceName);
+            if (!layout) return std::nullopt;
+            structLayouts[i] = layout;
         } else {
             VType wantVT = want.toVType();
             bool ok = (argVTypes[i] == wantVT) ||
@@ -63,6 +88,19 @@ std::optional<std::string> tryEmitNativeCall(
 
     // Build the direct call. Array params pass `.data` (the raw T*);
     // scalars go through coerceToNative which handles the C cast.
+    //
+    // Struct params expand into one argument per field. Each field
+    // extraction is emitted as a statement against `e` first (so that
+    // field access doesn't get duplicated inside the C call expression),
+    // then the resulting temp is used in the argument list. This
+    // preserves evaluation order (source order == argument order) and
+    // guarantees each field is read exactly once from the source struct.
+    //
+    // Array fields are handled differently than in the report: instead
+    // of emitting `(double*, int64_t)` — which loses the container's
+    // capacity — we materialize the field's boxed VyneValue into a
+    // local `VyneArray_f64` / `VyneArray_i64` temp and pass its address.
+    // That preserves size, cap, and the shared backing-buffer semantics.
     std::string argList;
     for (size_t i = 0; i < orderedArgs.size(); ++i) {
         if (i > 0) argList += ", ";
@@ -70,6 +108,62 @@ std::optional<std::string> tryEmitNativeCall(
 
         if (want.kind == CType::Kind::Array && !want.args.empty()) {
             argList += argCExprs[i] + ".data";
+        } else if (want.kind == CType::Kind::Struct) {
+            // structLayouts[i] was set during validation. It cannot be
+            // null here — validation guarantees it.
+            const auto* layout = structLayouts[i];
+            if (!layout) return std::nullopt;  // defensive
+
+            const std::string& structExpr = argCExprs[i];
+            bool first = true;
+            for (const auto& fd : *layout) {
+                if (!first) argList += ", ";
+                first = false;
+
+                // Emit a temp holding the field's boxed value. The
+                // receiver is already boxed (structs are always
+                // VyneValue in the emitter's tables), so this is a
+                // single struct_get.
+                std::string fieldBoxed = e.newTemp("sf");
+                e.emit("VyneValue " + fieldBoxed +
+                       " = vyne_struct_get(" + structExpr +
+                       ", " + std::to_string(fd.id) + ");");
+
+                if (fd.type.kind == CType::Kind::Int64) {
+                    // Unbox into a native int64_t temp so the ABI sees a
+                    // register-sized scalar, not a union read.
+                    std::string fv = e.newTemp("sfi");
+                    e.emit("int64_t " + fv + " = (" + fieldBoxed +
+                           ".type == V_INT64) ? " + fieldBoxed +
+                           ".as.i64 : (int64_t)" + fieldBoxed + ".as.f64;");
+                    argList += fv;
+                } else if (fd.type.kind == CType::Kind::Float64) {
+                    std::string fv = e.newTemp("sff");
+                    e.emit("double " + fv + " = (" + fieldBoxed +
+                           ".type == V_FLOAT64) ? " + fieldBoxed +
+                           ".as.f64 : (double)" + fieldBoxed + ".as.i64;");
+                    argList += fv;
+                } else if (fd.type.kind == CType::Kind::Array &&
+                           !fd.type.args.empty()) {
+                    // Materialize the container by value, then pass its
+                    // address. `vyne_value_to_array_f64` is O(1) when
+                    // the boxed value is already a V_F64_ARRAY (shares
+                    // the backing buffer), O(N) otherwise. Either way
+                    // the callee gets a valid pointer and the right size.
+                    bool isF64 = (fd.type.args[0].toVType() == VType::Float64);
+                    std::string cName = isF64 ? "VyneArray_f64" : "VyneArray_i64";
+                    std::string conv  = isF64 ? "vyne_value_to_array_f64"
+                                              : "vyne_value_to_array_i64";
+                    std::string av = e.newTemp("sfa");
+                    e.emit(cName + " " + av + " = " + conv + "(" +
+                           fieldBoxed + ");");
+                    argList += "&" + av;
+                } else {
+                    // Validation-time rejection should have caught this.
+                    // Belt-and-braces: refuse rather than emit garbage.
+                    return std::nullopt;
+                }
+            }
         } else {
             argList += coerceToNative(e, orderedArgs[i], argCExprs[i],
                                       want.toVType());
