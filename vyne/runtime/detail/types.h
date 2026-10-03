@@ -93,6 +93,32 @@ typedef struct VyneMap {
 // TODO IMPLEMENT TOMBSTONES
 
 // ============================================================================
+// STRING BUILDER
+// ----------------------------------------------------------------------------
+// Amortized-O(1) append for workloads that accumulate a large string
+// incrementally. Replaces the `s = s + x` idiom, which is O(n²) because
+// every `+` allocates a fresh buffer and copies both operands.
+//
+// Lifetime: the builder struct and its buffer both live in the arena,
+// exactly like an Array. Creating one outside any region means its
+// storage survives until program exit; creating one inside a region
+// means the whole thing is reclaimed at the rewind. The usage rule is
+// the same rule the user already applies to arrays and maps.
+//
+// `size` does NOT include the trailing null. The buffer is always kept
+// null-terminated at data[size] so build() can memcpy size+1 bytes.
+// `capacity` is the allocated byte count, which is >= size+1 after any
+// successful append. Both are size_t so a builder can in principle be
+// larger than 2 GB on a 64-bit host.
+// ============================================================================
+
+typedef struct VyneStringBuilder {
+    char*  data;
+    size_t size;
+    size_t capacity;
+} VyneStringBuilder;
+
+// ============================================================================
 // STRUCT
 // ============================================================================
 

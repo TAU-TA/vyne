@@ -104,6 +104,21 @@ class C_Emitter {
     std::string sourceDir;
     std::string activeFunctionPrefix;
 
+    // --- Module scoping --------------------------------------------------
+    // `activeModule` is set while emitting a function declared with a
+    // `module M;` prefix. Call sites consult it to turn the bare name X
+    // into the module-qualified C symbol fn_M_X when X is known to be
+    // defined in M.
+    //
+    // `moduleFunctions[M]` and `moduleInterfaces[M]` are the registries
+    // that answer "is X defined in M?" — populated as each function or
+    // interface is compiled, and read at call sites.
+    std::string activeModule;
+    std::unordered_map<std::string, std::unordered_set<std::string>>
+        moduleFunctions;
+    std::unordered_map<std::string, std::unordered_set<std::string>>
+        moduleInterfaces;
+
     // --- Defer / try-cleanup context ------------------------------------
     struct DeferContext {
         std::string cleanupLabel;
@@ -158,6 +173,27 @@ public:
     void enterFunction(const std::string& prefix) { activeFunctionPrefix = prefix; }
     void exitFunction() { activeFunctionPrefix.clear(); }
     const std::string& getActiveFunctionPrefix() const { return activeFunctionPrefix; }
+
+    // --- Module context ------------------------------------------------
+    void setActiveModule(const std::string& m) { activeModule = m; }
+    void clearActiveModule() { activeModule.clear(); }
+    const std::string& getActiveModule() const { return activeModule; }
+
+    void registerModuleFunction(const std::string& mod, const std::string& name) {
+        moduleFunctions[mod].insert(name);
+    }
+    bool isModuleFunction(const std::string& mod, const std::string& name) const {
+        auto it = moduleFunctions.find(mod);
+        return it != moduleFunctions.end() && it->second.count(name) > 0;
+    }
+
+    void registerModuleInterface(const std::string& mod, const std::string& name) {
+        moduleInterfaces[mod].insert(name);
+    }
+    bool isModuleInterface(const std::string& mod, const std::string& name) const {
+        auto it = moduleInterfaces.find(mod);
+        return it != moduleInterfaces.end() && it->second.count(name) > 0;
+    }
 
     void pushMainContext() {
         contextStack.emplace_back(EmitContext::MAIN);
@@ -738,6 +774,9 @@ public:
         functionSignatures.clear();
         sourceDir.clear();
         activeFunctionPrefix.clear();
+        activeModule.clear();
+        moduleFunctions.clear();
+        moduleInterfaces.clear();
         tryCleanupStack.clear();
         deferCtx = {};
         regionStack.clear(); 

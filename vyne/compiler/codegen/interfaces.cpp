@@ -28,6 +28,7 @@ void InterfaceNode::compile(C_Emitter& e) const {
     if (!effectiveModule.empty()) {
         e.registerInterface(effectiveModule + "." + interfaceName);
         e.registerInterface(effectiveModule + "_" + interfaceName);
+        e.registerModuleInterface(effectiveModule, interfaceName);
     }
 
     for (const auto& m : members) {

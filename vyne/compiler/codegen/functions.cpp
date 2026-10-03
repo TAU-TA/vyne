@@ -330,6 +330,15 @@ void FunctionNode::compile(C_Emitter& e) const {
         mangledName = targetModule + "_" + mangledName;
     }
 
+    // Record this function under its module and set the active module
+    // while its body is being emitted. Saved so nested compilation
+    // (a group inside a group, an interface method) restores cleanly.
+    std::string savedModule = e.getActiveModule();
+    if (!targetModule.empty()) {
+        e.registerModuleFunction(targetModule, originalName);
+        e.setActiveModule(targetModule);
+    }
+
     // Register this function's return type so the region escape check
     // can see through calls to it. This fires for EVERY function that
     // ever gets compiled — top-level, group member, aliased import —
@@ -378,6 +387,7 @@ void FunctionNode::compile(C_Emitter& e) const {
 
     e.exitFunction();
     e.popFunctionContext();
+    e.setActiveModule(savedModule);
 
     {
         std::string nativeMangled = originalName;

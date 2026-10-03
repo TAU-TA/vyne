@@ -21,6 +21,16 @@ std::string MethodCallNode::getCExpr(C_Emitter& e) const {
     // ----------------------------------------------------------------
     if (receiver->type() == NodeType::VARIABLE) {
         const NativeMapEntry* entry = e.findNative(recvPath, methodName);
+
+        // A native module property is a zero-argument getter whose cName
+        // is a full C expression ("vmath_inf()", "vcore_get_version()").
+        // The user wrote `mod.prop()`, so the expression is exactly what
+        // we want to return. Falling through emits fn_vmath_inf(0, args),
+        // which is undefined.
+        if (entry && entry->isProperty) {
+            return entry->cName;
+        }
+
         if (entry && !entry->isProperty) {
             std::string resTemp = e.newTemp("n_ret");
 
@@ -262,12 +272,18 @@ std::string MethodCallNode::getCExpr(C_Emitter& e) const {
         std::string lookupKey = prefix.empty()
             ? ("v_" + recvName)
             : ("v_" + prefix + "_" + recvName);
-        if (e.lookupLocalStructType(lookupKey) ||
-            e.lookupGlobalStructType("v_" + recvName)) {
+
+        const std::string* typeName = e.lookupLocalStructType(lookupKey);
+        if (!typeName) typeName = e.lookupGlobalStructType("v_" + recvName);
+
+        if (typeName &&
+            *typeName != "String" && *typeName != "Int64"
+            && *typeName != "Float64" && *typeName != "Bool"
+            && *typeName != "Array" && *typeName != "Map"
+            && *typeName != "Null") {
             receiverIsStruct = true;
         }
     }
-
     if (!receiverIsStruct && (methodName == "length" || methodName == "size")) {
         std::string temp = e.newTemp("len");
         e.emit("VyneValue " + temp + " = vyne_int(vyne_get_sizeof(" + recv + "));");

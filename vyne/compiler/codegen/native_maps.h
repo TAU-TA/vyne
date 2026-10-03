@@ -29,6 +29,13 @@ static const NativeMapEntry VCORE_MAP[] = {
     {"input",           "vcore_runtime_input",            false, true},
     {"parse_array",     "vcore_parse_array",              false},
     {"hex_to_int64",    "vcore_hex_to_int64",             false},
+    {"chr",             "vcore_chr",                      false},
+
+    // String builder — general-purpose O(1)-append string accumulation.
+    {"sb_create",       "vcore_sb_create",                false},
+    {"sb_append",       "vcore_sb_append",                false},
+    {"sb_build",        "vcore_sb_build",                 false},
+    {"sb_reset",        "vcore_sb_reset",                 false},
 
     {"version",         "vcore_get_version()",            true},
     {"engine",          "vcore_get_engine()",             true},

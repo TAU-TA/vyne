@@ -17,6 +17,32 @@ void ProgramNode::compile(C_Emitter& e) const {
                 iface->getMembers());
         }
     }
+
+    // Pre-register every function and interface under its module, before
+    // any call site is lowered. Without this, a call to a same-module
+    // function that is defined *later* in the file resolves to the bare
+    // name, because FunctionNode::compile is the only place that
+    // registers a function and it runs in source order. `_parse_value`
+    // inside `parse` is the case that exposed it: `_skip_ws` is defined
+    // above `parse` and resolves correctly, `_parse_value` is defined
+    // below and does not.
+    for (const auto& stmt : statements) {
+        if (!stmt) continue;
+        if (stmt->type() == NodeType::FUNCTION) {
+            auto* fn = static_cast<const FunctionNode*>(stmt.get());
+            if (!fn->getTargetModule().empty()) {
+                e.registerModuleFunction(fn->getTargetModule(),
+                                         fn->getOriginalName());
+            }
+        } else if (stmt->type() == NodeType::INTERFACE) {
+            auto* iface = static_cast<const InterfaceNode*>(stmt.get());
+            if (!iface->getModuleName().empty()) {
+                e.registerModuleInterface(iface->getModuleName(),
+                                          iface->getInterfaceName());
+            }
+        }
+    }
+
     for (const auto& stmt : statements) {
         if (stmt && stmt->type() == NodeType::FUNCTION) {
             auto* fn = static_cast<FunctionNode*>(stmt.get());

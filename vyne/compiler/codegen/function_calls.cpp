@@ -163,6 +163,16 @@ std::string FunctionCallNode::getCExpr(C_Emitter& e) const {
     std::string mangledName = originalName;
     std::replace(mangledName.begin(), mangledName.end(), '.', '_');
 
+    // If the callee's bare name is defined in the module we are currently
+    // emitting, the C symbol is fn_<module>_<name>. Without this, a call
+    // like `_skip_ws(x)` inside vjson emits `fn__skip_ws`, which does not
+    // exist — the definition is `fn_vjson__skip_ws`.
+    const std::string& mod = e.getActiveModule();
+    bool sameModuleFn = !mod.empty() && e.isModuleFunction(mod, originalName);
+    if (sameModuleFn) {
+        mangledName = mod + "_" + mangledName;
+    }
+
     // ----------------------------------------------------------------
     // Native-variant dispatch. Same helper the group-call path uses;
     // see codegen/native_dispatch.cpp for the full doc.
@@ -206,7 +216,14 @@ std::string FunctionCallNode::getCExpr(C_Emitter& e) const {
             directArgs += argStrs[i];
         }
 
-        e.emit("VyneValue " + retTemp + " = struct_" + mangledName +
+        // Same-module interface constructor: `Parser(...)` inside vjson
+        // must emit struct_vjson_Parser, not struct_Parser.
+        std::string ctorSuffix = mangledName;
+        if (!mod.empty() && e.isModuleInterface(mod, originalName)) {
+            ctorSuffix = mod + "_" + mangledName;
+        }
+
+        e.emit("VyneValue " + retTemp + " = struct_" + ctorSuffix +
                "(" + directArgs + ");");
         return retTemp;
     }

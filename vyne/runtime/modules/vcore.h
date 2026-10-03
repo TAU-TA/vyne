@@ -182,6 +182,60 @@ static inline VyneValue vcore_hex_to_int64(VyneValue s) {
     return vyne_int((int64_t)strtoull(p, NULL, 16));
 }
 
+/* ---------- chr(n) — single-byte String from a byte value ---------- */
+/* n is masked to 0..255. Intended for assembling multi-byte UTF-8
+ * sequences from their individual bytes; also useful for any code
+ * that needs to construct a String from a byte it computed. */
+static inline VyneValue vcore_chr(VyneValue v) {
+    int64_t code = (v.type == V_INT64) ? v.as.i64 : (int64_t)v.as.f64;
+    if (code < 0)   code = 0;
+    if (code > 255) code = 255;
+    char buf[2] = { (char)code, '\0' };
+    return vyne_string(buf);
+}
+
+/* ---------- string builder -------------------------------------------
+ * vcore.sb_create()           -> Int64 handle
+ * vcore.sb_append(handle, v)  -> null   (appends any value, stringified)
+ * vcore.sb_build(handle)      -> String (independent copy of the contents)
+ * vcore.sb_reset(handle)      -> null   (rewinds size to 0, keeps capacity)
+ *
+ * The handle is the builder pointer cast through intptr_t. Invalid or
+ * stale handles produce a no-op rather than a crash where that is
+ * possible; sb_append on a non-Int64 aborts with a diagnostic, matching
+ * vfs and vmem argument-type policy.
+ * ------------------------------------------------------------------- */
+static inline VyneValue vcore_sb_create(void) {
+    return vyne_sb_create();
+}
+
+static inline VyneValue vcore_sb_append(VyneValue handle, VyneValue value) {
+    if (handle.type != V_INT64) {
+        fprintf(stderr,
+                "Runtime error: vcore.sb_append() expects an Int64 handle "
+                "as its first argument.\n");
+        exit(1);
+    }
+    VyneStringBuilder* sb = _vyne_sb_from_handle(handle.as.i64);
+    if (!sb) return vyne_null();
+    vyne_sb_append_value(sb, value);
+    return vyne_null();
+}
+
+static inline VyneValue vcore_sb_build(VyneValue handle) {
+    if (handle.type != V_INT64) return vyne_string("");
+    VyneStringBuilder* sb = _vyne_sb_from_handle(handle.as.i64);
+    if (!sb) return vyne_string("");
+    return vyne_sb_build(sb);
+}
+
+static inline VyneValue vcore_sb_reset(VyneValue handle) {
+    if (handle.type != V_INT64) return vyne_null();
+    VyneStringBuilder* sb = _vyne_sb_from_handle(handle.as.i64);
+    if (sb) vyne_sb_reset(sb);
+    return vyne_null();
+}
+
 /* ---------- properties ---------------------------------------------- */
 static inline VyneValue vcore_get_version(void) { return vyne_string("v0.0.1-alpha"); }
 static inline VyneValue vcore_get_engine(void)  { return vyne_string("Vyne Native"); }
