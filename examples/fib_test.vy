@@ -1,6 +1,6 @@
 ruleset { dynamic_casting };
 
-fn fib(n) {
+fn fib(n :: Int64) -> Int64 {
     if (n < 2) {
         return n;
     }
@@ -8,4 +8,4 @@ fn fib(n) {
 }
 
 out("Fibonacci(30) result:");
-out(fib(20));
+out(fib(30));

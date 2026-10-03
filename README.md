@@ -651,12 +651,19 @@ The full list is in `docs/content/errcodes.html`.
 
 ### Recursive Fibonacci (n = 30)
 
+Both numbers are wall time of the fib(30) call, measured in-process.
+Process startup and codegen/compile time are excluded.
+
 | Backend      | Time     | Relative     |
 | :----------- | :------- | :----------- |
 | Interpreter  | 54.52 ms | 1.00x        |
-| C transpiler | 20.78 ms | 2.62x faster |
+| C transpiler | 19.87 ms | 2.74x faster |
 
-_i7-14700, Windows 11, GCC -O3._
+Measured on i7-14700, Windows 11. Transpiler build: `--blas --native`,
+GCC `-O3 -march=native`. Source is untyped-recursion `fn fib(n)`;
+adding `:: Int64` annotations does not change the transpiler result
+(the native-variant path is already taken) but does improve the
+interpreter by roughly 2x.
 
 ### Dense matmul (1024x1024, 100 iterations)
 
