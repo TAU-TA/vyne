@@ -86,5 +86,3 @@ if CONFIG == 1 {
         };
     };
 }
-
-out(vmem.stats());
