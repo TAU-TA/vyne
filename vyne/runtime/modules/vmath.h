@@ -210,4 +210,20 @@ static inline double vmath_clamp_f64(double v, double lo, double hi) {
     return v < lo ? lo : v > hi ? hi : v;
 }
 
+/* Additional unboxed variants used by vrand and by anything doing
+ * trig-heavy numeric loops. Added together so the map stays in sync. */
+static inline double vmath_sin_f64(double v)     { return sin(v); }
+static inline double vmath_cos_f64(double v)     { return cos(v); }
+static inline double vmath_tan_f64(double v)     { return tan(v); }
+static inline double vmath_asin_f64(double v)    { return asin(v); }
+static inline double vmath_acos_f64(double v)    { return acos(v); }
+static inline double vmath_atan_f64(double v)    { return atan(v); }
+static inline double vmath_atan2_f64(double y, double x) { return atan2(y, x); }
+static inline double vmath_sinh_f64(double v)    { return sinh(v); }
+static inline double vmath_cosh_f64(double v)    { return cosh(v); }
+static inline double vmath_tanh_f64(double v)    { return tanh(v); }
+static inline double vmath_log10_f64(double v)   { return log10(v); }
+static inline double vmath_erf_f64(double v)     { return erf(v); }
+static inline double vmath_erfc_f64(double v)    { return erfc(v); }
+
 #endif /* VYNE_VMATH_RT_H */
