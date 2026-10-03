@@ -1,814 +1,917 @@
-# 🌿 Vyne
+# Vyne
 
-> **A C‑flavored scripting language with optional strict typing, structs via `interface`, and a standard library that reaches from VMath to VGLib 3D and VServ HTTP.**
+> A C-flavored scripting language with optional strict typing, interface-based
+> structs, and a standard library that ranges from scalar math to 3D graphics,
+> real-time audio DSP, and HTTP servers.
 
-[![Vyne CI](https://github.com/tuncaygafarli/vyne/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/tuncaygafarli/vyne/actions/workflows/c-cpp.yml)
-[![pages-build-deployment](https://github.com/tuncaygafarli/vyne/actions/workflows/pages/pages-build-deployment/badge.svg)](https://github.com/tuncaygafarli/vyne/actions/workflows/pages/pages-build-deployment)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![C++](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://isocpp.org/)
-[![Version](https://img.shields.io/badge/version-0.0.4--alpha-orange.svg)](https://github.com/tuncaygafarli/vyne)
+[![CI](https://github.com/tuncaygafarli/vyne/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/tuncaygafarli/vyne/actions/workflows/c-cpp.yml)
+[![Docs](https://github.com/tuncaygafarli/vyne/actions/workflows/pages/pages-build-deployment/badge.svg)](https://github.com/tuncaygafarli/vyne/actions/workflows/pages/pages-build-deployment)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](https://isocpp.org/)
+[![Version](https://img.shields.io/badge/version-0.0.4--alpha-orange.svg)](CHANGELOG.md)
+[![Platforms](https://img.shields.io/badge/platforms-linux%20%7C%20macOS%20%7C%20windows-lightgrey.svg)](#build-from-source)
 
 ---
 
-## 📖 Overview
+## Overview
 
-Vyne is a hybrid, interpreted language with C-style syntax, strong type inference, and a rich standard library. It features:
+Vyne is a statically-analyzable scripting language with two execution
+backends sharing a single AST:
 
-- **Two execution modes**: Tree‑walking interpreter for fast iteration, or a C transpiler for standalone native binaries
-- **Optional strict typing**: Use `::` for explicit types or `=` for inference
-- **Rich standard library**: VMath (numerics), VGLib (2D/3D graphics), VAudio (DSP & audio), VServ (HTTP/WebSocket), VMem (low-level memory)
-- **Interface-based structs**: `interface` blocks declare typed fields and methods together
-- **Ruleset system**: Fine-grained control over type checking, memory limits, and performance
-- **No GC pauses in C output**: Arena-allocated memory with deterministic cleanup
+- a **tree-walking interpreter** for fast iteration and REPL use, and
+- a **C transpiler** that lowers the same AST to a single, self-contained C
+  translation unit that links against a small arena-based runtime.
+
+The language is deliberately C-shaped: braces, semicolons, `fn` for
+declarations, `if`/`while`/`through` for control flow, and `::` for
+type-annotated bindings. It adds the features that make a scripting layer
+pleasant to write — first-class functions, pipeline operator, null
+coalescing, string interpolation, interface-based structs, generics via
+monomorphization — without giving up the ability to run without a garbage
+collector.
+
+Every value the compiled backend produces lives in an arena. There is no
+GC, no reference counting, no hidden allocator traffic inside numeric
+loops. A region block scopes that arena lexically: `region name { ... }`
+takes a checkpoint on entry, and every allocation made inside the block is
+reclaimed at the closing brace. Programs that use regions have flat peak
+memory regardless of iteration count.
 
 ```vyne
-// hello.vy — Vyne in action
+# hello.vy
 msg = "vyne" + " language";
-out(msg); // => "vyne language"
+out(msg);                     # vyne language
+
+# typed binding with explicit strictness
+age :: Int64 = 30;
+
+# range loop that collects
+doubled = through x :: 0..10 -> collect { x * 2 };
+out(doubled);                 # [0, 2, 4, ..., 20]
+
+# pipeline
+result = 5 |> double |> square;
 ```
 
 ---
 
-## 🚀 Quick Start
+## Table of contents
 
-### Installation
+- [Why Vyne](#why-vyne)
+- [Quick start](#quick-start)
+- [Language tour](#language-tour)
+- [Memory model](#memory-model)
+- [Standard library](#standard-library)
+- [External library system](#external-library-system)
+- [Transpiler architecture](#transpiler-architecture)
+- [Diagnostics](#diagnostics)
+- [Performance](#performance)
+- [CLI reference](#cli-reference)
+- [Build from source](#build-from-source)
+- [Project layout](#project-layout)
+- [Editor support](#editor-support)
+- [Limitations](#limitations)
+- [Contributing](#contributing)
+- [License](#license)
+- [Acknowledgments](#acknowledgments)
+
+---
+
+## Why Vyne
+
+Most scripting languages force a choice between two extremes: either an
+interpreter with a garbage collector and no path to a standalone binary, or
+a compiled language where a quick edit means a full build cycle. Vyne is
+built to occupy the middle ground.
+
+**Two backends, one AST.** The interpreter and the C transpiler consume the
+same parsed tree. A program that runs under `vynec script.vy` behaves
+identically under `vynec --compile script.vy`; the difference is that the
+second form produces a native binary that links against a small runtime
+(~50 KB baseline) and inherits the host C compiler's optimizer.
+
+**Deterministic memory, no GC.** Values live in a bump arena. `region`
+blocks reclaim everything allocated inside them. There are no pauses, no
+finalizers, and no inference about liveness in the compiled output.
+
+**Native ABI where it matters.** The transpiler specializes functions
+whose parameters and return type are all primitives or typed arrays. A
+function with signature `(Array<Float64>, Int64) -> Float64` compiles to
+the equivalent C function taking `double*` and `int64_t`, with no boxing,
+no tag check, and no arena traffic inside the loop. The kernel/wrapper
+split that appears throughout the library ecosystem (`vlin`, `vfft`,
+`vml`) is a direct consequence of this design.
+
+**A standard library that reaches from scalar math to web servers.**
+`vmath`, `vcore`, `vfs`, `vmem` cover the basics. `vglib` (Raylib),
+`vaudio` (DSP), `vserv` (HTTP/WebSocket), `vnet` (raw sockets), `vcv`
+(computer vision), and `vurage` (embedded database) cover the rest.
+They are native C++ modules registered into the interpreter and exposed
+identically to compiled programs.
+
+---
+
+## Quick start
 
 ```bash
 git clone https://github.com/tuncaygafarli/vyne.git
 cd vyne
 make
-```
-
-### Run Your First Program
-
-```bash
 ./vynec examples/hello.vy
 ```
 
-### Transpile to C and Compile
+Transpile a program to a standalone binary:
 
 ```bash
 ./vynec --compile examples/logic_test.vy
-# Generates logic_test.vy.c and compiles to logic_test.exe
+# emits logic_test.vy.c and compiles it against runtime/vyne_runtime.h
+# produces ./logic_test
+```
+
+Enable BLAS dispatch for matrix operations:
+
+```bash
+./vynec --compile examples/benchmark/matmul_1024_vlin.vy --blas
+```
+
+Start the REPL:
+
+```bash
+./vynec
 ```
 
 ---
 
-## 🏗️ Architecture
+## Language tour
 
-Vyne uses a single AST with two execution paths:
-
-```
-                                   ┌─ Interpreter ────┐
-source.vy → Lexer → Parser → AST → │                  │
-                                   └─ C Transpiler  ──┘
-                                           │
-                                           ▼
-                                    arena‑allocated C code
-```
-
-| Component       | Description                                                                                                                    |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| **Lexer**       | `tokenize()` streams a flat `vector<Token>`, handling string interpolation (`"{expr}"`) inline                                 |
-| **Parser**      | Recursive‑descent `Parser` builds a typed `unique_ptr<ASTNode>` tree, tracking scopes for warnings                             |
-| **Interpreter** | Each node's `evaluate(env, scopeId)` walks the tree against a `SymbolContainer` keyed by scope                                 |
-| **Transpiler**  | `Codegen` + `C_Emitter` lower the same AST to a single C translation unit, then `arena_free_all()` at exit                     |
-| **Value Model** | `Value` is a tagged union — primitives live inline; Array/Map/Struct/Function/Module are boxed behind `shared_ptr<VyneObject>` |
-| **StringPool**  | Identifiers and field names are interned once into a global pool; symbol lookups compare `uint32_t` IDs instead of strings     |
-
----
-
-## ⚙️ The Transpilation Engine: C as High-Level Assembly
-
-Vyne's C transpiler bridges high-level expressive syntax with low-level machine performance.
-
-### How It Works: From AST to Binary
-
-1. **AST Flattening**: Complex, nested expressions are decomposed into a linear sequence of C statements
-2. **Mangled Namespacing**: `group` and `interface` structures use deterministic mangling (e.g., `Master.Element.getName()` → `fn_Master_Element_getName`)
-3. **Implicit Header Injection**: Automatically links with `vyne_runtime.h` for the core `Value` system, arena memory management, and built-in operations
-
-### Why Transpile to C?
-
-- **Zero Overhead Portability**: Runs anywhere with a C compiler (GCC, Clang, MSVC)
-- **Aggressive Optimization**: Inherits decades of C compiler optimization research (loop unrolling, vectorization)
-- **Embedded Friendly**: Resulting binaries start at ~50 KB, suitable for resource-constrained environments
-
-### Performance Benchmark: Recursive Fibonacci (30)
-
-Recursive functions stress any language's call stack and value system. Vyne's transpiler consistently outperforms the interpreter by nearly **3x** in recursion-heavy tasks.
-
-| Execution Mode     | Time (ms)    | Speed Gain       |
-| :----------------- | :----------- | :--------------- |
-| AST Interpreter    | 54.52 ms     | 1.0x (Base)      |
-| Compiled (GCC -O3) | **20.78 ms** | **~2.6x Faster** |
-
-_Test Environment: i7-14700 · Windows 11 · Vyne Transpiler v0.9_
-
-### Advanced Memory Management: The "Silent" Heap Frame
-
-To prevent **Stack Overflow** during deep recursion, the transpiler uses:
-
-1. **Heap-Based Call Frames**: Argument arrays allocated in the Vyne Arena, not the system stack
-2. **Flattened Expression Trees**: Nested function calls (e.g., `f(g(x))`) are flattened into temporary variables during code generation
-3. **Arena Block Allocation**: Memory managed in high-speed 8MB blocks where allocation is a simple pointer increment
-
----
-
-## 📚 Language Reference
-
-### Core Syntax
-
-| Feature        | Syntax Example            | Description                                    |
-| :------------- | :------------------------ | :--------------------------------------------- |
-| **Arithmetic** | `(+, -, *, /, <, >, ==)`  | Standard mathematical and comparison operators |
-| **Bitwise**    | `(&&, \|\|)`              | Low-level bit manipulation                     |
-| **Functions**  | `fn calculate(x) { ... }` | Defined using the `fn` keyword                 |
-| **Logic Flow** | `if cond { ... }`         | Standard conditional branching                 |
-| **Loops**      | `while cond { ... }`      | Standard iteration                             |
-| **Scoping**    | `group Graphics { ... }`  | Encapsulate logic into named namespaces        |
-| **Modules**    | `module vcore`            | Interfaces with native C++ libraries           |
-
-### Types
-
-| Type      | Example                 | Notes            |
-| :-------- | :---------------------- | :--------------- |
-| `Int64`   | `age :: Int64 = 30;`    | 64‑bit signed    |
-| `Float64` | `pi :: Float64 = 3.14;` | Double precision |
-| `String`  | `"hello"`               | UTF‑8, immutable |
-| `Array`   | `[1, "two", 3.0]`       | Heterogeneous    |
-| `Map`     | `{ "key": 42 }`         | String keys only |
-| `Bool`    | `true` / `false`        | Boolean logic    |
-
-### Assignment Modes
-
-| Mode         | Syntax Example               | Description                 |
-| :----------- | :--------------------------- | :-------------------------- |
-| **Inferred** | `score = 95`                 | Type determined at runtime  |
-| **Explicit** | `age :: Int64 = 30`          | "Locked" to a specific type |
-| **Constant** | `const PI :: Float64 = 3.14` | Immutable binding           |
-
-### Control Flow
+### Bindings
 
 ```vyne
-// through with collect
-doubled = through x :: [1,2,3] -> collect { x * 2 }; // [2,4,6]
-
-// filter
-evens = through n :: 0..10 -> filter { n % 2 == 0 };
+x = 42;                     # inferred
+y :: Int64 = 42;            # explicit
+const PI :: Float64 = 3.141592653589793;
 ```
 
-### Structs & Interfaces
+Under `ruleset { strict_mode = true }`, `x = 42` without a type is a
+compile error. The default is dynamic binding with a warning.
 
-Vyne uses `interface` as both a struct definition and a constructor:
+### Primitive types
+
+| Type       | Example           | Notes                                    |
+| ---------- | ----------------- | ---------------------------------------- |
+| `Int64`    | `42`              | 64-bit signed                            |
+| `Float64`  | `3.14`            | IEEE-754 double                          |
+| `String`   | `"hello"`         | UTF-8, immutable, interned               |
+| `Bool`     | `true`, `false`   |                                          |
+| `Null`     | `null`            |                                          |
+| `Array`    | `[1, "two", 3.0]` | heterogeneous                            |
+| `Array<T>` | `Array<Float64>`  | typed array, native ABI on the C backend |
+| `Map`      | `{"key": 42}`     | string keys                              |
+
+### Control flow
+
+```vyne
+if x > 0 {
+    out("positive");
+} else if x < 0 {
+    out("negative");
+} else {
+    out("zero");
+}
+
+while running {
+    step();
+}
+
+# range loop with a mode
+squares = through i :: 1..10 -> collect { i * i };
+evens   = through i :: 0..100 -> filter { i % 2 == 0 };
+allPos  = through i :: list -> every { i > 0 };
+uniq    = through i :: list -> unique { i };
+```
+
+The `through ... -> mode` form is the language's canonical iteration
+construct. Modes are `loop` (side effects only), `collect`, `filter`,
+`every`, and `unique`.
+
+### Functions
+
+```vyne
+fn add(a :: Int64, b :: Int64) -> Int64 {
+    return a + b;
+}
+
+fn max_of<T>(a :: T, b :: T) -> T {
+    if a > b { return a; }
+    return b;
+}
+```
+
+Generic parameters (`<T>`) are monomorphized at code generation time;
+calls like `max_of<Int64>(3, 5)` and `max_of<Float64>(3.0, 5.0)` produce
+two distinct C functions.
+
+### Interfaces
+
+`interface` declares a struct as a set of typed fields plus methods that
+close over them. An interface is also the constructor for values of that
+type.
 
 ```vyne
 interface Circle {
     r :: Float64;
     area() -> Float64 {
-        return r * r * 3.14159;
+        return r * r * 3.141592653589793;
     }
 }
 
-c = Circle(4.0); // fields fill positionally
-out(c.area());   // => 50.26544
+c = Circle(4.0);
+out(c.area());     # 50.26544
 ```
 
-### Error Handling
+Interfaces are the mechanism behind every struct-typed value in the
+standard library — `vlin.Types.Matrix`, `vfft.Plan`, `vjson.Parser`,
+`vml.Types.Dense`. Their field layouts participate in the native-ABI
+dispatch: a struct-typed parameter expands into one C argument per field,
+so the caller and callee agree on a flat, unboxed calling convention.
+
+### Groups
+
+`group` namespaces functions and constants without introducing a type.
+
+```vyne
+group Geometry {
+    fn area_of_circle(r :: Float64) -> Float64 {
+        return r * r * 3.141592653589793;
+    }
+    const TAU :: Float64 = 6.283185307179586;
+}
+
+out(Geometry.area_of_circle(2.0));
+```
+
+### Enums
+
+```vyne
+enum Color {
+    RED = 0,
+    GREEN,
+    BLUE,
+}
+
+out(Color.GREEN);   # 1
+```
+
+### Error handling
 
 ```vyne
 try {
-    risky();
-    throw "boom";
+    parse(input);
 } catch (err) {
-    out(err);
+    out("failed: " + string(err));
 } finally {
     cleanup();
 }
 ```
 
+Exceptions are `longjmp`-based on the compiled backend (`VYNE_MAX_EXC_FRAMES`
+= 64) and stack-unwound in the interpreter. `throw` accepts any value.
+
 ### Operators
 
-| Operator | Name            | Example                  |
-| :------- | :-------------- | :----------------------- |
-| `..`     | Range           | `0..10`                  |
-| `? :`    | Ternary         | `ready ? "go" : "wait"`  |
-| `??`     | Null-coalesce   | `name ?? "anon"`         |
-| `??=`    | Coalesce-assign | `cfg.mode ??= "default"` |
-| `\|>`    | Pipeline        | `data \|> normalize`     |
-| `in`     | Membership      | `x in [1, 2, 3]`         |
-| `//`     | Floor divide    | `7 // 2`                 |
-| `&`      | Reference param | `fn bump(v :: Int64&)`   |
-| `$`      | Addresser       | `$target`                |
+| Operator | Meaning                  | Example                  |
+| :------- | :----------------------- | :----------------------- |
+| `..`     | Range (inclusive)        | `0..10`                  |
+| `:`      | Slice (in `[...]`)       | `s[1:3]`                 |
+| `?:`     | Ternary                  | `ready ? "go" : "wait"`  |
+| `??`     | Null coalesce            | `name ?? "anon"`         |
+| `??=`    | Null coalesce assignment | `cfg.mode ??= "default"` |
+| `\|>`    | Pipeline                 | `data \|> normalize`     |
+| `in`     | Membership               | `x in [1, 2, 3]`         |
+| `//`     | Floor division           | `7 // 2`                 |
+| `**`     | Power                    | `2 ** 10`                |
+| `&`      | Reference parameter      | `fn bump(v :: Int64&)`   |
+| `$`      | Address-of               | `$target`                |
 
----
+### Rulesets
 
-## 📦 Standard Library
-
-### Global Functions
-
-```vyne
-out(x)         // Print to terminal
-type(x)        // Returns "Float64", "String", "Array", or "Function"
-sizeof(x)      // Get length of strings or count of array elements
-string(x)      // Convert any data type to string
-int64(x)       // Convert any data type to Int64
-float64(x)     // Convert any data type to Float64
-sequence(x, y) // Generates a sequence (array) in given range
-free(x)        // Explicitly free memory (use with care)
-exit(code)     // Exit the program
-```
-
-### Built-in Modules
-
-| Module     | Description                                                                |
-| :--------- | :------------------------------------------------------------------------- |
-| **vcore**  | System-level utilities, I/O, sleep timers, process management              |
-| **vglib**  | Hardware-accelerated 2D/3D graphics engine (Raylib-based)                  |
-| **vaudio** | Professional-grade DSP: compressor, EQ, reverb, LUFS, BPM detection        |
-| **vserv**  | HTTP/WebSocket server with Express-style routing, middleware, static files |
-| **vmath**  | High-performance C++ math: trig, ML functions, logs, rounding              |
-| **vmem**   | Memory introspection: usage tracking, address manipulation, peek/poke      |
-
-### VCore
-
-```vyne
-vcore.input(prompt)   // Read line from stdin
-vcore.now()           // ISO timestamp
-vcore.sleep(ms)       // Block thread
-vcore.memory_usage    // RSS bytes (property)
-```
-
-### VMath
-
-```vyne
-// Trig
-sin, cos, tan, atan2
-
-// ML
-sigmoid, relu, clamp
-
-// Log
-sqrt, log, exp, pow
-
-// Round
-floor, ceil, round, abs
-```
-
-### VGLib — Graphics
-
-VGLib is a full-featured 2D/3D framework built on top of **Raylib**:
-
-```vyne
-module vglib;
-
-vglib.init(1280, 720, 60, "My Game", vglib.VSYNC);
-while (vglib.running()) {
-    vglib.begin();
-    vglib.clear(vglib.rgba(20, 30, 40, 255));
-    vglib.rect(100, 100, 200, 150, vglib.RED);
-    vglib.end();
-}
-vglib.close();
-```
-
-**Key features:**
-
-- 2D: lines, rectangles, circles, text, textures
-- 3D: cameras, cubes, planes, models, billboards
-- Shaders & post-processing (GLSL)
-- Input: keyboard, mouse
-- Map loading, collision detection, AI pathfinding
-- Persistent groups for advanced instancing
-
-### VAudio — DSP Engine
-
-VAudio is a professional-grade audio processing engine with real-time DSP:
-
-```vyne
-module vaudio;
-
-// Load and play a sound
-sfx = vaudio.load_sound("explosion.wav");
-vaudio.play_sound(sfx);
-
-// Stream music with BPM detection
-music = vaudio.play_stream("background.ogg");
-vaudio.attach_bpm(music);
-bpm = vaudio.get_bpm(music);
-
-// Apply compressor
-vaudio.attach_compressor(sfx);
-vaudio.set_compressor(-12, 4, 15, 120, 2, true, true);
-
-// 7-band EQ
-vaudio.attach_eq(music);
-vaudio.set_eq(2, 400, 4.5, 1.2); // Boost 400Hz
-
-// Reverb
-vaudio.attach_reverb(sfx);
-vaudio.set_reverb(0.8, 0.4, 25, 0.5, true);
-```
-
-**Key features:**
-
-- Sound loading (WAV, MP3, FLAC, OGG)
-- Streaming audio with loop support
-- Compressor: threshold, ratio, attack, release, makeup gain, auto-makeup
-- 7-band parametric EQ: peaking, high-pass, low-pass, high-shelf, low-shelf
-- Algorithmic FDN reverb: decay, mix, predelay, damping
-- LUFS metering (ITU-R BS.1770)
-- BPM detection (50–200 BPM)
-- Spectrum analysis (64-bin FFT)
-- Offline rendering: apply DSP chain to files and export as WAV
-- 3D spatial audio with distance-based attenuation
-- Saturation modes: Soft Tube, Hard Clip, Asymmetric, Tape, GameBoy
-
-### VServ — Web Framework
-
-VServ is a production-ready HTTP/WebSocket server with Express-style routing:
-
-```vyne
-module vserv;
-module vcore;
-
-// Express-style app
-app = vserv.create_app();
-
-// Logger middleware
-fn logger(req, res, next) {
-    vcore.out("[" + req.method + "] " + req.path);
-    next();
-};
-vserv.app_use(app, logger);
-
-// Routes
-vserv.app_get(app, "/hello", fn(req, res) {
-    vserv.send(res, "Hello, World!");
-});
-
-vserv.app_post(app, "/api/users", fn(req, res) {
-    data = req.body;
-    vserv.send_json(res, { "created": true, "data": data });
-});
-
-// Static files
-vserv.app_get(app, "/static/*", fn(req, res) {
-    res = vserv.serve_file(req.path);
-    vserv.send(res);
-});
-
-vserv.app_listen(app, 3000);
-```
-
-**Key features:**
-
-- GET, POST, PUT, DELETE routing
-- Middleware chains
-- Static file serving with automatic MIME type detection
-- WebSocket upgrades
-- Request/Response objects
-- JSON response helper
-- Status codes (2xx, 3xx, 4xx, 5xx)
-- MIME type constants
-
----
-
-## 🛡️ Rulesets
-
-Vyne's `ruleset` system gives you fine-grained control over the engine's behavior:
+`ruleset` declares compile-time and runtime policy. It can appear at any
+scope; the effect applies from that point forward.
 
 ```vyne
 ruleset {
-    // Type System
-    strict_mode = true,
-    type_check = "strict",
-    dynamic_casting = false,
-    implicit_conversion = "warn",
-
-    // Memory
-    memory_limit = 256 * 1024 * 1024, // 256MB
-    memory_tracking = on,
-    garbage_collection = on,
-
-    // Performance
-    optimization = 2, // 0-3
-    profiling = on,
-    jit = on,
-    loop_unrolling = on,
-
-    // Runtime
-    debug = on,
-    trace = off,
-    stack_trace = on,
-    recursion_limit = 1000,
-
-    // Security
-    safe_mode = off,
-    sandbox = off,
-    allow_vmem = on,
-    allow_network = on,
-
-    // Warnings
-    warnings = "all",
-    warnings_ignore = ["unused_variable", "shadow_variable"],
-
-    // Experimental
-    async = off,
-    simd = on
+    strict_mode      = true,
+    dynamic_casting  = false,
+    memory_limit     = 256 * 1024 * 1024,
+    optimization     = 2,
+    warnings         = "all",
+    warnings_ignore  = ["unused_variable"],
 };
 ```
 
-### Available Rules
+Available categories: type system, memory, performance, runtime, security,
+warnings, and experimental flags. The full table is in
+[`docs/content/rulesets.html`](docs/content/rulesets.html).
 
-| Category         | Rule                  | Type            | Description                             |
-| :--------------- | :-------------------- | :-------------- | :-------------------------------------- |
-| **Type System**  | `strict_mode`         | boolean         | Enforce strict type checking            |
-|                  | `type_check`          | string          | `strict` / `hybrid` / `dynamic`         |
-|                  | `dynamic_casting`     | boolean         | Allow runtime type conversions          |
-|                  | `implicit_conversion` | string          | `allow` / `warn` / `deny`               |
-| **Memory**       | `memory_limit`        | integer (bytes) | Maximum memory usage                    |
-|                  | `memory_tracking`     | boolean         | Track memory usage                      |
-|                  | `garbage_collection`  | boolean         | Enable automatic GC                     |
-| **Performance**  | `optimization`        | integer (0-3)   | Optimization level                      |
-|                  | `profiling`           | boolean         | Collect execution metrics               |
-|                  | `jit`                 | boolean         | Just-In-Time compilation                |
-|                  | `loop_unrolling`      | boolean         | Loop unrolling optimization             |
-| **Runtime**      | `debug`               | boolean         | Additional runtime checks               |
-|                  | `trace`               | boolean         | Execution tracing                       |
-|                  | `stack_trace`         | boolean         | Include stack traces in errors          |
-|                  | `recursion_limit`     | integer         | Maximum recursion depth                 |
-| **Security**     | `safe_mode`           | boolean         | Restrict dangerous operations           |
-|                  | `sandbox`             | boolean         | Isolate execution environment           |
-|                  | `allow_vmem`          | boolean         | Allow direct memory access              |
-|                  | `allow_network`       | boolean         | Allow network operations                |
-| **Warnings**     | `warnings`            | string          | `all` / `none` / `error_only`           |
-|                  | `warnings_ignore`     | array           | List of warning types to ignore         |
-| **Experimental** | `async`               | boolean         | Asynchronous execution                  |
-|                  | `simd`                | boolean         | SIMD vectorization                      |
-|                  | `max_iterations`      | integer         | Maximum loop iterations (0 = unlimited) |
+### Regions
 
-### Preset Profiles
-
-| Profile         | Configuration                                                               |
-| :-------------- | :-------------------------------------------------------------------------- |
-| **Performance** | `optimization = 3`, `jit = on`, `profiling = off`, `loop_unrolling = on`    |
-| **Debug**       | `debug = on`, `trace = on`, `stack_trace = on`, `memory_tracking = on`      |
-| **Secure**      | `safe_mode = on`, `sandbox = on`, `allow_vmem = off`, `allow_network = off` |
-
----
-
-## 🧪 Example Projects
-
-### Game with VGLib
+A `region` block scopes arena lifetime lexically.
 
 ```vyne
-module vglib;
+through epoch :: 1..N -> loop {
+    region train_step {
+        scratch grad :: Float64[64, 16];
+        # every allocation here is reclaimed at the closing brace
+    };
+};
+```
 
-// Setup
-vglib.init(1280, 720, 60, "Cube Spinner", vglib.VSYNC);
-cam = vglib.camera(45.0);
+Three region policies exist:
 
-// Main loop
-while (vglib.running()) {
-    vglib.begin();
-    vglib.clear(vglib.rgba(20, 30, 40, 255));
+- `region name { ... }` — default bump-checkpoint/rewind behavior.
+- `@pool<Float64, 64> region name { ... }` — fixed-capacity slot
+  allocator for repeated same-sized buffers.
+- `@speculative region name { ... }` — the rewind is conditional on
+  `region.commit_if(predicate)`; the region's allocations survive if any
+  commit fires.
 
-    vglib.begin3d(cam);
-    vglib.cube(0, 0, 0, 2.0, time * 50, vglib.CYAN);
-    vglib.end3d();
+Region escape analysis (`VNE-070`) rejects assignments that would write a
+region-local pointer into a shallower variable, catching the most common
+use-after-rewind bug at compile time.
 
-    vglib.end();
-    time = time + 0.01;
+### Shaped scratch arrays
+
+```vyne
+region kernel {
+    scratch grad_w1 :: Float64[64, 16];
+    scratch grad_b1 :: Float64[16];
+    # lowered to `double grad_w1[1024];` on the C stack
 }
-vglib.close();
 ```
 
-### Web Server with VServ
+`scratch` is codegen-only. The interpreter rejects it with a clear
+diagnostic rather than silently emulating the semantics.
+
+---
+
+## Memory model
+
+Vyne's compiled backend uses a bump arena with three components.
+
+### Main arena
+
+`arena_alloc(n)` bumps a pointer in the current block. Blocks default to
+8 MB and are backed by `mmap` with `MADV_HUGEPAGE` on Linux, `VirtualAlloc`
+on Windows, and `malloc` elsewhere. Allocation is a pointer increment plus
+a bounds check.
+
+### Commit arena
+
+`region.commit(x)` deep-clones `x` into a parallel arena that survives
+region rewinds. The committed value stays valid after the enclosing region
+closes. Committed storage is freed at program exit; escape analysis to
+determine earlier free points is a planned feature.
+
+### Checkpoints
+
+`vmem.checkpoint()` records `(block, offset)` and returns an `Int64`
+handle. `vmem.rewind(h)` frees every block created after that checkpoint
+and resets the bump pointer. Nested checkpoints form a stack; rewinding to
+slot `k` invalidates slots `k..top`.
+
+The region syntax is sugar over this. `region name { ... }` compiles to
+a checkpoint, the body, and a rewind at the closing brace.
+
+### Interning
+
+Every identifier and map key is interned in a process-global string pool.
+Symbol lookups compare `uint32_t` IDs instead of strings. The intern table
+itself lives outside the arena (malloc-backed) so a rewind cannot
+invalidate it.
+
+### Typed arrays
+
+`Array<Float64>` and `Array<Int64>` are represented at runtime by
+`VyneArray_f64` and `VyneArray_i64`, structs holding a raw `double*` or
+`int64_t*` plus size and capacity. Boxing a typed array into a `VyneValue`
+is O(1) — it wraps the pointer, it does not copy elements. Unboxing a
+`V_F64_ARRAY` is likewise O(1). This is what makes `A.data[i]` compile to
+a direct load.
+
+---
+
+## Standard library
+
+Native modules are implemented in C++ and registered into the interpreter's
+symbol tables. The C transpiler emits calls into a parallel set of
+`static inline` C functions in `runtime/modules/`. Both backends expose the
+same surface.
+
+### Core
+
+| Module  | Purpose                                                                                                              |
+| :------ | :------------------------------------------------------------------------------------------------------------------- |
+| `vcore` | System utilities: `now`, `now_ns`, `sleep`, `platform`, `input`, string builder, `memory_usage`, `pid`, process info |
+| `vmath` | Trig, exp/log, rounding, sigmoid/relu, clamp, PCG32 random                                                           |
+| `vfs`   | Filesystem: read, write, lines, bytes, walk, glob, mkdir, path ops                                                   |
+| `vmem`  | Arena checkpoints, peak tracking, live-state inspection, commit                                                      |
+
+### Extended
+
+| Module   | Purpose                                                                |
+| :------- | :--------------------------------------------------------------------- |
+| `vglib`  | 2D/3D graphics on Raylib: shapes, cameras, shaders, input, textures    |
+| `vaudio` | Real-time DSP: compressor, 7-band EQ, FDN reverb, LUFS, BPM, saturator |
+| `vserv`  | HTTP/WebSocket server: Express-style routing, middleware, static files |
+| `vnet`   | Raw sockets                                                            |
+| `vcv`    | Computer vision                                                        |
+| `vurage` | Embedded key/value database                                            |
+
+### Built-in functions
 
 ```vyne
-module vserv;
-module vcore;
-
-app = vserv.create_app();
-
-vserv.app_get(app, "/", fn(req, res) {
-    vserv.send(res, "<h1>Hello from Vyne!</h1>");
-});
-
-vserv.app_get(app, "/api/time", fn(req, res) {
-    vserv.send_json(res, { "time": vcore.now() });
-});
-
-vserv.app_listen(app, 8080);
-```
-
-### Audio Processor with VAudio
-
-```vyne
-module vaudio;
-
-// Load and process audio
-sfx = vaudio.load_sound("input.wav");
-
-// Apply compressor and EQ
-vaudio.attach_compressor(sfx);
-vaudio.set_compressor(-12, 4, 15, 120, 2, true, true);
-
-vaudio.attach_eq(sfx);
-vaudio.set_eq(2, 400, 4.5, 1.2);
-vaudio.set_eq(4, 2500, 3.0, 1.5);
-
-vaudio.attach_reverb(sfx);
-vaudio.set_reverb(0.6, 0.3, 20, 0.4, true);
-
-// Render offline
-vaudio.render_offline("input.wav", "output_mastered.wav");
+out(x)          # print
+type(x)         # "Int64" | "Float64" | "String" | "Array" | "Map" | ...
+sizeof(x)       # length of a string or array
+string(x)       # any value -> String
+int64(x)        # any value -> Int64
+float64(x)      # any value -> Float64
+sequence(lo, hi)# generate [lo, hi)
+exit(code)      # terminate
+free(x)         # no-op on the compiled backend (arena); releases object on the interpreter
 ```
 
 ---
 
-## 📘 Documentation
+## External library system
 
-Vyne's engine architecture is fully documented using **Doxygen**.
+Libraries written in Vyne itself live under `modules/external/`. A facade
+`.vy` file re-exports the leaf modules via `use lib` and `module`. The
+language's own numeric and data-processing stack is written this way.
 
-### Generate Documentation
+### Libraries in this repository
 
-```bash
-doxygen Doxyfile
+| Library    | Purpose                                                                 |
+| :--------- | :---------------------------------------------------------------------- |
+| `vjson`    | RFC 8259 parser and serializer, built on the vcore string builder       |
+| `vlin`     | Dense linear algebra: matrices, matmul, reductions, element-wise ops    |
+| `vml`      | Dense neural network primitives: `Dense`, `Sequential`, `SGD`, `Adam`   |
+| `vfft`     | Iterative radix-2 Cooley-Tukey FFT with plan caching and bit-reversal   |
+| `vrand`    | Distributions and sampling: normal, gamma, beta, Poisson, categorical   |
+| `vbio`     | Nucleotide and protein sequence primitives: complement, translation, GC |
+| `vcolors`  | ANSI color helpers                                                      |
+| `vconvert` | Data format conversion                                                  |
+| `vstring`  | String utilities                                                        |
+| `vplot`    | Plotting                                                                |
+
+Each library ships with a full manual in its directory. `vlin/README.md`,
+`vml/README.md`, `vjson/README.md`, `vfft/README.md`, `vrand/README.md`,
+and `vbio/README.md` are the reference for the user-visible surface.
+
+### Kernel/wrapper pattern
+
+Every performance-sensitive library in this repository splits into two
+layers:
+
+```
+Kernels.vy    # loops over typed arrays; native ABI; no boxing
+Ops.vy        # shape checks, allocation, dispatch to kernels
 ```
 
-Then open `vyne-docs/html/index.html` in your browser.
+The kernels are functions of the form
+`(Array<Float64>, Int64) -> Float64` or
+`(Array<Float64>, Array<Float64>, Int64) -> Int64`. The transpiler
+recognizes this shape and emits a direct C function; the wrappers handle
+shape validation, scratch buffer allocation, and dispatch.
 
-### Navigating the Docs
+### BLAS dispatch
 
-- **AST Hierarchy**: View how every language feature inherits from `ASTNode`
-- **Collaboration Diagrams**: See class dependencies and interactions
-- **Function Call Graphs**: Trace how `evaluate()` methods process complex scripts
-- **Native Module Bindings**: Explore C++ implementations of `vglib`, `vaudio`, and `vserv`
+`vlin.multiply` and `vlin.multiply_trans_b` lower to `cblas_dgemm` when
+the compiler is invoked with `--blas`. The dispatch table lives in
+`compiler/codegen/blas_dispatch.h`; the runtime bridge is
+`runtime/detail/blas_bridge.h`. Source is unchanged between the two
+modes — only the lowering of the matched calls differs.
 
 ---
 
-## 🔧 Development
+## Transpiler architecture
 
-### Build from Source
+### Pipeline
+
+```
+source.vy
+    │
+    ▼
+tokenize()          compiler/lexer
+    │
+    ▼
+Parser              compiler/parser
+    │  recursive descent, scope tracking, type resolution
+    ▼
+ASTNode tree        compiler/ast
+    │
+    ├──► Interpreter    evaluate(env, scopeId) against SymbolContainer
+    │
+    └──► C_Emitter      compiler/codegen
+            │
+            ▼
+        single .c file  linked against runtime/vyne_runtime.h
+```
+
+### Codegen structure
+
+The codegen directory is split per feature, not per file-organization
+convenience. Each `.cpp` owns one category of AST node and its lowering:
+
+| Source                                              | Responsibility                                          |
+| :-------------------------------------------------- | :------------------------------------------------------ |
+| `literals.cpp`                                      | Number, string, bool, null                              |
+| `assignments.cpp`                                   | Variables, assignment, native init, region escape       |
+| `operators.cpp`                                     | Binary, unary, postfix                                  |
+| `builtins.cpp`                                      | `out`, `string`, `int64`, `sizeof`, ...                 |
+| `control_flow.cpp`, `loops.cpp`                     | `if`, `while`, `through`, `return`, `break`, `continue` |
+| `functions.cpp`, `function_calls.cpp`               | Definitions, calls, native dispatch                     |
+| `collections.cpp`                                   | Arrays, indexing, slicing, ranges                       |
+| `members.cpp`, `interfaces.cpp`, `method_calls.cpp` | Fields and methods                                      |
+| `groups_modules.cpp`, `imports.cpp`                 | Groups, modules, imports                                |
+| `language_features.cpp`                             | Enums, defer, coalescing, membership, pipeline          |
+| `exceptions.cpp`                                    | Try/catch/finally/throw                                 |
+| `regions.cpp`                                       | `region`, `@pool`, `@speculative`, `region.commit`      |
+| `maps_strings_scratch.cpp`                          | Maps, interpolated strings, shaped scratch arrays       |
+| `program.cpp`                                       | Program, block, ternary                                 |
+| `native_dispatch.cpp`                               | Native-ABI call lowering                                |
+| `blas.cpp`                                          | BLAS lowering under `--blas`                            |
+
+`emitter.h` holds all per-compilation state: output streams, scope stack,
+static type tables, native variant registry, region stack, pool stack,
+speculative stack, monomorphization cache. Every `C_Emitter` method is
+either a query against that state or a mutation of it; the AST nodes
+themselves are immutable after parsing.
+
+### Name mangling
+
+Groups, interfaces, and function names mangle deterministically:
+
+```
+Master.Element.getName()      →  fn_Master_Element_getName
+vlin.Types.Matrix             →  struct_vlin_Types_Matrix
+vlin.cross_entropy            →  fn_vlin_Reductions_cross_entropy
+```
+
+The mangling scheme is the interface between the compiler and the runtime
+method table (`vyne_register_method`). `VYNE_MAX_METHODS` is 4096; the
+compiler emits a diagnostic when a program exceeds it.
+
+### Native ABI
+
+A function is a candidate for native lowering when:
+
+- every parameter is a primitive (`Int64`, `Float64`, `Bool`), a typed
+  array (`Array<Float64>` or `Array<Int64>`), or a struct with a
+  registered field layout,
+- the return type is a primitive, a typed array, or such a struct, and
+- the body does not contain a top-level `defer` or `try`.
+
+Such a function is emitted twice: once with the standard boxed signature
+`(int arg_count, VyneValue* args) -> VyneValue`, and once with the native
+signature, e.g.
+
+```c
+double fn_vlin_k_dot(double* a, double* b, int64_t n);
+```
+
+Call sites prefer the native variant when every argument matches the
+declared parameter type. Struct-typed parameters expand into one C
+argument per field, in field-declaration order. Array-typed parameters
+pass `.data` directly.
+
+### Monomorphization
+
+Generic functions with explicit type arguments are instantiated per
+distinct type tuple. The cache is keyed on
+`<mangled-fn-name>__<type-tuple>` and stores the emitted C name. Recursive
+instantiation is detected and terminates cleanly.
+
+### Region escape analysis
+
+`checkRegionEscape` in `assignments.cpp` rejects the pattern
+
+```vyne
+outer = allocate_inside_region();
+```
+
+where `outer` was declared at shallower region depth than the current one
+and the RHS is not provably primitive. The diagnostic (`VNE-070`) names
+the variable, both depths, the line, and three fixes. This is deliberately
+syntactic; the regions paper documents what the check cannot see, and the
+current implementation does not attempt to close those gaps.
+
+---
+
+## Diagnostics
+
+The compiler produces colorized, source-annotated diagnostics with stable
+codes. `runtime/diagnostics.h` owns the emission engine; every site in
+`compiler/` uses `emitError` / `emitWarning` / `emit`.
+
+```
+Error [VNE-070]: variable 'out' is declared outside the current region
+    (depth 0) but is being assigned a value allocated inside a region
+    (current depth 1) at line 42.
+  Suggestions:
+    - declare 'out' inside the region, or
+    - copy the value out with region.commit(tmp) and assign from tmp, or
+    - move the assignment to before the region.
+   42 |     out = make_buffer();
+      |     ^
+```
+
+Selected codes:
+
+| Code      | Meaning                              |
+| :-------- | :----------------------------------- |
+| `VNE-001` | Unexpected token                     |
+| `VNE-002` | Missing semicolon                    |
+| `VNE-003` | Unknown type name                    |
+| `VNE-005` | Unresolved import                    |
+| `VNE-070` | Region escape                        |
+| `VNE-071` | Scratch shape mismatch               |
+| `VNE-072` | Scratch index out of bounds          |
+| `VNE-080` | Invalid region policy argument       |
+| `VNE-082` | Pool region exhausted                |
+| `VNE-084` | `region.commit` on typed-array local |
+| `VNE-085` | `commit_if` outside `@speculative`   |
+| `VNE-100` | Method table overflow                |
+
+The full list is in `docs/content/errcodes.html`.
+
+---
+
+## Performance
+
+### Recursive Fibonacci (n = 30)
+
+| Backend      | Time     | Relative     |
+| :----------- | :------- | :----------- |
+| Interpreter  | 54.52 ms | 1.00x        |
+| C transpiler | 20.78 ms | 2.62x faster |
+
+_i7-14700, Windows 11, GCC -O3._
+
+### Dense matmul (1024x1024, 100 iterations)
+
+The same Vyne source is compiled three ways:
+
+| Build                             | Kernel                               |
+| :-------------------------------- | :----------------------------------- |
+| `vynec --compile`                 | Emitted C triple loop                |
+| `vynec --compile --blas`          | `cblas_dgemm`                        |
+| `vynec --compile --blas --native` | `cblas_dgemm` + host `-march=native` |
+
+See `examples/benchmark/matmul_1024_vlin.vy`. The source is byte-identical
+across the three modes; only the lowering of `vlin.multiply` differs.
+
+### End-to-end ML workload
+
+`examples/training/ml_seq.vy` trains a 64→16→12→1 classifier on 240 RNA
+sequences for 1000 epochs. With regions scoping per-iteration allocations,
+peak RSS stays flat regardless of epoch count.
+
+---
+
+## CLI reference
+
+```
+vynec [options] <file.vy>
+```
+
+| Flag           | Effect                                                    |
+| :------------- | :-------------------------------------------------------- |
+| _(none)_       | Run under the interpreter                                 |
+| `--compile`    | Transpile to C and invoke the host C compiler             |
+| `--interp`     | Force the interpreter even for scripts that ship compiled |
+| `--blas`       | Lower matched matrix calls to BLAS                        |
+| `--native`     | Add `-march=native` to the host compiler invocation       |
+| `--emit-c`     | Emit the C source without invoking the host compiler      |
+| `--out <name>` | Set the output binary name                                |
+| `--quiet`      | Suppress notes and warnings                               |
+| `--strict`     | Enable strict type checking                               |
+
+Diagnostics are written to stderr. Exit codes are `0` on success, `1` on
+compilation or runtime error, `2` on CLI misuse.
+
+---
+
+## Build from source
+
+### Prerequisites
+
+- C++17 compiler (GCC 9+, Clang 10+, MSVC 19.20+)
+- Make or CMake 3.15+
+- A C11 compiler for the generated output (default: the same compiler)
+
+Vendored dependencies under `vendor/`: Raylib (graphics and audio),
+OpenBLAS (optional, for `--blas`), stb (image, font, truetype), Urage
+(embedded database). OpenSSL is optional and only required for the
+WebSocket SHA-1 handshake path in `vserv`.
+
+### Build
 
 ```bash
-git clone https://github.com/tuncaygafarli/vyne.git
-cd vyne
 make
 ```
 
-### Run Tests
+Produces `vynec` in the repository root. On Windows, `build.bat` performs
+the equivalent.
+
+### Test
 
 ```bash
 make test
 ```
 
-### Project Structure
+Runs the suite under `tests/`, including compiler tests, DSP tests,
+graphics smoke tests, and the region-safety harness under
+`examples/safety/`.
+
+---
+
+## Project layout
 
 ```
 vyne/
-├── cli/                          # Command-line interface tools
-│   ├── file_handler.cpp/h        # File I/O operations
-│   ├── packager.cpp/h            # Module packaging
-│   └── repl.cpp/h                # Read-Eval-Print Loop
+├── main.cpp                       # entry point
+├── Makefile
+├── compiler/
+│   ├── lexer/                     # tokenizer, string interpolation
+│   ├── parser/                    # recursive descent, type resolution
+│   ├── ast/                       # AST nodes, Value type, SymbolContainer
+│   │   ├── ast.h / ast.cpp
+│   │   ├── ast_helpers.h
+│   │   └── value.h / value.cpp
+│   ├── codegen/                   # C transpiler (split per feature)
+│   │   ├── emitter.h              # per-compilation state
+│   │   ├── ctype.h                # VType -> C type mapping
+│   │   ├── native_maps.h          # native module symbol tables
+│   │   ├── native_dispatch.cpp    # native-ABI call lowering
+│   │   ├── blas.cpp, blas_dispatch.h
+│   │   ├── regions.cpp            # region/pool/speculative lowering
+│   │   ├── linker.cpp             # import graph, topological order
+│   │   └── *.cpp                  # per-feature emitters
+│   └── types.h                    # VType enum
 │
-├── compiler/                     # Core compiler (source)
-│   ├── ast/                      # Abstract Syntax Tree
-│   │   ├── ast.cpp/h             # AST node definitions
-│   │   ├── ast_helpers.h         # Symbol lookup & type helpers
-│   │   └── value.cpp/h           # Value system (tagged union)
-│   ├── codegen/                  # C transpiler
-│   │   ├── codegen.cpp/h         # AST → C code generation
-│   │   └── emitter.h             # C emitter with context management
-│   ├── lexer/                    # Tokenizer
-│   │   └── lexer.cpp/h           # Lexical analysis
-│   ├── parser/                   # Recursive-descent parser
-│   │   └── parser.cpp/h          # Parser with type resolution
-│   └── types.h                   # VType enum definitions
+├── runtime/                       # C runtime, linked into compiled output
+│   ├── vyne_runtime.h             # public entry
+│   ├── diagnostics.h              # diagnostic engine (shared with compiler)
+│   ├── detail/                    # arena, arrays, maps, strings, structs,
+│   │                              # operators, equality, exceptions, ...
+│   └── modules/                   # C mirror of each native module
+│       ├── vcore.h, vfs.h, vmath.h, vmem.h
+│       └── vyne_pool_runtime.h
 │
-├── docs/                         # Documentation website
-│   ├── assets/                   # Images and logos
-│   ├── theme/                    # Documentation theme
-│   ├── tutorials/                # Tutorial markdown files
-│   ├── core-concepts.html        # Core concepts guide
-│   ├── index.html                # Main docs page
-│   ├── index.js                  # Documentation scripts
-│   └── style.css                 # Documentation styles
+├── modules/
+│   ├── common/                    # native C++ module bindings
+│   │   ├── vcore/                 # system utilities
+│   │   ├── vmath/                 # scalar math
+│   │   ├── vfs/                   # filesystem
+│   │   ├── vmem/                  # memory
+│   │   ├── vglib/                 # graphics (Raylib)
+│   │   ├── vaudio/                # DSP: compressor, EQ, reverb, LUFS, ...
+│   │   ├── vserv/                 # HTTP/WebSocket
+│   │   ├── vnet/                  # sockets
+│   │   ├── vcv/                   # computer vision
+│   │   ├── vml/                   # ML native bindings
+│   │   └── vurage/                # embedded database
+│   └── external/                  # libraries written in Vyne
+│       ├── vjson/                 # JSON parser and serializer
+│       ├── vlin/                  # linear algebra
+│       ├── vml/                   # neural network primitives
+│       ├── vfft/                  # FFT with plan caching
+│       ├── vrand/                 # distributions and sampling
+│       ├── vbio/                  # bioinformatics
+│       ├── vcolors.vy, vconvert.vy, vplot.vy, vstring.vy
 │
-├── editors/                      # Editor integrations
-│   ├── nvim/                     # Neovim plugin
-│   │   ├── ftdetect/vyne.lua     # File type detection
-│   │   ├── lua/vyne_lsp.lua      # LSP client
-│   │   └── syntax/vyne.vim       # Syntax highlighting
-│   └── vscode/                   # VS Code extension
-│       └── lsp/                  # Language Server Protocol
-│           ├── backend/          # LSP server (C++)
-│           │   ├── include/      # Headers
-│           │   └── src/          # LSP server implementation
-│           ├── client/           # VS Code extension
-│           │   ├── src/          # Extension source
-│           │   └── syntaxes/     # TM Language grammar
-│           ├── server/           # Node.js LSP server
-│           └── samples/          # Example Vyne files
+├── cli/                           # REPL, file handler, packager
+├── editors/
+│   ├── vscode/lsp/                # VS Code extension + LSP backend
+│   └── nvim/                      # Neovim plugin
 │
-├── models/                       # Pre-trained ML models (VML)
-│   ├── crypto_deep_v1/           # Cryptocurrency prediction
-│   ├── crypto_market_v1/         # Market analysis
-│   ├── metu_grader_v1/           # Grade prediction
-│   └── xor_trained_v1/           # XOR logic gate
+├── examples/                      # language and library examples
+│   ├── benchmark/                 # matmul, recursion, ML training
+│   ├── dsp/                       # vaudio pipelines
+│   ├── graphics/                  # vglib demos, shaders
+│   ├── network/                   # vnet and vserv
+│   ├── safety/                    # region escape negative tests
+│   ├── training/                  # vlin/vml training scripts
+│   └── transpiler/                # codegen coverage tests
 │
-├── modules/                      # Runtime modules (source)
-│   ├── common/                   # Core modules
-│   │   ├── vaudio/               # Audio DSP engine
-│   │   │   ├── docs/             # DSP documentation
-│   │   │   │   ├── compressor.md
-│   │   │   │   ├── equalizer.md
-│   │   │   │   └── reverb.md
-│   │   │   ├── dsp/              # DSP implementation
-│   │   │   │   ├── analyzer.h
-│   │   │   │   ├── compressor.h
-│   │   │   │   ├── dsp_utils.h
-│   │   │   │   ├── equalizer.h
-│   │   │   │   ├── lufs.h
-│   │   │   │   ├── reverb.h
-│   │   │   │   ├── saturator.h
-│   │   │   │   └── shared_state.h
-│   │   │   ├── vaudio.cpp/h      # VAudio bindings
-│   │   │   └── vaudio.h
-│   │   ├── vcore/                # System utilities
-│   │   │   └── vcore.cpp/h
-│   │   ├── vcv/                  # Computer vision
-│   │   │   └── vcv.cpp/h
-│   │   ├── vfs/                  # Filesystem operations
-│   │   │   └── vfs.cpp/h
-│   │   ├── vglib/                # Graphics engine (Raylib)
-│   │   │   ├── vglib.cpp/h       # Main bindings
-│   │   │   ├── vglib_camera.cpp  # 3D camera
-│   │   │   ├── vglib_common.h    # Shared definitions
-│   │   │   ├── vglib_core.cpp    # Window & frame loop
-│   │   │   ├── vglib_input.cpp   # Keyboard & mouse
-│   │   │   ├── vglib_render2d.cpp # 2D rendering
-│   │   │   ├── vglib_render3d.cpp # 3D rendering
-│   │   │   └── vglib_shaders.cpp # Shaders & post-processing
-│   │   ├── vmath/                # High-performance math
-│   │   │   └── vmath.cpp/h
-│   │   ├── vmem/                 # Memory introspection
-│   │   │   └── vmem.cpp/h
-│   │   ├── vml/                  # Machine Learning
-│   │   │   ├── vml.cpp/h         # Main bindings
-│   │   │   ├── vml_common.h      # Shared definitions
-│   │   │   ├── vml_activation.cpp # Activation functions
-│   │   │   ├── vml_layers.cpp    # Neural network layers
-│   │   │   ├── vml_loss.cpp      # Loss functions
-│   │   │   ├── vml_model.cpp     # Model management
-│   │   │   ├── vml_ops.cpp       # Tensor operations
-│   │   │   ├── vml_optimizer.cpp # Optimizers (SGD, Adam)
-│   │   │   └── vml_tensor.cpp    # Tensor implementation
-│   │   ├── vnet/                 # Networking (raw sockets)
-│   │   │   └── vnet.cpp/h
-│   │   ├── vserv/                # HTTP/WebSocket server
-│   │   │   ├── vserv.h           # Main definitions
-│   │   │   ├── vserv_common.h    # Shared helpers
-│   │   │   ├── vserv_request.cpp # Request parsing
-│   │   │   ├── vserv_server.cpp  # Server core
-│   │   │   ├── vserv_setup.cpp   # Module registration
-│   │   │   ├── vserv_static.cpp  # Static file serving
-│   │   │   ├── vserv_web.cpp     # Express-style web framework
-│   │   │   └── vserv_ws.cpp      # WebSocket support
-│   │   └── vurage/               # Database engine (Urage)
-│   │       └── vurage.cpp/h
-│   └── external/                 # External module libraries
-│       ├── vcolors.vy            # Color utilities
-│       ├── vconvert.vy           # Data conversion
-│       ├── vjson.vy              # JSON parsing
-│       ├── vlinalg.vy            # Linear algebra
-│       ├── vml.vy                # ML wrapper
-│       ├── vplot.vy              # Plotting
-│       └── vstring.vy            # String utilities
-│
-├── runtime/                      # Runtime system
-│   ├── diagnostics.h             # Error & warning reporting
-│   ├── vyne_runtime.h            # Core runtime API
-│   └── modules/                  # Runtime module headers
-│       ├── vcore.h
-│       └── vmath.h
-│
-├── scripts/                      # Build & utility scripts
-│   ├── build_path.sh
-│   ├── run_all_tests.sh
-│   └── test_ast.sh
-│
-├── tests/                        # Test suite
-│   ├── assets/                   # Test assets (audio, images, models)
-│   ├── compiler/                 # Compiler tests
-│   ├── dsp/                      # Audio DSP tests
-│   │   ├── configs/              # DSP test configurations
-│   │   └── *.vy                  # DSP test scripts
-│   ├── graphics/                 # Graphics tests
-│   │   ├── shaders/              # Test shaders
-│   │   └── *.vy                  # Graphics test scripts
-│   ├── network/                  # Networking tests
-│   │   ├── vdnet/                # vnet tests
-│   │   └── vserv/                # VServ tests
-│   ├── training/                 # ML training tests
-│   │   └── vnet/                 # vnet training tests
-│   └── *.vy                      # Language feature tests
-│
-├── utils/                        # Utilities
-│   ├── file_utils.h              # File I/O helpers
-│   └── sha256.h                  # SHA-256 hashing
-│
-├── vendor/                       # Third-party dependencies
-│   ├── raylib/                   # Raylib (graphics/audio)
-│   │   ├── include/              # Raylib headers
-│   │   └── lib/                  # Raylib static libraries
-│   ├── stb/                      # STB libraries (image, font, etc.)
-│   │   ├── stb_image.h
-│   │   ├── stb_image_write.h
-│   │   ├── stb_truetype.h
-│   │   └── ... (other STB headers)
-│   └── urage/                    # Urage embedded database
-│       ├── bindings/cpp/         # C++ bindings
-│       └── core/                 # Urage core
-│           ├── include/          # Urage headers
-│           └── src/              # Urage source
-│
-├── build/                        # Compiled object files
-│   ├── cli/
-│   ├── editors/vscode/lsp/backend/src/
-│   └── vyne/
-│       ├── compiler/
-│       │   ├── ast/
-│       │   ├── codegen/
-│       │   ├── lexer/
-│       │   └── parser/
-│       └── modules/common/
-│           ├── vaudio/
-│           ├── vcore/
-│           ├── vcv/
-│           ├── vfs/
-│           ├── vglib/
-│           ├── vmath/
-│           ├── vmem/
-│           ├── vml/
-│           ├── vnet/
-│           ├── vserv/
-│           └── vurage/
-│
-├── .github/                      # GitHub Actions & templates
-│   ├── ISSUE_TEMPLATE/
-│   └── workflows/
-│
-├── .vscode/                      # VS Code project settings
-├── docs/                         # User documentation (HTML)
-├── main.cpp                      # Entry point
-├── Makefile                      # Build system
-├── Doxyfile                      # Doxygen configuration
-├── LICENSE                       # MIT License
-├── README.md                     # This file
-├── CODE_OF_CONDUCT.md
-├── CONTRIBUTING.md
-├── SECURITY.md
-├── build.bat                     # Windows build script
-├── build.sh                      # Linux/Mac build script
-└── vynec.exe                     # Vyne compiler executable
+├── models/                        # pre-trained weights (.dat)
+├── tests/                         # test suite
+├── docs/                          # documentation site
+├── scripts/                       # build and test scripts
+└── vendor/                        # third-party libraries
+    ├── raylib/
+    ├── openblas/
+    ├── stb/
+    └── urage/
 ```
 
 ---
 
-## 🤝 Contributing
+## Editor support
 
-Contributions are welcome! Here's how to get started:
+### VS Code
 
-1. **Fork the repository**
-2. **Create a feature branch**: `git checkout -b feature/amazing-feature`
-3. **Commit your changes**: `git commit -m 'Add amazing feature'`
-4. **Push to the branch**: `git push origin feature/amazing-feature`
-5. **Open a Pull Request**
+A language server and extension are under `editors/vscode/lsp/`. The
+extension ships syntax highlighting (TextMate grammar), a language
+configuration file, and a client for the LSP backend in `backend/`.
+Prebuilt VSIX packages are checked in.
 
-### Guidelines
+### Neovim
 
-- Follow the existing code style
-- Add tests for new features
-- Update documentation accordingly
-- Ensure all tests pass: `make test`
+A minimal plugin under `editors/nvim/` provides file-type detection
+(`ftdetect/vyne.lua`), an LSP client (`lua/vyne_lsp.lua`), and a syntax
+file (`syntax/vyne.vim`).
 
----
+### Doxygen
 
-## 📄 License
-
-Distributed under the MIT License. See `LICENSE` for more information.
+The compiler and runtime are Doxygen-annotated. `doxygen Doxyfile`
+generates HTML documentation covering the AST hierarchy, module
+bindings, and call graphs.
 
 ---
 
-## 🙏 Acknowledgments
+## Limitations
 
-- **Raylib** for graphics and audio primitives
-- **OpenSSL** for WebSocket SHA1 support
-- All contributors and users of Vyne
+The project is at an early alpha. The following constraints are known and
+tracked; they are documented here so users and contributors have accurate
+expectations.
+
+**No bitwise operators.** `&`, `|`, `^`, `~`, `<<`, `>>` are not part of
+the grammar. `&` is unary address-of, `&&` and `||` are logical
+connectives. This affects library code that would otherwise use bit
+manipulation (the bit-reversal routine in `vfft` is arithmetic for this
+reason; see `vfft/README.md`).
+
+**Codegen is not yet complete in every corner.** The generic-array
+element-type inference has a fallback path that keeps `vml.forward_all`
+returning a boxed array. `relu_prime` in `vlin` produces null elements
+under the current `ForNode::getCExpr` emission. These are tracked; the
+user-visible workarounds are documented in the affected library manuals.
+
+**No integer overflow checking.** `int64(text)` saturates silently on
+out-of-range input. Arithmetic wraps.
+
+**No GC.** The interpreter relies on arena lifetime for the compiled
+backend and on `shared_ptr` for interpreter-only object graphs. Programs
+that accumulate long-lived values without region scoping will grow
+linearly. `vmem` is the intended tool.
+
+**Single-process RNG.** `vmath`'s PCG32 state is process-global. Two
+independent streams require a state-carrying RNG type that has not yet
+landed.
+
+**Native-to-native array calls are rejected.** A function whose body calls
+another function taking an array argument must inline that call or opt out
+of native registration. This is a codegen constraint and it is documented
+at the call sites that care.
 
 ---
 
-_Built with ❤️ by [Tuncay Qafarlı](https://github.com/tuncaygafarli)_
+## Contributing
+
+Contributions are welcome. Before opening a pull request:
+
+1. Fork the repository and create a feature branch.
+2. Follow the existing code style: feature-split `.cpp` files in
+   `compiler/codegen/`, `static inline` functions in `runtime/detail/`,
+   `.vy` leaf modules with a facade under `modules/external/`.
+3. Add tests. New language features belong under `examples/transpiler/`
+   or `tests/`; new library functions belong in the library's own test
+   file and, where applicable, in `examples/`.
+4. Update the relevant README under `modules/external/<lib>/` if the
+   public surface changed.
+5. Run `make test` and ensure everything passes.
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full guide. Bug reports
+and feature requests use the templates under `.github/ISSUE_TEMPLATE/`.
+
+---
+
+## License
+
+Distributed under the MIT License. See [`LICENSE`](LICENSE) for the full
+text.
+
+---
+
+## Acknowledgments
+
+- **Raylib** for the graphics and audio primitives underlying `vglib` and
+  `vaudio`.
+- **OpenBLAS** for the matmul kernels dispatched under `--blas`.
+- **Urage** for the embedded database backing `vurage`.
+- **stb** for the image, font, and truetype utilities vendored under
+  `vendor/stb/`.
+- Everyone who has filed issues, contributed patches, or shipped code in
+  Vyne.
