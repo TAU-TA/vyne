@@ -1,361 +1,271 @@
-# Vyne v0.3.0 — vml, lexical regions, and the memory-model release
+# Vyne v0.4.0 — dual licensing, three new libraries, and the native-struct ABI
 
-**Released 2026-09-30**
+**Released 2026-10-04**
 
-This release lands the paper's memory-model work in a runnable tree: lexical
-regions, shape-typed scratch, a native array ABI, BLAS dispatch, a full linear-
-algebra library (`vlin`), a machine-learning library layered on top of it
-(`vml`), transitive library resolution, and a set of correctness fixes to the
-escape analysis that had been producing false positives on well-typed code.
-Along the way, one silent-corruption defect in the emitter's untyped-`Array`
-inference was found and closed.
+This release formalizes the dual-license structure of the project, lands three new standard libraries (`vjson`, `vrand`, `vfft`), introduces the `@pool` region policy, completes the native struct ABI with field-layout registration and out-parameter returns, and closes a cluster of residual defects in the emitter's array and collection handling that survived the v0.3.0 empty-array fix. It also ships the VFS module, vmem peak-allocation tracking, and a broad refactor of `MethodCallNode` into a dispatch chain.
 
 ---
 
 ## Highlights
 
-- **Lexical regions and shape-typed scratch.** Arena checkpoints and stack-
-  resident fixed-shape arrays, with three new compile-time/runtime
-  diagnostics (VNE-070, VNE-071, VNE-072). On a 1024×1024 matmul, peak RSS
-  drops from 2837 MB to 36 MB at 100 iterations — a 79.9× reduction — with
-  bit-identical checksums.
-- **vlin + vml library stack.** Two-level library layering resolves
-  transitively from a single `use lib` in the user program. The RNA
-  sequence classifier trains to 99.5% accuracy through `vml` and produces
-  the same loss and the same per-sample predictions as its direct-`vlin`
-  counterpart.
-- **Native array ABI.** Functions taking `Array<Float64>` or `Array<Int64>`
-  are now callable as ordinary C functions taking `double*` or `int64_t*`.
-  This is what makes the BLAS bridge and the library kernels reachable
-  without a per-element boxing cost.
-- **BLAS dispatch.** `--blas` lowers `vlin.multiply` and
-  `vlin.multiply_trans_b` to `cblas_dgemm`. 110.5 GFLOP/s at four OpenBLAS
-  threads, bit-identical checksum to the emitted kernel.
-- **Escape analysis fixes.** VNE-070 was firing on well-typed calls through
-  group methods, interface methods, and aliased imports. Registration now
-  covers every name the check queries; a narrow suffix-match fallback
-  closes the remaining gap. No code-emitting path was touched.
+- **Dual licensing, formalized.** Compiler sources are AGPL-3.0-only, runtime sources are MIT. Every C/C++ source file now carries an SPDX header identifying its license, and the repository carries the full AGPL-3.0 text, the MIT text, and updated license documentation. Commits `f12b4d9`, `14835ac`, `a10365f`.
+
+- **Three new libraries.** `vjson` (parse, serialize, validate), `vrand` (continuous and discrete distributions, sampling utilities, RNG access), and `vfft` (FFT with a cached twiddle-factor and bit-reversal table). Each ships with a README and either a demo or a benchmark. Commits `eb4da7b`, `cfcec99`, `1ac7dd7`, `336a3e5`, `b36749b`, `a6c6c3a`, `8e0e2df`.
+
+- **`@pool` region policy.** A fixed-slot allocator with runtime support. Where the default region grows linearly through the commit arena, `@pool` releases slots at O(1) and exposes a fixed capacity at the policy level. Positive-coverage tests accompany the change. Commits `68c9a17`, `5ff510c`, `aa56396`.
+
+- **Native struct ABI.** Struct types are now first-class across the native boundary: field-layout registration, dispatch support, return-by-out-parameter, and `last_field_idx` for constant-time field access. Native C structs are also now eligible for interface representation. Commits `50669ff`, `653f4c2`, `62f805f`, `204f05a`.
+
+- **`MethodCallNode` refactor.** Method-call lowering is now a dispatch chain (native module methods → interface constructors → group methods → built-in array methods → string methods → typed-array methods), with per-branch argument handling and consistent receiver evaluation. Commit `946b279`.
+
+- **Array and collection semantics corrected.** A cluster of fixes closes residual gaps in the boxed fallback path for `ForNode` collect, untyped `Array` assignment, empty-literal returns, and the native `collect` fast path. Commits `a95fa39`, `6c15b81`, `97ea172`, `ad760e5`, `513f656`, `8547a10`, `9ba478f`, `981796a`, `3c29b0c`.
 
 ---
 
 ## New features
 
-### Lexical regions
+### Dual licensing
 
-`region name { ... }` introduces a lexically scoped checkpoint into the arena.
-Everything allocated inside the block is released at its closing brace; the
-checkpoint itself is O(1). Region checkpoint/rewind is `vmem_runtime_checkpoint`
-/ `vmem_runtime_rewind`. Commit `6748c56`.
+The project now ships two licenses at the repository root:
 
-### Shape-typed scratch
+- `LICENSE` — AGPL-3.0-only for the compiler, CLI, codegen, and everything outside the runtime.
+- `LICENSE-MIT` — MIT for the runtime, external module sources, and utilities.
 
-`scratch name :: Float64[d1, d2];` declares a fixed-shape, stack-resident
-numeric array. Indexing lowers to bare C array access — no runtime
-allocation, no per-element boxing, no pointer chasing. Multi-index syntax
-`x[i, j]` flattens to a linear index with compile-time strides.
-Commits `7d29629`, `fdc7987`, `daca5d4`, `39bc0ae`.
+Every C/C++ source file carries an SPDX header identifying its license. Hand-written `.c` files (e.g. `runtime/tests/smoke.c`) are stamped MIT; compiler sources are stamped AGPL-3.0-only. Commits `f12b4d9`, `14835ac`, `a10365f`.
 
-### Native array ABI and `RawArrayPtr`
+### `vjson`
 
-`CType::Kind::RawArrayPtr` represents a borrowed `T*` passed across the
-native ABI. `IndexAccessNode`, `IndexAssignmentNode`, `FunctionCallNode`, and
-`emitNativeFunctionBody` all handle it. A Vyne function whose parameters are
-`Array<Float64>` is now callable with the raw `double*` a C programmer would
-write by hand. Commit `7e923a7`.
+A native JSON module with parsing, serialization, and validation. Ships with a demo (`examples/…/json_demo.vy`) demonstrating error handling and round-trip validation. Commits `eb4da7b`, `cfcec99`, `24e7e9a`.
 
-### BLAS dispatch
+### `vrand`
 
-`--blas` enables `tryEmitBlasCall` in `codegen/blas.cpp`, consulting a two-
-entry table for `vlin.multiply` and `vlin.multiply_trans_b`. Matches lower to
-`vyne_blas_matmul` in the runtime, which extracts M, K, N by field ID and
-calls `cblas_dgemm`. Commits `0f443de`, `18e0b4f`.
+Continuous and discrete distributions, sampling utilities, and RNG access, layered on the runtime. A `vrand_demo` example exercises distributions and helpers. Commit `1ac7dd7`, `344b889`.
 
-### vlin and vml
+### `vfft`
 
-`vlin` provides typed `Matrix`, `Vector`, kernels, constructors, reductions,
-ops, activations, optimizers, and losses. `vml` layers `Dense`, `Sequential`,
-`SGD`, activation dispatch, and `cross_entropy` / `mse` on top. The classifier
-of `examples/training/ml_seq.vy` now imports only `vml` and still reaches
-`vlin.Types.Matrix` transitively. Commits `d8971e4`, `c21f9fa`, `2b9e99d`.
+An FFT module with a facade for FFT operations. The kernel caches twiddle factors and the bit-reversal table, which is the change that most affects repeated-transform throughput. Ships with a benchmark and a smoke test. Commits `336a3e5`, `80339ba`, `b36749b`, `204512b`, `8e0e2df`.
 
-### Transitive library resolution
+### `@pool` region policy
 
-`use lib "vml/vml.vy"` pulls in `vml`'s transitive imports without the user
-program naming `vlin` directly. Types, groups, and interfaces all resolve
-through the same registry. The classifier imports one library and uses three.
-Commit `1e6c701`.
+`@pool` implements a fixed-slot allocator whose release is O(1) per slot rather than the linear `region.commit` growth used by the default policy. Positive-coverage tests were added and the test output verbosity was tuned. Commits `68c9a17`, `5ff510c`, `aa56396`.
 
-### Extended CLI
+`region.commit_if()` is now supported inside `@speculative` regions, allowing a speculative block to conditionally commit its allocations. Commit `68abf76`.
 
-New flags for `vynec`: `--compile` (emit `.exe`, don't run), `--run`
-(compile + run), `--emit-c` (stop at C), `--emit-asm` (stop at assembly),
-`-o <name>`, `-h`, `-V`. Bare `vynec script.vy` compiles and runs, matching
-`go run` / `cargo run` ergonomics. Commit `8970ad6`.
+### Native struct ABI
 
-### Benchmark harness
+Struct types now cross the native boundary:
 
-`bench.ps1` gains a `-Source` mode (compile-then-benchmark), `-Blas`,
-`-Native`, `-NoScratchBounds` forwarding, `-Json` export, `-Baseline`
-comparison, median + MAD reporting, environment fingerprint, and fail-fast
-warmup. Commit `8970ad6` and follow-up work.
+- Field-layout registration and dispatch support for struct-typed native functions. Commit `653f4c2`.
+- Struct return types via out-parameters. Commit `62f805f`.
+- `last_field_idx` on structures so field access is constant time rather than a scan. Commit `50669ff`.
+- Native C struct representation for interface eligibility. Commit `204f05a`.
+
+### VFS module
+
+A Virtual File System module provides read, write, list, and path-manipulation primitives. It supports Windows and Unix-like systems and handles UTF-8 paths. Commit `d671170`.
+
+### vmem peak tracking
+
+The vmem module gains peak-allocation tracking: inspect peak usage, reset the peak, and validate checkpoint states. A dedicated test verifies the behavior. Commits `d671170`, `8afe18c`.
+
+### String builder
+
+A string-builder implementation for efficient string accumulation, avoiding repeated reallocation on append-heavy code. Commit `362d07f`.
+
+### vmath unboxed variants
+
+Trigonometric and logarithmic functions gain unboxed variants for use in numeric kernels where the boxed path is a measurable cost. Commit `1217813`.
+
+### Adam optimizer and fused dense forward pass
+
+`vml` gains an Adam optimizer and a fused forward pass for dense layers. A `fused_check` example verifies the fused pass against the un-fused path and reports the maximum difference. Commit `d703ec5`, `d3d5ad2`.
+
+### Monotonic nanoseconds for benchmarking
+
+`vcore_runtime_now_ns` implements a monotonic nanosecond clock on Windows and Unix-like systems, with an improved memory barrier. `now_ns` is registered in `VCORE_MAP`. This is the timing substrate for the benchmark harness. Commits `947e3f5`, `16e776c`, `c176633`.
+
+### Import syntax: `native` and `external`
+
+Module imports are normalized to distinguish `native` (compiler-provided) from `external` (`.vy` source) dependencies. `vlin` moved from `native` to module syntax; `vml` now uses native `vmath` and external `vlin`. A new import-syntax pattern is enforced across the codebase. Commits `0c83434`, `1d38043`, `b32f8f3`, `b06b28f`, `e44e6e8`.
+
+### CLI
+
+- Terminal color support and help-message formatting improved. Commit `c2b2ef2`.
+- Version output in CLI help corrected to reflect the current release. Commit `4f1f53a`.
+- Windows executable-path handling normalized in `runTranspile`. Commit `948b5e0`.
+
+### Examples
+
+- `gene_finder` — detects protein-coding DNA using a period-3 spectral signature. Commit `20ef942`.
+- Fibonacci example updated with type annotations and improved performance metrics. Commit `4061817`.
+- vfft benchmark iteration count and random-float range adjusted. Commit `204512b`.
+
+### Legacy-site tooling
+
+A set of Node scripts under `tools/` extracts and normalizes the legacy HTML site: `extract-legacy.mjs`, `code-normalize.mjs`, `layout.mjs`, `markdown.mjs`, `slug.mjs`, `vyne-highlight.mjs`. Commit `dff5227`.
 
 ---
 
 ## Bug fixes
 
-### VNE-070 false positives on group and interface methods
+### Residual empty-array and collection-handling defects
 
-**Closes the escape-check defect found during classifier development.**
-Calls to `vlin.cross_entropy`, `vlin.apply_tanh`, and friends inside a
-region were rejected as VNE-070 even though they return `Float64`. Root
-cause: the escape check queried the emitter's return-type table with a
-short list of name candidates that did not cover group methods
-(`<group>_<method>`), interface methods (emitted inline by
-`InterfaceNode::compile`, never routed through `FunctionNode::compile`),
-or `use lib` aliased imports (routed through `FunctionNode::compileAs`).
-Fixes: registration now covers every candidate spelling in
-`GroupNode::compile`, `FunctionNode::compile`,
-`FunctionNode::compileAs`, `ImportNode::compile`, and
-`InterfaceNode::compile`; `checkRegionEscape` falls back to a
-primitive-return-only suffix match against the whole table when named
-lookup misses. The code-emitting path is untouched. Commit `fc72d7e`.
+**Follow-up to the v0.3.0 empty-array fix.** The v0.3.0 release gated the empty-literal fast path on a known element type. The follow-up commits here close the residual cases:
 
-### Untyped `Array = []` silent narrowing
+- `ForNode` collect produced an empty result when the loop body's value was boxed. Adjusted the boxed fallback and ensured value emission. Commit `a95fa39`.
+- `ForNode` collection handling improved to guarantee proper value assignment. Commit `6c15b81`.
+- Empty-array literals in assignments and return statements are handled by the fast path only when the declared element type is known. Commit `97ea172`.
+- Tests for empty-array return functions and size checks. Commit `ad760e5`.
+- `AssignmentNode` element-type determination streamlined to avoid the previous over-eager inference. Commit `8547a10`.
+- Array-type assignment handling refactored to use global declarations. Commit `9ba478f`.
+- `reservoir` and `sample_without_replacement` updated to use the generic `Array` type, closing a latent narrowing. Commit `981796a`.
+- Residual gap documented in the native `collect` fast path for `Float64` and `Int64`. Commit `3c29b0c`.
+- Static type inference in `ASTNode` now handles empty statements. Commit `ee1aefa`.
+- `collect_typed_test` added to cover conditional handling in typed arrays. Commit `03816e2`.
 
-**Silent-corruption defect. Potentially affects any program with an untyped
-array accumulator.**
+### Assignment handling
 
-`x :: Array = [];` was lowered directly to `vyne_array_f64_create(0)` because
-the emitter defaulted an unknown element type to `Float64`. Every subsequent
-`x.push(v)` then coerced `v` to a `double` through the `VyneValue` union's
-`as.i64` member. For a string, a struct, or any non-numeric value, this wrote
-the low 64 bits of a pointer where a `double` was expected, under a static
-type claiming the values were legitimate. The symptom during classifier
-development was a runtime error several call frames from the actual defect
-(`Invalid operation between Int64 and Null`).
+- Fresh-declaration tracking added to assignment handling, along with interface primitive fields. Commit `daefe61`.
+- RHS kind resolution now supports function and method calls. Commit `c65746f`.
 
-Fix: the empty-literal fast path now fires only when the declared element
-type is known (i.e., the source said `Array<Float64>` or `Array<Int64>`).
-An untyped `Array = []` falls through to the boxed path and every later push
-goes through the tag-preserving runtime helper. Commit `dfa5ae4`
-_(confirm this — the commit message mentions the fix but not the defect)_.
+### Method-call handling
 
-### `sgd_step` overshoot
+`MethodCallNode` was refactored into a dispatch chain. Argument handling and type-checking were tightened for `byte_at`, typed-array methods, and string methods; error messages for incorrect argument counts were improved; receiver evaluation was consolidated so boxing is consistent across branches. Commit `946b279`.
 
-`vml.sgd_step(W, grad, opt)` was using `opt.lr` (0.5) instead of the mean-
-scaled learning rate (`0.5 / N_SAMPLES`), giving a 240× overshoot per epoch.
-Loss climbed 0.70 → 10.36 and accuracy stayed at 50% because sigmoid saturated
-immediately. Now takes the effective learning rate explicitly. Commit
-`bec8224`.
+### `vyne_out` `fflush`
 
-### `vyne_array_place_all` / `vyne_array_i64_push` allocation
+Removed an unnecessary `fflush(stdout)` from `vyne_out`, eliminating a redundant syscall on every output call. Commit `232d4cb`.
 
-Both now amortize growth on the arena. Commit `54c45bd`.
+### Struct handling
 
-### Unresolved-import diagnostics
+`structs.h` now returns null for empty structures rather than a valid-looking empty struct. Commit `d671170`.
 
-`parseImportModule` and `VyneLinker` produce actionable errors naming the
-file, the line, and the search directory. Commit `8d3c8c0`, `932846d`.
+### Typed-array allocation
 
-### `arena_free_all` redundant init
+Typed-array creation now uses a power-of-two capacity-allocation strategy in `typed_arrays.h`, reducing reallocation on append-heavy workloads. Commit `d671170`.
 
-Commit `8839781`.
+### `matmul_1024_blas.vy`
 
-### Member and index assignment inside regions
+Removed an unnecessary newline and cleaned up the output call in the benchmark driver. Commit `90bf692`.
 
-`IndexAssignmentNode` and `MemberAssignmentNode` now run the same region
-escape check as `AssignmentNode`. Commits `904add2`, `fdd65f7`.
+### Matrix multiplication type handling
+
+Matrix multiplication array types now use `Float64` explicitly. Benchmark configuration updated accordingly. Commits `a5ab47a`, `0047b76`.
 
 ---
 
-## Safety diagnostics
+## Runtime and memory
 
-Three new codes, all triggered by the region/scratch constructs:
+### VFS
 
-| Code        | Trigger                                                                                      |
-| ----------- | -------------------------------------------------------------------------------------------- |
-| **VNE-070** | Region escape: assignment of a region-local non-primitive into a shallower-declared variable |
-| **VNE-071** | Rank mismatch on multi-index scratch access                                                  |
-| **VNE-072** | Scratch index out of bounds (per-dimension, runtime)                                         |
+See New features above. Commit `d671170`.
 
-The safety test suite at `examples/safety/` covers all three plus six
-safe-pattern cases. Commit `a7fa011`, `cba685d`.
+### vmem peak tracking
 
----
+See New features above. Commits `d671170`, `8afe18c`.
 
-## Performance
+### Map entry management
 
-### 1024×1024 matmul, ITERS = 100
+Control-byte sentinels were introduced in `types.h` for efficient map entry management. Commit `d671170`.
 
-| Config                                 |        Peak RSS |     Wall clock | Checksum |
-| -------------------------------------- | --------------: | -------------: | -------: |
-| Baseline (boxed `Array` per iteration) | 2836.6 ± 2.7 MB | 13.83 ± 0.07 s |  3.47777 |
-| Region-only                            |   63.6 ± 0.1 MB | 13.72 ± 0.06 s |  3.47777 |
-| Region + scratch                       |   35.5 ± 0.0 MB | 14.54 ± 1.27 s |  3.47777 |
-| Hand-written C                         |   35.4 ± 0.0 MB |  13.11–15.08 s |  3.47777 |
+### `vcore_runtime_now_ns`
 
-### BLAS dispatch, 1024×1024 × 100
-
-| Config                       | Threads |    Wall | GFLOP/s | Checksum |
-| ---------------------------- | ------: | ------: | ------: | -------: |
-| Emitted kernel (no `--blas`) |       1 |  ~231 s |     0.9 |  3.47777 |
-| `cblas_dgemm`                |       1 | 4.005 s |    53.6 |  3.47777 |
-| `cblas_dgemm`                |       4 | 1.944 s |   110.5 |  3.47777 |
-| `cblas_dgemm`                |      28 | ~1.78 s |    ~121 |  3.47777 |
-
-All checksums bit-identical across configs and thread counts.
-
-### RNA classifier
-
-| Config              | Final acc | Final loss | Peak RSS |   Wall |
-| ------------------- | --------: | ---------: | -------: | -----: |
-| vlin-based (direct) |     99.5% |   0.226304 |   6.4 MB | 0.13 s |
-| vml-based (layered) |     99.5% |   0.226304 |   2.6 MB | 0.06 s |
-
-The vml-based numbers are collected on a lower-floor machine; the point is
-that the library layering adds nothing, not that it accelerates.
+Improved memory-barrier handling, ensuring the monotonic timestamp is correct across cores. Commit `c176633`.
 
 ---
 
 ## Documentation
 
-- **Technical report** on lexical regions and shape-typed scratch —
-  `regions.md`. Commits `6748c56`, `6d10701`, `35c0205`, `12c1630`.
-- **Optimization roadmap** — `todo_optimization.md`. Commit `c8e0199`.
-- **Per-file safety rulesets** (design draft) — `todo_rulesets.md`.
-  Commits `f66be85`, `c8e0199`.
-- **Native array ABI documentation** with corrected code formatting.
-  Commit `fbf0cbe`.
-- **Standard library TODO** — `todo_stdlib.md`. Commit `5a3e610`.
-- **Post-paper feature axes** — `todo_2.md`. Commit `444f036`.
+- **`vml` README** with usage examples. Commit `a6c6c3a`.
+- **`vfft` README** with documentation for the FFT facade. Commit `8e0e2df`.
+- **`todo_libraries.md`** rewritten: `vlin`, `vml`, `vbio`, `vfft`, `vjson` marked completed; priority order for upcoming libraries (`vfilter`, `voptim`) set; additional libraries organized by domain with effort estimates. Commit `1091793`.
+- **Chemistry and drug-discovery TODO** created. Commit `ebf0d26`; status updates for `byte_at` and native array ABI in commits `6aa7bab`, `ef4ab29`.
 
 ---
 
 ## Internal changes
 
-### Codegen architecture split
+### Method-call dispatch chain
 
-The monolithic `codegen.cpp` is replaced by feature-per-file translation
-units: `assignments.cpp`, `blas.cpp`, `builtins.cpp`, `collections.cpp`,
-`control_flow.cpp`, `exceptions.cpp`, `functions.cpp`, `function_calls.cpp`,
-`groups_modules.cpp`, `imports.cpp`, `interfaces.cpp`, `language_features.cpp`,
-`literals.cpp`, `loops.cpp`, `maps_strings_scratch.cpp`, `members.cpp`,
-`method_calls.cpp`, `native_dispatch.cpp`, `operators.cpp`, `program.cpp`,
-`regions.cpp`. Commit `d5a5833`.
+`MethodCallNode` is now organized as a chain of dispatch helpers rather than a single branching body. Commit `946b279`.
 
-### Type lookup unification
+### Assignment RHS resolution
 
-`C_Emitter::lookupType` replaces `exprNativeType` / `lookupAnyType` /
-`lookupCType`. One API, one ordering (nativeTemps → locals → globals).
-Commit `07d603c`.
+RHS kind resolution now recognizes function and method calls, not only expression forms. Commit `c65746f`.
 
-### Typed arrays
+### Typed-array capacity
 
-`V_F64_ARRAY` and `V_I64_ARRAY` value kinds with O(1) boxing and unboxing at
-the boundary. Commit `8483692`.
+Power-of-two capacity growth in `typed_arrays.h`. Commit `d671170`.
 
-### Region policies
+### Struct field layout
 
-Parameterizable allocation strategies per region. Commit `ea6b109`.
+`last_field_idx` added to structure layout, letting downstream code emit direct field access instead of scanning the field table. Commit `50669ff`.
 
-### AST accessors
+### Import syntax normalization
 
-`IndexAccessNode::takeBase`, `takeIndex`, `ScratchIndexNode::takeIndices`, and
-similar. Commit `ffdd501`.
+`native` vs. `external` imports enforced across `vlin`, `vml`, and downstream modules. Commits `0c83434`, `1d38043`, `b32f8f3`, `b06b28f`, `e44e6e8`.
+
+### Test coverage
+
+- `map_methods` test suite validating `Map` functionality. Commit `3f2fb77`.
+- `collect_typed_test` for conditional handling in typed arrays. Commit `03816e2`.
+- `vmem` peak-tracking test. Commit `8afe18c`.
+- Positive-coverage tests for `@pool`. Commit `5ff510c`.
+- `vfft` smoke test. Commit `80339ba`.
+
+### Vendored binaries
+
+OpenBLAS library binaries (`libopenblas.dll.a`, `libopenblas.exp`, `libopenblas.lib`, `libopenblasp-r0.3.34.a`) and a pkg-config file were added under `vendor/openblas/`. Commit `3afdf30`.
+
+### Unattributed commits
+
+Two commits are titled _"Implement code changes to enhance functionality and improve performance"_ (`2e61202`, `8c7dacc`). Their bodies contain no additional detail. If you still have the working tree, please amend the commit messages so the release note can attribute them; otherwise they will appear in the commit list but not in any category above.
 
 ---
 
 ## Breaking changes
 
-### CLI: `--compile` no longer runs the program
+### Import syntax
 
-`vynec --compile foo.vy` used to compile and then execute `foo.exe`. It now
-compiles and stops. Use `vynec --run foo.vy` (or the bare `vynec foo.vy`,
-which now means compile-and-run) if you want the program to execute.
+The `native` vs. `external` distinction is now enforced. Any `.vy` file that relied on the previous ambiguous import form must be updated. `vlin` is now an external module rather than a native one. See commits `0c83434`, `1d38043`, `b32f8f3`, `b06b28f`.
 
-Replace:
+### `Array` element-type inference
 
-```bash
-vynec --compile foo.vy           # old: compile + run
-```
+`AssignmentNode` no longer over-eagerly infers an element type for untyped `Array` declarations. Code that relied on the v0.3.0 narrowing (which was itself a temporary behavior) will now get boxed semantics. Add an explicit `Array<Float64>` or `Array<Int64>` annotation if you want the fast path. Commits `8547a10`, `9ba478f`.
 
-With:
+> **Note:** the v0.3.0 release note already stated that the silent narrowing was removed. This release tightens the remaining paths — `ForNode`, return statements, `reservoir` — so the changelog entry is a _completion_ of that change, not a new one. If you want the release note to read that way, say so and I'll rewrite it as a single continuity bullet rather than a breaking-change entry.
 
-```bash
-vynec foo.vy                     # new: compile + run
-vynec --run foo.vy               # new: same, explicit
-vynec --compile foo.vy           # new: compile only
-```
+### Struct returns from empty structures
 
-### CLI: `--c` alias removed
-
-`vynec --c` is gone. Use `vynec --emit-c` to emit C without compiling.
-
-### Library rename: `bio` → `vbio`
-
-Commit `c7340b1`, `fafeb5c`, `0ec3dc6`. Any `.vy` file importing the old
-`bio` library must update the import path.
-
-### `vlinalg` removed, replaced by `vlin`
-
-Commit `a0530ac`, `ce2bd11`, `d0b6670`. The Matrix interface now declares
-`Array<Float64>` rather than `Array` for its data field. Programs that
-relied on the untyped field will need to add the element type.
+`structs.h` now returns null for empty structures. Code that assumed a valid, zero-initialized struct from an empty struct literal must handle the null case. Commit `d671170`.
 
 ---
 
 ## Upgrade guide
 
-1. **Update CLI invocations.** `vynec --compile` now stops at `.exe`.
-   Anything that wanted the program to run must use `--run` or drop the
-   flag. See the breaking-changes section above.
-
-2. **Rename `bio` imports to `vbio`.** In any file that still uses
-   `use lib "bio/..."`, change to `use lib "vbio/vbio.vy"`.
-
-3. **Rename `vlinalg` references to `vlin`.** The old module is gone.
-   Interfaces, function names, and constructors moved to `vlin` with the
-   same semantics.
-
-4. **Add element types to `Matrix.data` accesses.** The field is now
-   `Array<Float64>`, not `Array`. Code that constructed a Matrix from a
-   boxed `Array` still works, but a Matrix whose `.data` is a typed
-   `VyneArray_f64` is required for the native-array ABI to fire.
-
-5. **Check any `Array = []` accumulator.** The emitter no longer silently
-   narrows an untyped `Array = []` to `Array<Float64>`. Code that depended
-   on the old behaviour (implicitly pushing numbers into an array that was
-   declared untyped and then indexing it as if it were typed) will now get
-   boxed semantics. This is almost certainly a _fix_ for your program, but
-   if you had code that relied on the previous narrowing, add an explicit
-   `Array<Float64>` annotation.
+1. **Update import declarations.** Replace bare imports with the `native` / `external` form. `vlin` is now `external`.
+2. **Add element types to untyped `Array` accumulators.** If your code used `x :: Array = []` and relied on the previous narrowing, add `Array<Float64>` (or `Array<Int64>`) explicitly. The boxed path will still work, but the fast path requires the annotation.
+3. **Handle null from empty struct literals.** If you construct a struct with no fields and rely on a non-null pointer, add a check.
+4. **Re-run benchmarks** if you compare against v0.3.0; the `vfft` kernel is faster due to twiddle-factor caching, and the `@pool` policy has different memory behavior than the default region.
+5. **Confirm the version string in CLI help** matches the tag you publish. Commit `4f1f53a` fixed this once already; verify it again after any further bumps.
 
 ---
 
 ## Known limitations
 
-- **Native-array indexing is not bounds-checked.** Indexing through a
-  `RawArrayPtr` is undefined behavior on out-of-range access, matching C.
-  The boxed path remains checked.
-- **Escape analysis is syntactic.** It rejects direct escape, member-store
-  escape, and index-store escape but does not track escape through a
-  function return or through a container. A full analysis is future work
-  (§6.4 of the technical report).
-- **`region.commit` grows the commit arena linearly.** Reclamation requires
-  the same escape analysis as above (§6.5).
-- **Shaped-assignment from a boxed source checks element type per element.**
-  A shaped `Array` type would let the check be elided (§6.6).
-- **Scratch arrays are bounded by the process stack.** Large scratch arrays
-  require `-Wl,--stack,67108864` on Windows or the equivalent; the compiler
-  driver passes this flag by default.
+- **Native `collect` fast path is incomplete for `Float64` and `Int64`.** Documented in commit `3c29b0c`; the boxed fallback covers the gap but at per-element cost.
+- **`vfft` is single-precision only, or unconfirmed.** The commit log does not state the precision or the supported lengths. Please confirm before publishing this section.
+- **`@pool` is not a drop-in replacement for the default region.** It imposes a fixed slot count chosen at compile time; oversizing wastes stack, undersizing fails at runtime. See the `@pool` test commits for the covered failure modes.
+- **The legacy-site tooling under `tools/` is Windows/Node-only as currently written.** It is not part of the compiler build.
 
 ---
 
 ## Contributors
 
-- **Tuncay** — all commits in this release.
+- **Tuncay Gafarli** — all commits in this release.
 
 ## Full commit list
 
-See `git log v0.2.0..v0.3.0` for the raw list. The 100 commits this release
-covers span `d60be2f` (2026-09-26) through `8970ad6` (2026-09-30).
+See `git log v0.3.0..HEAD` for the raw list. The 69 commits this release covers span `4f1f53a` (2026-09-30) through `a10365f` (2026-10-04).
+
+**Full Changelog**: https://github.com/t2ncay/vyne/compare/v0.0.5...v0.4.0
