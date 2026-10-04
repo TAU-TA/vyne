@@ -81,7 +81,7 @@ every accumulator pattern. A molecule parser will have dozens of
 
 **Effort.** Done.
 
-### C1. Fix generic array element inference
+### ~~C1. Fix generic array element inference~~ [ DONE ]
 
 `[first, ...rest]` should infer element type from `first`. An `[]`
 inside a function whose return type is `Array<T>` should infer `T` from
