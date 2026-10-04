@@ -35,15 +35,13 @@ static bool memberIsCEligible(const InterfaceMember& m) {
 
 static bool interfaceIsCEligible(const InterfaceNode& iface) {
     const auto& members = iface.getMembers();
-    if (members.empty()) return false;      // nothing to lay out
+    if (members.empty()) return false;
     for (const auto& m : members) {
         if (!memberIsCEligible(m)) return false;
     }
     return true;
 }
 
-// Map a C-eligible interface member to its C field type. Only called
-// when memberIsCEligible already returned true.
 static CType cFieldTypeFor(const InterfaceMember& m) {
     switch (m.type) {
         case VType::Int64:   return CType::fromKind(CType::Kind::Int64);
@@ -123,6 +121,9 @@ void InterfaceNode::compile(C_Emitter& e) const {
         }
         typedefSrc += "} " + tag + ";";
         e.emitGlobalDecl(typedefSrc);
+
+        e.emitGlobalDecl(
+            "VYNE_DEFINE_STRUCT_ARRAY(vyne_Array_" + tag + ", " + tag + ");");
     }
     // --- end C2 --------------------------------------------------------
 
