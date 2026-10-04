@@ -165,6 +165,51 @@ void MemberAssignmentNode::compile(C_Emitter& e) const {
     // Any write invalidates all cached unboxes for this function.
     e.clearFieldCache();
 
+    // --- Slice 3d: field write on a native C struct receiver ----------
+    // The receiver's C-level value is the `vyne_*` typedef, not a
+    // VyneValue. The generic box-and-set path below would rebuild a
+    // throwaway boxed copy via boxAny, mutate the copy, and discard it,
+    // silently losing the write. Emit `recv.member = value;` directly
+    // and coerce the RHS to the field's primitive kind.
+    //
+    // Only fires for a bare-variable receiver whose CType is a native
+    // struct. Chained receivers (`a.b.c = ...`) fall through to the
+    // boxed path, which is correct-but-slow until a later slice
+    // extends the lvalue handling.
+    if (receiver->type() == NodeType::VARIABLE) {
+        std::string recvC = receiver->getCExpr(e);
+        const CType* recvCt = e.lookupType(recvC);
+        if (recvCt && recvCt->kind == CType::Kind::Struct
+                   && recvCt->nativeCStruct) {
+            const auto* ns = e.getNativeCStruct(recvCt->mangledName);
+            if (!ns) {
+                throw std::runtime_error(
+                    "internal: nativeCStruct CType without registry entry "
+                    "for '" + recvCt->mangledName + "' (line " +
+                    std::to_string(lineNumber) + ").");
+            }
+            bool found = false;
+            for (size_t i = 0; i < ns->fieldNames.size(); ++i) {
+                if (ns->fieldNames[i] != memberName) continue;
+                found = true;
+                CType fct = ns->fieldTypes[i];
+                std::string rawRhs = rhs->getCExpr(e);
+                std::string native = coerceToNative(
+                    e, rhs.get(), rawRhs, fct.toVType());
+                e.emit(recvC + "." + memberName + " = " + native + ";");
+                break;
+            }
+            if (!found) {
+                throw std::runtime_error(
+                    "Compile Error: interface '" + recvCt->mangledName +
+                    "' has no field '" + memberName + "' (line " +
+                    std::to_string(lineNumber) + ").");
+            }
+            return;
+        }
+    }
+    // --- end Slice 3d -------------------------------------------------
+
     // --- Region escape check ------------------------------------------
     // If the receiver is a variable at a shallower region depth than
     // the current one, and RHS is a non-primitive from a deeper region,
