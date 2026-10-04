@@ -47,14 +47,19 @@
 struct BlasDispatchEntry {
     const char* group;
     const char* method;
+    bool        transpose_a;
     bool        transpose_b;
 };
 
 static const BlasDispatchEntry BLAS_DISPATCH_TABLE[] = {
-    // vlin.multiply(a, b)          →  C = A·B
-    {"vlin", "multiply",         false},
-    // vlin.multiply_trans_b(a, b)  →  C = A·Bᵀ
-    {"vlin", "multiply_trans_b", true },
+    // C = A·B
+    {"vlin", "multiply",                 false, false},
+    // C = A·Bᵀ
+    {"vlin", "multiply_trans_b",         false, true },
+    // C = Aᵀ·B
+    {"vlin", "trans_a_multiply",         true,  false},
+    // C = Aᵀ·Bᵀ
+    {"vlin", "trans_a_multiply_trans_b", true,  true },
 };
 
 static inline const BlasDispatchEntry* lookupBlasDispatch(

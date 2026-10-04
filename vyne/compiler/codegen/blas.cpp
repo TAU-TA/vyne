@@ -72,6 +72,7 @@ std::optional<std::string> tryEmitBlasCall(
     e.emit("    " + std::to_string(fidRow)  + ", " +
                    std::to_string(fidCol)  + ", " +
                    std::to_string(fidData) + ",");
-    e.emit("    " + std::string(d->transpose_b ? "1" : "0") + ");");
+    e.emit("    " + std::string(d->transpose_a ? "1" : "0") + ", " +
+                 std::string(d->transpose_b ? "1" : "0") + ");");
     return tR;
 }

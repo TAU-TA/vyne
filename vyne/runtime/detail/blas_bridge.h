@@ -72,13 +72,26 @@ static inline VyneValue vyne_blas_matmul(
     VyneValue a, VyneValue b,
     const char* type_name,
     uint32_t fid_row, uint32_t fid_col, uint32_t fid_data,
-    int transpose_b)
+    int transpose_a, int transpose_b)
 {
-    int64_t M = vyne_struct_get(a, fid_row).as.i64;
-    int64_t K = vyne_struct_get(a, fid_col).as.i64;
-    int64_t N = transpose_b
-        ? vyne_struct_get(b, fid_row).as.i64
-        : vyne_struct_get(b, fid_col).as.i64;
+    int64_t a_rows = vyne_struct_get(a, fid_row).as.i64;
+    int64_t a_cols = vyne_struct_get(a, fid_col).as.i64;
+    int64_t b_rows = vyne_struct_get(b, fid_row).as.i64;
+    int64_t b_cols = vyne_struct_get(b, fid_col).as.i64;
+
+    // Logical dimensions of C = op(A) · op(B):
+    //   op(A) is M × K,  op(B) is K × N,  C is M × N.
+    //   TA swaps A's role:  M = a_cols, K = a_rows.
+    //   TB swaps B's role:  N = b_rows.
+    int64_t M = transpose_a ? a_cols : a_rows;
+    int64_t K = transpose_a ? a_rows : a_cols;
+    int64_t N = transpose_b ? b_rows : b_cols;
+
+    // Leading dimensions are row strides of the STORED matrices.
+    // cblas_dgemm applies the trans flag as a view over the buffer —
+    // it does not expect a pre-transposed copy, so lda/ldb never change.
+    int64_t lda = a_cols;
+    int64_t ldb = b_cols;
 
     VyneArray_f64 a_data = _vyne_blas_unbox_cached(
         vyne_struct_get(a, fid_data), &_vyne_blas_a_key, &_vyne_blas_a_cache);
@@ -86,13 +99,11 @@ static inline VyneValue vyne_blas_matmul(
         vyne_struct_get(b, fid_data), &_vyne_blas_b_key, &_vyne_blas_b_cache);
     VyneArray_f64 out    = vyne_array_f64_create(M * N);
 
-    int64_t ldb = transpose_b ? K : N;
-
     cblas_dgemm(CblasRowMajor,
-                CblasNoTrans,
+                transpose_a ? CblasTrans : CblasNoTrans,
                 transpose_b ? CblasTrans : CblasNoTrans,
                 (int)M, (int)N, (int)K,
-                1.0, a_data.data, (int)K,
+                1.0, a_data.data, (int)lda,
                      b_data.data, (int)ldb,
                 0.0, out.data,    (int)N);
 
