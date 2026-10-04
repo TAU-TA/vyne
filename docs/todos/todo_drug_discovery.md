@@ -218,7 +218,7 @@ boxing-dominated.
 
 **Depends on.** C2.
 
-### C5. `byte_at(s, i) -> Int64` built-in
+### ~~C5. `byte_at(s, i) -> Int64` built-in~~ [ DONE ]
 
 `str[i]` returns a fresh 1-char `String`. Every character access
 allocates. PDB files are fixed-width, 80 columns, tens of thousands of
