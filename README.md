@@ -907,8 +907,9 @@ and feature requests use the templates under `.github/ISSUE_TEMPLATE/`.
 
 ## License
 
-Distributed under the MIT License. See [`LICENSE`](LICENSE) for the full
-text.
+Vyne is dual-licensed: the compiler is AGPL-3.0-only, the runtime is MIT.
+See [LICENSE](LICENSE), [LICENSE-MIT](LICENSE-MIT), and
+[TRADEMARK.md](TRADEMARK.md) for details.
 
 ---
 
