@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Tuncay Gafarli
+//
+// This file is part of the Vyne runtime library, distributed under the
+// MIT License. See LICENSE-MIT at the repository root for the full text.
+
 #pragma once
 #include "equality.h"
 // BINARY OPERATORS

@@ -1,6 +1,13 @@
+This license applies to the Vyne runtime only:
+
+- vyne/runtime/
+- vyne/modules/external/\*.vy
+- vyne/utils/
+  The compiler, CLI, codegen, and everything else is AGPL-3.0 (see LICENSE).
+
 MIT License
 
-Copyright (c) 2026 Tuncay
+Copyright (c) 2026 Tuncay Gafarli
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
