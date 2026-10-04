@@ -1162,10 +1162,13 @@ struct InterfaceMember {
     VType type;
     size_t offset;
     VType arrayElemType = VType::Unknown;   // M4-C1
+    std::string typePath;                   // C2: raw source path, e.g. "Array<Atom>"
 
     InterfaceMember(std::string n, VType t, size_t off,
-                    VType aet = VType::Unknown)
-        : name(std::move(n)), type(t), offset(off), arrayElemType(aet) {}
+                    VType aet = VType::Unknown,
+                    std::string tp = "")
+        : name(std::move(n)), type(t), offset(off),
+          arrayElemType(aet), typePath(std::move(tp)) {}
 };
 
 class InterfaceNode : public ASTNode {

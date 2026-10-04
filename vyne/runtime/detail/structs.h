@@ -7,15 +7,32 @@
 static inline VyneValue vyne_struct_get(VyneValue s_val, uint32_t field_id) {
     if (s_val.type != V_STRUCT) return vyne_null();
     VyneStruct* s = s_val.as.strct;
-    if (VYNE_UNLIKELY(s->field_count == 0)) return vyne_null();
-    int last = s->last_field_idx;
-    if (last >= 0 && last < s->field_count &&
-        s->fields[last].id == field_id) {
-        return s->fields[last].value;
+    int fc = s->field_count;
+    if (VYNE_UNLIKELY(fc == 0)) return vyne_null();
+
+    int16_t* c = s->field_cache;
+
+    // Fast path: hit in one of the four cache slots. On hit at slot
+    // k, move the entry to the front (true MRU), shifting 0..k-1
+    // down by one. Slots hold indices into fields[]; a stale index
+    // fails either the bounds check or the id check and falls
+    // through to the scan below.
+    for (int k = 0; k < 4; ++k) {
+        int16_t idx = c[k];
+        if (idx >= 0 && idx < fc && s->fields[idx].id == field_id) {
+            for (int j = k; j > 0; --j) c[j] = c[j - 1];
+            c[0] = idx;
+            return s->fields[idx].value;
+        }
     }
-    for (int i = 0; i < s->field_count; i++) {
+
+    // Slow path: linear scan. Insert at MRU, drop LRU.
+    for (int i = 0; i < fc; ++i) {
         if (s->fields[i].id == field_id) {
-            s->last_field_idx = (int16_t)i;
+            c[3] = c[2];
+            c[2] = c[1];
+            c[1] = c[0];
+            c[0] = (int16_t)i;
             return s->fields[i].value;
         }
     }

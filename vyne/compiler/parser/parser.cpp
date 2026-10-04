@@ -567,7 +567,8 @@ std::unique_ptr<ASTNode> Parser::parseInterfaceDefinition() {
                 memberType = VType::Reference;
             }
             
-            members.emplace_back(memberName.name, memberType, 0, memberArrayElem);
+            members.emplace_back(memberName.name, memberType, 0,
+                                 memberArrayElem, std::move(typePath));
         }
         
         if (peekToken().type == VTokenType::Comma || peekToken().type == VTokenType::Semicolon) {

@@ -134,13 +134,23 @@ typedef struct VyneStruct {
     int field_count;
     struct VyneMethodEntry** methods;
     int method_count;
-    // Last-field cache. Every field read was a linear scan, and the
-    // access pattern (`A.data`, then `A.data` again next instruction)
-    // makes a one-slot cache nearly free and nearly always hit.
-    // -1 = cold. Appends via vyne_struct_set do not invalidate: indices
-    // of existing fields never change, and the appended field has a new
-    // index the cache cannot be pointing at.
-    int16_t last_field_idx;
+    // Four-slot MRU field cache. Slot 0 is the most recently used
+    // field index; slot 3 is the least recently used. Real struct
+    // access rotates through a small set of fields
+    // (`m.row; m.col; m.data; m.row; ...`), and a one-slot cache
+    // thrashes on exactly that pattern.
+    //
+    // Each slot holds an index into `fields[]`, or -1 for empty.
+    // Uninitialized slots are safe by construction: the get-side
+    // bounds check rejects out-of-range indices, and an in-range
+    // index whose field id matches the requested id is a correct
+    // hit regardless of how it got into the slot.
+    //
+    // vyne_struct_set does NOT invalidate the cache. An in-place
+    // update never moves a field; an append puts the new field at
+    // index `field_count`, which no cached slot can already point
+    // at (all cached indices are < field_count at insert time).
+    int16_t field_cache[4];
 } VyneStruct;
 
 static inline bool vyne_values_equal(VyneValue a, VyneValue b);

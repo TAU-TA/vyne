@@ -1,5 +1,41 @@
 #include "detail/codegen_helpers.h"
 
+// ============================================================
+// C2: C-eligibility predicate
+// ------------------------------------------------------------
+// An interface is C-eligible iff every field is a primitive scalar.
+// Array-of-primitive and nested-eligible-struct fields are follow-up
+// slices: they need container typedefs, unbox helpers, and an ABI
+// extension, all of which want this first slice to be landable on its
+// own. Keeping the rule strict here means no existing interface's
+// emission changes — only new typedefs appear.
+// ============================================================
+static bool memberIsCEligible(const InterfaceMember& m) {
+    return m.type == VType::Int64
+        || m.type == VType::Float64
+        || m.type == VType::Bool;
+}
+
+static bool interfaceIsCEligible(const InterfaceNode& iface) {
+    const auto& members = iface.getMembers();
+    if (members.empty()) return false;      // nothing to lay out
+    for (const auto& m : members) {
+        if (!memberIsCEligible(m)) return false;
+    }
+    return true;
+}
+
+// Map a C-eligible interface member to its C field type. Only called
+// when memberIsCEligible already returned true.
+static CType cFieldTypeFor(const InterfaceMember& m) {
+    switch (m.type) {
+        case VType::Int64:   return CType::fromKind(CType::Kind::Int64);
+        case VType::Float64: return CType::fromKind(CType::Kind::Float64);
+        case VType::Bool:    return CType::fromKind(CType::Kind::Bool);
+        default:             return CType::fromKind(CType::Kind::Unknown);
+    }
+}
+
 // Interface declarations, field typing, and method registration.
 // Keep expressions that emit statements in evaluation order; see README.md.
 // ============================================================
@@ -30,6 +66,48 @@ void InterfaceNode::compile(C_Emitter& e) const {
         e.registerInterface(effectiveModule + "_" + interfaceName);
         e.registerModuleInterface(effectiveModule, interfaceName);
     }
+
+    // --- C2: native C struct emission ---------------------------------
+    // Eligibility is a property of the field list only. Methods do NOT
+    // affect it: an interface with methods can still have a C struct
+    // representation for its fields, because method dispatch always
+    // goes through the boxed VyneStruct (see vyne_struct_call).
+    if (interfaceIsCEligible(*this)) {
+        std::string tag = "vyne_" + cStructName;
+
+        std::vector<std::string> fieldNames;
+        std::vector<CType>       fieldTypes;
+        fieldNames.reserve(members.size());
+        fieldTypes.reserve(members.size());
+        for (const auto& m : members) {
+            fieldNames.push_back(m.name);
+            fieldTypes.push_back(cFieldTypeFor(m));
+        }
+
+        // Register under every spelling a caller might probe with.
+        // fullName is the canonical key; interfaceName covers bare-name
+        // lookups from a native variant signature parsed without a
+        // module prefix; the mangled form covers member_access paths
+        // that already dot-normalised.
+        e.registerNativeCStruct(fullName, tag, fieldNames, fieldTypes);
+        if (fullName != interfaceName) {
+            e.registerNativeCStruct(interfaceName, tag, fieldNames, fieldTypes);
+        }
+
+        // Emit the typedef into the globals stream. emitGlobalDecl
+        // writes to globalsStream regardless of current emit context,
+        // so we do not need to push/pop a GLOBAL context here — the
+        // typedef lands at the top of the generated file, before any
+        // function body that might reference it.
+        std::string typedefSrc = "typedef struct {\n";
+        for (size_t i = 0; i < fieldNames.size(); ++i) {
+            const CType& ft = fieldTypes[i];
+            typedefSrc += "    " + ft.cTypeName() + " " + fieldNames[i] + ";\n";
+        }
+        typedefSrc += "} " + tag + ";";
+        e.emitGlobalDecl(typedefSrc);
+    }
+    // --- end C2 --------------------------------------------------------
 
     for (const auto& m : members) {
         e.registerInterfaceArrayField(fullName, m.name, m.arrayElemType);
@@ -96,7 +174,10 @@ void InterfaceNode::compile(C_Emitter& e) const {
            std::to_string(members.size()) + ");");
     e.emit(temp + "->methods = NULL;");
     e.emit(temp + "->method_count = 0;");
-    e.emit(temp + "->last_field_idx = -1;");
+    e.emit(temp + "->field_cache[0] = -1;");
+    e.emit(temp + "->field_cache[1] = -1;");
+    e.emit(temp + "->field_cache[2] = -1;");
+    e.emit(temp + "->field_cache[3] = -1;");
 
     for (size_t i = 0; i < members.size(); ++i) {
         uint32_t fid = StringPool::intern(members[i].name);

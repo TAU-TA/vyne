@@ -88,6 +88,25 @@ class C_Emitter {
     std::unordered_map<std::string,
                        std::unordered_map<std::string, VType>> interfacePrimitiveFields;
 
+    // C2: native C struct representation.
+    //
+    // An interface is C-eligible when every field is Int64/Float64/Bool.
+    // (Array-of-primitive and nested-eligible-struct fields are follow-up
+    // slices.) Eligible interfaces get a real C typedef emitted at global
+    // scope and can flow through Array<T> containers and native-ABI calls
+    // as a pointer, not a boxed VyneValue.
+    //
+    // Keyed by every spelling of the interface name (bare, dotted,
+    // underscore-mangled) so call sites can probe with whichever form
+    // they hold. Never cleared by push/popFunctionContext — like
+    // interfaceStructLayout, it is process-global.
+    struct NativeCStruct {
+        std::string tag;                       // C typedef name, e.g. "vyne_Atom"
+        std::vector<std::string> fieldNames;   // declaration order
+        std::vector<CType>       fieldTypes;   // parallel to fieldNames
+    };
+    std::unordered_map<std::string, NativeCStruct> nativeCStructs;
+
     // Ordered field layout for struct-typed native variants. Key is any
     // spelling under which the interface was registered (bare, dotted,
     // underscore-mangled). Value is the field list in declaration order.
@@ -476,6 +495,40 @@ public:
         return VType::Unknown;
     }
 
+    // --- C2: native C struct representation ---------------------------
+    // Register under the interface's fullName; the probe-with-suffix
+    // accessors mirror getInterfaceArrayElem so a caller holding
+    // "Types.Atom" still finds an interface registered as "Atom".
+    void registerNativeCStruct(const std::string& ifaceName,
+                               std::string tag,
+                               std::vector<std::string> fieldNames,
+                               std::vector<CType>       fieldTypes) {
+        NativeCStruct s;
+        s.tag        = std::move(tag);
+        s.fieldNames = std::move(fieldNames);
+        s.fieldTypes = std::move(fieldTypes);
+        nativeCStructs[ifaceName] = std::move(s);
+    }
+
+    const NativeCStruct* getNativeCStruct(const std::string& ifaceName) const {
+        auto probe = [&](const std::string& k) -> const NativeCStruct* {
+            auto it = nativeCStructs.find(k);
+            return it == nativeCStructs.end() ? nullptr : &it->second;
+        };
+        if (const auto* r = probe(ifaceName)) return r;
+        std::string tmp = ifaceName;
+        size_t dot;
+        while ((dot = tmp.find('.')) != std::string::npos) {
+            tmp = tmp.substr(dot + 1);
+            if (const auto* r = probe(tmp)) return r;
+        }
+        return nullptr;
+    }
+
+    bool hasNativeCStruct(const std::string& ifaceName) const {
+        return getNativeCStruct(ifaceName) != nullptr;
+    }
+
     // --- Struct-typed native ABI (Stage 1) ----------------------------
     // Register the ordered field list for an interface under every
     // spelling the caller might query with. Mirrors registerInterfaceArrayField
@@ -824,6 +877,8 @@ public:
 
         interfaceArrayFields.clear();
         interfacePrimitiveFields.clear();
+        nativeCStructs.clear();
+        interfaceStructLayout.clear();
         localStructTypes.clear();
         globalStructTypes.clear();
         currentInterfaceType.clear();
