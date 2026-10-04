@@ -71,7 +71,7 @@ they are on the critical path.
 **Do not start any library work until all six of these land.** Each one
 unblocks a class of chemistry code that cannot be written any other way.
 
-### C0. Fix the empty-array literal bug
+### ~~C0. Fix the empty-array literal bug~~ [ DONE ]
 
 Already in progress (see `todo.md` — "empty literal handling"). Blocks
 every accumulator pattern. A molecule parser will have dozens of
