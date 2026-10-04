@@ -110,14 +110,15 @@ one typed array.
 Already in `todo_2.md` as F0 (marked DONE there for the primitive-array
 case). The chemistry-specific extension is struct fields.
 
-**Status.** Slice 1 only. Native-C-struct registry (`nativeCStructs`) and
-the `typedef struct` emission for eligible interfaces are in the tree.
-Emitted C is unchanged for existing programs — the typedef is dead
-weight until Slice 3 references it. Slices 2–5 (typed container
-helpers, `MemberAccessNode` chain unboxing, struct-typed native variant
-ABI, test corpus) are not started. **C2 does not unblock C4 or `vmol`
-yet.** Do not build on it until Slice 3 at minimum lands and passes a
-regression on `ml_seq.vy`.
+**Status**. Slices 3a–3f landed. Native-C-struct registry and typedef
+emission are live and load-bearing: constructors emit `vyne*\*` compound
+literals, local/global declarations store the native type, field reads and
+writes lower to `.field` directly, `Array<Struct>` literals build the monomorphized
+container, and index reads return structs by value. Boxing across dynamic
+boundaries goes through a per-interface `vyne_struct_array_box\*\* `helper.
+Regression on `ml_seq.vy` shows zero diff (ML path uses only primitive arrays).
+Remaining: Slice 3g (fixed-point C-eligibility for `Array<Struct>` fields) — see C4.
+Struct-typed native-variant ABI extension not started. Test corpus not updated.
 
 A `Molecule` struct with `atoms :: Array<Atom>` where `Atom` is itself a
 struct needs the field read to propagate the element `CType`. Today the
@@ -216,7 +217,28 @@ boxing-dominated.
 
 **Effort.** 3–4 days.
 
-**Depends on.** C2.
+**Depends on**. C2.
+
+**Decomposes into**. (1) Slice 3g — fixed-point pass in `ProgramNode::compile`
+marking interfaces with `Array<C-eligible-struct>` fields; requires `cFieldTypeFor`
+to produce the container `CType` and `nativeName` propagation for `cTypeName()`. (2)
+Slice 3c-extension — accept non-variable receivers in `MemberAccessNode::getCExpr`
+when the receiver's temp carries `Struct + nativeCStruct`.
+
+**Known gap after this lands**. `mol.atoms[i].x = v` still routes through the boxed
+`vyne_struct_set` path — Slice 3d guards on a variable receiver, same as 3c did before
+the extension. Not blocking a read-only `vmol`, but any in-place mutation of an atom
+silently no-ops. Track as a follow-up under C4.
+
+```vyne
+
+### Test entry for this section
+interface Point { x :: Float64, y :: Float64, }
+pts :: Array<Point> = [Point(1.0, 2.0), Point(3.0, 4.0)];
+out(pts[0].x);     # 1.0
+out(pts[1].y);     # 4.0
+out(pts);          # [{x:1.0,y:2.0}, {x:3.0,y:4.0}]
+```
 
 ### ~~C5. `byte_at(s, i) -> Int64` built-in~~ [ DONE ]
 
