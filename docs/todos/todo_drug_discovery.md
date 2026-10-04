@@ -231,7 +231,6 @@ the extension. Not blocking a read-only `vmol`, but any in-place mutation of an 
 silently no-ops. Track as a follow-up under C4.
 
 ```vyne
-
 ### Test entry for this section
 
 interface Point { x :: Float64, y :: Float64, }
