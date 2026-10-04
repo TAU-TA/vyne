@@ -105,10 +105,19 @@ one typed array.
 
 **Depends on.** C0.
 
-### C2. Land §6.2 — native array ABI for struct fields
+### C2. Land §6.2 — native array ABI for struct fields [ PARTIAL — Slice 1 of 5 landed ]
 
 Already in `todo_2.md` as F0 (marked DONE there for the primitive-array
 case). The chemistry-specific extension is struct fields.
+
+**Status.** Slice 1 only. Native-C-struct registry (`nativeCStructs`) and
+the `typedef struct` emission for eligible interfaces are in the tree.
+Emitted C is unchanged for existing programs — the typedef is dead
+weight until Slice 3 references it. Slices 2–5 (typed container
+helpers, `MemberAccessNode` chain unboxing, struct-typed native variant
+ABI, test corpus) are not started. **C2 does not unblock C4 or `vmol`
+yet.** Do not build on it until Slice 3 at minimum lands and passes a
+regression on `ml_seq.vy`.
 
 A `Molecule` struct with `atoms :: Array<Atom>` where `Atom` is itself a
 struct needs the field read to propagate the element `CType`. Today the
@@ -135,7 +144,7 @@ roundtrips.
 `todo_2.md`) must already be DONE for the struct path to have a place to
 plug in.
 
-### C3. Fix `ForNode::getCExpr` conditional-in-collect bug
+### ~~C3. Fix `ForNode::getCExpr` conditional-in-collect bug~~ [ DONE ]
 
 `if/else` inside a `collect` block pushes `vyne_null()` for one branch.
 `relu_prime` is the known victim. Chemistry has more:
