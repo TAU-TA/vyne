@@ -56,7 +56,7 @@ fn :: vrand shuffle_i64(arr :: Array<Int64>) {
 
 fn :: vrand reservoir(stream :: Array, k :: Int64) -> Array {
     n :: Int64 = stream.size();
-    result :: Array<Float64> = [];
+    result :: Array = [];
     if k <= 0 { return result; }
     if k >= n {
         through i :: 0..n-1 -> loop { result.push(stream[i]); };
@@ -80,7 +80,7 @@ fn :: vrand reservoir(stream :: Array, k :: Int64) -> Array {
 
 fn :: vrand sample_without_replacement(arr :: Array, k :: Int64) -> Array {
     n :: Int64 = arr.size();
-    result :: Array<Float64> = [];
+    result :: Array = [];
     if k <= 0 { return result; }
     if k >= n {
         through i :: 0..n-1 -> loop { result.push(arr[i]); };
