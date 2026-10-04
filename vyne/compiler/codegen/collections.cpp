@@ -24,6 +24,7 @@
 // ============================================================
 
 std::string ArrayNode::getCExpr(C_Emitter& e) const {
+    // Primitive fast path.
     VType elem = inferArrayElemType(this);
     if (elem != VType::Unknown && !elements.empty()) {
         std::string name = e.newTemp("arr");
@@ -47,16 +48,65 @@ std::string ArrayNode::getCExpr(C_Emitter& e) const {
         return name;
     }
 
-    // Boxed fallback — unchanged except the per-element boxing uses
-    // boxTypedArray so a nested typed array literal still boxes correctly.
+    // Evaluate every element exactly once. Both the struct-element
+    // fast path and the boxed fallback reuse these results, so a
+    // side-effecting element expression never runs twice.
+    std::vector<std::string> rawElems;
+    rawElems.reserve(elements.size());
+    for (const auto& el : elements) {
+        rawElems.push_back(el->getCExpr(e));
+    }
+
+    // Slice 3e: struct element array. If every element is a native C
+    // struct of the same interface, build the monomorphized container
+    // instead of a boxed VyneValue array. The container typedef and its
+    // helpers are emitted by InterfaceNode::compile via
+    // VYNE_DEFINE_STRUCT_ARRAY.
+    if (!rawElems.empty()) {
+        const CType* first = e.lookupType(rawElems[0]);
+        if (first && first->kind == CType::Kind::Struct
+            && first->nativeCStruct
+            && !first->mangledName.empty()) {
+            bool allMatch = true;
+            for (const auto& s : rawElems) {
+                const CType* ct = e.lookupType(s);
+                if (!ct || ct->kind != CType::Kind::Struct
+                    || !ct->nativeCStruct
+                    || ct->mangledName != first->mangledName) {
+                    allMatch = false;
+                    break;
+                }
+            }
+            if (allMatch) {
+                const auto* ns = e.getNativeCStruct(first->mangledName);
+                if (ns) {
+                    std::string container = "vyne_Array_" + ns->tag;
+                    std::string name = e.newTemp("arr");
+                    e.emit(container + " " + name + " = " +
+                           container + "_create(" +
+                           std::to_string(rawElems.size()) + ");");
+                    for (size_t i = 0; i < rawElems.size(); ++i) {
+                        e.emit(name + ".data[" + std::to_string(i) + "] = " +
+                               rawElems[i] + ";");
+                    }
+                    CType arrCt;
+                    arrCt.kind = CType::Kind::Array;
+                    arrCt.args.push_back(*first);
+                    e.declareNativeTemp(name, arrCt);
+                    return name;
+                }
+            }
+        }
+    }
+
+    // Boxed fallback.
     std::string temp = e.newTemp("arr");
     int size = (int)elements.size();
     e.emit("VyneValue " + temp + " = vyne_array_create(" +
            std::to_string(size) + ");");
-    for (int i = 0; i < size; i++) {
-        std::string elemExpr = e.boxAny(elements[i]->getCExpr(e));
+    for (int i = 0; i < size; ++i) {
         e.emit("vyne_array_set(" + temp + ", vyne_int(" +
-               std::to_string(i) + "), " + elemExpr + ");");
+               std::to_string(i) + "), " + e.boxAny(rawElems[i]) + ");");
     }
     return temp;
 }
@@ -120,7 +170,39 @@ std::string IndexAccessNode::getCExpr(C_Emitter& e) const {
     }
 
     if (bt && bt->kind == CType::Kind::Array && !bt->args.empty()) {
-        VType elem = bt->args[0].toVType();
+        const CType& elemCt = bt->args[0];
+
+        // Slice 3f: the container's element is a native C struct.
+        // Return it by value from the container's data array.
+        if (elemCt.kind == CType::Kind::Struct && elemCt.nativeCStruct) {
+            const auto* ns = e.getNativeCStruct(elemCt.mangledName);
+            if (!ns) {
+                throw std::runtime_error(
+                    "internal: struct-element array CType without "
+                    "registry entry for '" + elemCt.mangledName +
+                    "' (line " + std::to_string(lineNumber) + ").");
+            }
+            std::string rawIdx = index->getCExpr(e);
+            std::string idx = coerceToNative(e, index.get(), rawIdx, VType::Int64);
+            std::string name = e.newTemp("idx");
+            e.emit(ns->tag + " " + name + " = " + bRaw +
+                   ".data[" + idx + "];");
+            e.declareNativeTemp(name, elemCt);
+            return name;
+        }
+
+        // Primitive element (existing path). Guard against an
+        // unexpected struct element that did not carry nativeCStruct —
+        // that would emit `int64_t name = arr.data[i]`, which is a
+        // C type error the diagnostic below pre-empts.
+        if (elemCt.kind == CType::Kind::Struct) {
+            throw std::runtime_error(
+                "Compile Error: array has struct element '" +
+                elemCt.mangledName + "' without a native C representation "
+                "(line " + std::to_string(lineNumber) + ").");
+        }
+
+        VType elem = elemCt.toVType();
         std::string rawIdx = index->getCExpr(e);
         std::string idx = coerceToNative(e, index.get(), rawIdx, VType::Int64);
 

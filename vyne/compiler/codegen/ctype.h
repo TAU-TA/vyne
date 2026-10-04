@@ -124,7 +124,29 @@ struct CType {
                 if (args.empty()) return "void*";
                 return args[0].cTypeName() + "*";
             }
-            default:            return "VyneValue";
+            // Slice 3e: an Array CType with a primitive or C-eligible-
+            // struct element renders as the monomorphized container
+            // name. The struct's typedef tag is stored in nativeName
+            // by every construction site.
+            case Kind::Array: {
+                if (args.size() == 1) {
+                    const CType& el = args[0];
+                    if (el.kind == Kind::Float64) return "VyneArray_f64";
+                    if (el.kind == Kind::Int64)   return "VyneArray_i64";
+                    if (el.kind == Kind::Struct && el.nativeCStruct
+                        && !el.nativeName.empty()) {
+                        return "vyne_Array_" + el.nativeName;
+                    }
+                }
+                return "VyneValue";
+            }
+            // Slice 3a: a native C struct renders as its emitted
+            // typedef tag when the CType carries one.
+            case Kind::Struct:
+                if (nativeCStruct && !nativeName.empty()) return nativeName;
+                return "VyneValue";
+            default:
+                return "VyneValue";
         }
     }
 

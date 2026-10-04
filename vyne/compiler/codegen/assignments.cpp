@@ -670,7 +670,23 @@ void AssignmentNode::compile(C_Emitter& e) const {
         //     preferred but not required — the RHS's own CType is
         //     authoritative.
         if (rt && rt->kind == CType::Kind::Array && !rt->args.empty()) {
-            VType elem = rt->args[0].toVType();
+            const CType& elemCt = rt->args[0];
+
+            // Slice 3e+3b-ext: struct-element array. The container's
+            // C type is emitted by VYNE_DEFINE_STRUCT_ARRAY; declare
+            // the local at that type.
+            if (elemCt.kind == CType::Kind::Struct && elemCt.nativeCStruct) {
+                const auto* ns = e.getNativeCStruct(elemCt.mangledName);
+                if (ns) {
+                    CType arrType = *rt;
+                    e.declareLocal(varName, arrType);
+                    e.emit("vyne_Array_" + ns->tag + " " + varName +
+                           " = " + val + ";");
+                    return;
+                }
+            }
+
+            VType elem = elemCt.toVType();
             if (elem == VType::Float64 || elem == VType::Int64) {
                 CType arrType = *rt;
                 e.declareLocal(varName, arrType);

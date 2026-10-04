@@ -376,7 +376,30 @@ public:
     std::string boxAny(const std::string& expr) const {
         const CType* ct = lookupType(expr);
         if (ct && ct->kind == CType::Kind::Array && !ct->args.empty()) {
-            VType elem = ct->args[0].toVType();
+            const CType& el = ct->args[0];
+
+            // Slice 3e: a struct-element array lives in a
+            // `vyne_Array_vyne_*` container, not a boxed VyneValue.
+            // Box it via the per-interface helper emitted alongside the
+            // container typedef. The box is O(N) — one VyneValue per
+            // element, built from the same flat fields the constructor
+            // already takes — which is the correct cost for a struct
+            // array crossing a dynamic boundary. The O(1) pointer-share
+            // shortcut only exists for f64/i64 because their payload is
+            // a single word; a struct is not.
+            if (el.kind == CType::Kind::Struct && el.nativeCStruct) {
+                const NativeCStruct* ns = getNativeCStruct(el.mangledName);
+                if (ns) {
+                    return "vyne_struct_array_box_" + ns->tag +
+                           "(" + expr + ")";
+                }
+                // Registry entry missing despite nativeCStruct=true.
+                // Fall through — boxIfNative will pass the struct
+                // through unchanged, which produces a C type error at
+                // the call site rather than a silent wrong answer.
+            }
+
+            VType elem = el.toVType();
             if (elem == VType::Float64)
                 return "vyne_array_f64_to_value(&" + expr + ")";
             if (elem == VType::Int64)

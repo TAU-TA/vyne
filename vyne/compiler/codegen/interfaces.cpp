@@ -124,6 +124,60 @@ void InterfaceNode::compile(C_Emitter& e) const {
 
         e.emitGlobalDecl(
             "VYNE_DEFINE_STRUCT_ARRAY(vyne_Array_" + tag + ", " + tag + ");");
+
+        // Slice 3e-box: emit a whole-array box helper. `boxAny` on an
+        // Array<X> where X is a C-eligible struct calls this. It cannot
+        // be an O(1) pointer-wrap like the f64/i64 case, because each
+        // element is a full struct — the array-of-VyneValue must be
+        // materialised element by element. That is the correct cost at
+        // a boundary; what was wrong was refusing to pay it.
+        //
+        // The constructor `struct_<cStructName>` is defined later in
+        // the function stream, so it needs a prototype here. The helper
+        // itself is `static inline` and lives in the globals stream,
+        // where the typedef and container are already visible.
+        {
+            std::string helperName  = "vyne_struct_array_box_" + tag;
+            std::string ctorName    = "struct_" + cStructName;
+            std::string container   = "vyne_Array_" + tag;
+
+            // Prototype for the boxed constructor. Cheap, idempotent,
+            // and lets the helper be emitted before the definition.
+            std::string ctorParams;
+            for (size_t i = 0; i < fieldNames.size(); ++i) {
+                if (i) ctorParams += ", ";
+                ctorParams += "VyneValue v_" + fieldNames[i];
+            }
+            e.emitGlobalDecl("VyneValue " + ctorName +
+                             "(" + ctorParams + ");");
+
+            // Build the per-element box call argument list from the
+            // same field descriptor list the typedef used above.
+            std::string ctorArgs;
+            for (size_t i = 0; i < fieldNames.size(); ++i) {
+                if (i) ctorArgs += ", ";
+                const CType& ft = fieldTypes[i];
+                std::string fld = "arr.data[i]." + fieldNames[i];
+                if (ft.kind == CType::Kind::Float64)
+                    ctorArgs += "vyne_float(" + fld + ")";
+                else if (ft.kind == CType::Kind::Int64)
+                    ctorArgs += "vyne_int(" + fld + ")";
+                else if (ft.kind == CType::Kind::Bool)
+                    ctorArgs += "vyne_bool(" + fld + ")";
+            }
+
+            std::string body =
+                "static inline VyneValue " + helperName +
+                "(" + container + " arr) {\n"
+                "    VyneValue out = vyne_array_create((int)arr.size);\n"
+                "    for (int64_t i = 0; i < arr.size; ++i) {\n"
+                "        vyne_array_set(out, vyne_int(i), " +
+                            ctorName + "(" + ctorArgs + "));\n"
+                "    }\n"
+                "    return out;\n"
+                "}";
+            e.emitGlobalDecl(body);
+        }
     }
     // --- end C2 --------------------------------------------------------
 
