@@ -543,8 +543,7 @@ void AssignmentNode::compile(C_Emitter& e) const {
             if (arrRhs->getElements().empty()) {
                 // Preferred source: the parser's arrayElemType, set from
                 // the `Array<T>` annotation. Fall back to scanning the
-                // raw annotation text only when the parser missed it —
-                // and if that also fails, refuse to guess.
+                // raw annotation text only when the parser missed it.
                 VType elem = getArrayElemType();
                 if (elem == VType::Unknown && !declaredTypeName.empty()) {
                     const std::string& dt = declaredTypeName;
@@ -552,25 +551,20 @@ void AssignmentNode::compile(C_Emitter& e) const {
                     else if (dt.find("Float64") != std::string::npos) elem = VType::Float64;
                 }
 
-                if (elem == VType::Unknown) {
-                    throw std::runtime_error(
-                        "Compile Error: cannot determine element type of "
-                        "empty array literal '" + originalName + "' at line " +
-                        std::to_string(lineNumber) + ". "
-                        "Annotate it, e.g. `" + originalName +
-                        " :: Array<Float64> = [];`.");
+                if (elem != VType::Unknown) {
+                    std::string ctor = (elem == VType::Float64)
+                        ? "vyne_array_f64_create"
+                        : "vyne_array_i64_create";
+                    CType arrType;
+                    arrType.kind = CType::Kind::Array;
+                    arrType.args.push_back(CType::fromVType(elem));
+                    e.declareLocal(varName, arrType);
+                    e.emit(CType::arrayContainerName(elem) + " " + varName +
+                           " = " + ctor + "(0);");
+                    return;
                 }
-
-                std::string ctor = (elem == VType::Float64)
-                    ? "vyne_array_f64_create"
-                    : "vyne_array_i64_create";
-                CType arrType;
-                arrType.kind = CType::Kind::Array;
-                arrType.args.push_back(CType::fromVType(elem));
-                e.declareLocal(varName, arrType);
-                e.emit(CType::arrayContainerName(elem) + " " + varName +
-                       " = " + ctor + "(0);");
-                return;
+                // elem == Unknown: bare `Array` annotation. Fall through
+                // to the generic path.
             }
         }
 
