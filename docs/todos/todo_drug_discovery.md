@@ -171,6 +171,22 @@ libraries can be validated against a reference implementation.
 - Fix: emit an explicit `VyneValue tmp = vyne_null(); if (cond) { tmp =
 ...; } push(tmp);` pattern.
 
+**Residual gap.** The companion `BlockNode::getStaticType()` change
+that lights up the native collect fast path fires only for Float64
+expression bodies (`collect { x * 2.0 }`). For `collect { y * 10 }`
+over an `Array<Int64>`, the emitter's gate `bodyType == elem` fails
+because `BinOpNode::getStaticType()` cannot infer the iterator's type
+— that lives in the emitter, not the AST. Only the Float64-literal
+promotion rule rescues the Float64 case, and it was accidental, not
+designed.
+
+Not blocking. Chemistry workloads are Float64-dominated (coordinates,
+energies, descriptors), and Int64 collects are usually counts and
+indices that do not dominate a profile. Close it later — either by
+propagating iterator type into the AST or by adding a codegen-side
+type probe — only if a `vgraph` or `vdesc` profile shows an Int64
+collect in the hot path.
+
 **Effort.** 1–2 days.
 
 **Depends on.** Nothing.
