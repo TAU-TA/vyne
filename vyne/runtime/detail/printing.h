@@ -88,6 +88,5 @@ static inline void _vyne_print_internal(VyneValue v) {
 static inline void vyne_out(VyneValue v) {
     _vyne_print_internal(v);
     printf("\n");
-    fflush(stdout);
 }
 
