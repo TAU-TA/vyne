@@ -4,8 +4,9 @@ interface Point {
 }
 
 p :: Point = Point(1.5, 2.5);
-out(p);
-out(p.x);
-out(p.y);
-p = Point(3.5, 4.5);
-out(p.x + p.y);
+out(p.x);          # 1.5
+p.x = 10.5;
+p.y = 20.5;
+out(p.x);          # 10.5
+out(p.y);          # 20.5
+out(p.x + p.y);    # 31.0
