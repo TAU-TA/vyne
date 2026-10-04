@@ -44,4 +44,27 @@ if doubled[0] != 1 || doubled[1] != 20 || doubled[2] != 30 {
     exit(1);
 }
 
+# Pure-expression body over a typed array: must hit the native fast
+# path in ForNode::getCExpr. Before the BlockNode::getStaticType()
+# override, bodyType was Unknown and this fell through to the boxed
+# path.
+scaled = through x :: xs -> collect { x * 2.0 };
+
+if scaled.size() != 5 {
+    out("FAIL: scaled.size() = " + string(scaled.size()));
+    exit(1);
+}
+if scaled[0] != 2.0 || scaled[1] != -4.0 || scaled[2] != 6.0
+   || scaled[3] != -8.0 || scaled[4] != 10.0 {
+    out("FAIL: scaled values wrong");
+    exit(1);
+}
+
+# Pure-expression body over an Int64 array.
+doubled_native = through y :: ys -> collect { y * 10 };
+if doubled_native[0] != 10 || doubled_native[1] != 20 || doubled_native[2] != 30 {
+    out("FAIL: doubled_native values wrong");
+    exit(1);
+}
+
 out("collect_typed_test: PASS");

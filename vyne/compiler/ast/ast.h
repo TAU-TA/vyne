@@ -1057,6 +1057,13 @@ public:
     Value evaluate(SymbolContainer& env, uint32_t currentGroupId) const override;
     void compile(C_Emitter& e) const override;
     std::string getCExpr(C_Emitter& e) const override;
+
+    VType getStaticType() const override {
+        if (statements.empty()) return VType::Unknown;
+        const auto& last = statements.back();
+        if (!last) return VType::Unknown;
+        return last->getStaticType();
+    }
 };
 
 class ModuleNode : public ASTNode {
