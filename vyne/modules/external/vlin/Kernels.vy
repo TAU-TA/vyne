@@ -133,6 +133,23 @@ fn :: vlin k_matmul(output :: Array<Float64>,
     return 0;
 }
 
+# output = a.T @ b. a is K x M (row-major), b is K x N, output is M x N.
+# The a read strides by M, not by 1 — this is the non-contiguous operand.
+fn :: vlin k_matmul_trans_a(output :: Array<Float64>,
+                            a :: Array<Float64>, b :: Array<Float64>,
+                            M :: Int64, K :: Int64, N :: Int64) -> Int64 {
+    through m :: 0..M-1 -> loop {
+        through n :: 0..N-1 -> loop {
+            acc :: Float64 = 0.0;
+            through kk :: 0..K-1 -> loop {
+                acc = acc + a[kk * M + m] * b[kk * N + n];
+            };
+            output[m * N + n] = acc;
+        };
+    };
+    return 0;
+}
+
 # output = a @ b.T. Both inner reads are contiguous in K.
 fn :: vlin k_matmul_trans_b(output :: Array<Float64>,
                             a :: Array<Float64>, b :: Array<Float64>,

@@ -64,6 +64,24 @@ fn :: vlin multiply(a :: vlin.Types.Matrix, b :: vlin.Types.Matrix) -> vlin.Type
     return vlin.Types.Matrix(ar, bc, output_data);
 }
 
+# a.T @ b. The backward-pass form of the dense layer:
+#   dW = h.T @ delta
+# replaces `multiply(transpose(h), delta)`, which allocated the
+# transposed copy and then ran a full NN dgemm on it.
+fn :: vlin trans_a_multiply(a :: vlin.Types.Matrix,
+                            b :: vlin.Types.Matrix) -> vlin.Types.Matrix {
+    if a.row != b.row {
+        out(vcolors.red("vlin.trans_a_multiply: shape mismatch"));
+        return vlin.zeros(0, 0);
+    }
+    M :: Int64 = a.col;
+    K :: Int64 = a.row;
+    N :: Int64 = b.col;
+    output_data :: Array<Float64> = vlin.zeros_f64(M * N);
+    vlin.k_matmul_trans_a(output_data, a.data, b.data, M, K, N);
+    return vlin.Types.Matrix(M, N, output_data);
+}
+
 # a @ b.T. Useful for the backward pass of a dense layer.
 fn :: vlin multiply_trans_b(a :: vlin.Types.Matrix,
                             b :: vlin.Types.Matrix) -> vlin.Types.Matrix {
