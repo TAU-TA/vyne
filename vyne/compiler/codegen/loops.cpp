@@ -148,8 +148,13 @@ std::string ForNode::getCExpr(C_Emitter& e) const {
 
         switch (mode) {
             case ForMode::COLLECT: {
-                std::string result = e.boxAny(body->getCExpr(e));
-                e.emit("vyne_array_push(" + listTemp + ", " + result + ");");
+                std::string tmp = e.newTemp("coll");
+                e.emit("VyneValue " + tmp + " = vyne_null();");
+                if (body) {
+                    std::string result = e.boxAny(body->getCExpr(e));
+                    e.emit(tmp + " = " + result + ";");
+                }
+                e.emit("vyne_array_push(" + listTemp + ", " + tmp + ");");
                 break;
             }
             case ForMode::FILTER: {
@@ -240,8 +245,17 @@ std::string ForNode::getCExpr(C_Emitter& e) const {
         }
     }
 
-    // --- Boxed fallback -----------------------------------------------
-    std::string collection = e.boxAny(iterable->getCExpr(e));
+        // --- Boxed fallback -----------------------------------------------
+    // The previous version emitted `if (collection.type == V_ARRAY) {`
+    // as a guard. For an `Array<Float64>` or `Array<Int64>` the boxed
+    // wrapper is V_F64_ARRAY / V_I64_ARRAY, so the guard was false, the
+    // loop body never ran, and the collect returned an empty array.
+    // Bind the wrapper once (avoids a fresh allocation per iteration)
+    // and use _vyne_array_size, which handles all three representations.
+    std::string rawCollection = iterable->getCExpr(e);
+    std::string collection = e.newTemp("coll");
+    e.emit("VyneValue " + collection + " = " +
+           e.boxAny(rawCollection) + ";");
     std::string iTemp = e.newTemp("i");
     std::string sizeTemp = e.newTemp("sz");
     std::string elemVar = "v_" + iteratorName;
@@ -251,8 +265,7 @@ std::string ForNode::getCExpr(C_Emitter& e) const {
         std::string everyTemp = e.newTemp("every");
         std::string resTemp = e.newTemp("every_res");
         e.emit("bool " + everyTemp + " = true;");
-        e.emitBlockOpen("if (" + collection + ".type == V_ARRAY) {");
-        e.emit("int64_t " + sizeTemp + " = " + collection + ".as.arr->size;");
+        e.emit("int64_t " + sizeTemp + " = _vyne_array_size(" + collection + ");");
         e.emitBlockOpen("for (int64_t " + iTemp + " = 0; " +
                         iTemp + " < " + sizeTemp + "; " + iTemp + "++) {");
         e.emit("VyneValue " + elemVar + " = vyne_array_get(" +
@@ -263,7 +276,6 @@ std::string ForNode::getCExpr(C_Emitter& e) const {
         e.emit("break;");
         e.emitBlockClose();
         e.emitBlockClose();
-        e.emitBlockClose();
         e.emit("VyneValue " + resTemp + " = vyne_bool(" + everyTemp + ");");
         return resTemp;
     }
@@ -271,8 +283,7 @@ std::string ForNode::getCExpr(C_Emitter& e) const {
     // --- COLLECT / FILTER / UNIQUE mode ---
     std::string listTemp = e.newTemp("res");
     e.emit("VyneValue " + listTemp + " = vyne_array_create(0);");
-    e.emitBlockOpen("if (" + collection + ".type == V_ARRAY) {");
-    e.emit("int64_t " + sizeTemp + " = " + collection + ".as.arr->size;");
+    e.emit("int64_t " + sizeTemp + " = _vyne_array_size(" + collection + ");");
     e.emitBlockOpen("for (int64_t " + iTemp + " = 0; " +
                     iTemp + " < " + sizeTemp + "; " + iTemp + "++) {");
     e.emit("VyneValue " + elemVar + " = vyne_array_get(" +
@@ -280,8 +291,16 @@ std::string ForNode::getCExpr(C_Emitter& e) const {
 
     switch (mode) {
         case ForMode::COLLECT: {
-            std::string result = e.boxAny(body->getCExpr(e));
-            e.emit("vyne_array_push(" + listTemp + ", " + result + ");");
+            // Explicit temp pattern: `tmp = null; tmp = <body>; push(tmp);`.
+            // Guarantees a value on every path even when the body is an
+            // if/else whose branches produce different expressions.
+            std::string tmp = e.newTemp("coll");
+            e.emit("VyneValue " + tmp + " = vyne_null();");
+            if (body) {
+                std::string result = e.boxAny(body->getCExpr(e));
+                e.emit(tmp + " = " + result + ";");
+            }
+            e.emit("vyne_array_push(" + listTemp + ", " + tmp + ");");
             break;
         }
         case ForMode::FILTER: {
@@ -305,7 +324,6 @@ std::string ForNode::getCExpr(C_Emitter& e) const {
         default: break;
     }
 
-    e.emitBlockClose();
     e.emitBlockClose();
     return listTemp;
 }
