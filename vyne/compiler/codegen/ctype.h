@@ -55,6 +55,16 @@ struct CType {
     std::string mangledName;    // mangled C name for monomorphized structs/interfaces
     std::string nativeName;     // "int64_t", "double", "bool", "VyneValue", ...
 
+        // Slice 3: true iff this CType describes a value whose C-level
+    // representation is the native C struct typedef emitted by
+    // InterfaceNode::compile (e.g. `vyne_Point x;`). False for the
+    // other Struct-kind case the codebase already uses: a boxed
+    // VyneValue whose semantic type is a struct, produced by
+    // native_dispatch.cpp for struct-returning native-ABI calls. Both
+    // carry Kind::Struct and a mangledName; only this flag distinguishes
+    // them, so boxAny can tell whether `.field` access is valid C.
+    bool nativeCStruct = false;
+
     // Per-field descriptor for struct-typed native-variant parameters.
     // Populated by InterfaceNode::compile from the interface member list,
     // in declaration order. Consumed by tryEmitNativeCall (caller side)

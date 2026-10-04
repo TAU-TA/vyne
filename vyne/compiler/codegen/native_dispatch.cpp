@@ -91,6 +91,17 @@ std::optional<std::string> tryEmitNativeCall(
             if (!have || have->kind != CType::Kind::Struct) {
                 return std::nullopt;
             }
+            // Slice 3b: a native C struct arg is a `vyne_*` value at
+            // the C level, not a VyneValue. The field-extraction path
+            // below emits `vyne_struct_get` on it, which is a C error.
+            // Reject so the caller falls back to the boxed ABI, which
+            // re-boxes via boxAny at the call site.
+            //
+            // Later slices will pass the flat fields directly when the
+            // callee's declared interface matches the arg's. That path
+            // is not needed for 3b's Point-only scope.
+            if (have->nativeCStruct) return std::nullopt;
+
             const std::string ifaceName =
                 nodeInterfaceName(e, orderedArgs[i]);
             if (ifaceName.empty()) return std::nullopt;

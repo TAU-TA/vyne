@@ -378,6 +378,46 @@ void AssignmentNode::compile(C_Emitter& e) const {
             "(line " + std::to_string(lineNumber) + "). Use the interpreter instead.");
     }
 
+    // Slice 3b: unboxing helper. Closes the reverse direction of
+    // boxAny. If `valExpr` is already a matching native struct, use it
+    // directly. Otherwise it is a boxed VyneValue; bind once, extract
+    // each field with vyne_struct_get, and return a compound literal
+    // of the native typedef. `ns` must be the registry entry for the
+    // target interface.
+    auto unboxToNative = [&](const std::string& valExpr,
+                             const CType& target,
+                             const auto* ns) -> std::string {
+        const CType* vt = e.lookupType(valExpr);
+        if (vt && vt->kind == CType::Kind::Struct && vt->nativeCStruct
+            && vt->mangledName == target.mangledName) {
+            return valExpr;
+        }
+        std::string boxed = e.newTemp("sv");
+        e.emit("VyneValue " + boxed + " = " + e.boxAny(valExpr) + ";");
+
+        std::string init = "((" + ns->tag + "){";
+        for (size_t i = 0; i < ns->fieldNames.size(); ++i) {
+            if (i) init += ", ";
+            init += "." + ns->fieldNames[i] + " = ";
+            uint32_t fid = StringPool::intern(ns->fieldNames[i]);
+            std::string cell = e.newTemp("cf");
+            e.emit("VyneValue " + cell + " = vyne_struct_get(" + boxed
+                   + ", " + std::to_string(fid) + ");");
+            CType ft = ns->fieldTypes[i];
+            if (ft.kind == CType::Kind::Float64) {
+                init += "(" + cell + ".type == V_FLOAT64) ? " + cell
+                      + ".as.f64 : (double)" + cell + ".as.i64";
+            } else if (ft.kind == CType::Kind::Int64) {
+                init += "(" + cell + ".type == V_INT64) ? " + cell
+                      + ".as.i64 : (int64_t)" + cell + ".as.f64";
+            } else if (ft.kind == CType::Kind::Bool) {
+                init += "(" + cell + ".as.i64 != 0)";
+            }
+        }
+        init += "})";
+        return init;
+    };
+
     // --- Region escape check (Phase 1) --------------------------------
     // Only checks reassignments to already-declared variables. A fresh
     // declaration inside a region dies with the region, no leak.
@@ -531,8 +571,24 @@ void AssignmentNode::compile(C_Emitter& e) const {
                 e.declareGlobal(bareName, declared);
                 e.emitGlobalDecl(declared.cTypeName() + " " + bareName + " = 0;");
             } else {
-                e.declareGlobal(bareName, CType::fromKind(CType::Kind::Unknown));
-                e.emitGlobalDecl("VyneValue " + bareName + ";");
+                // Slice 3b: a fresh global whose declared type names a
+                // C-eligible interface stores the native C struct
+                // directly instead of a boxed VyneValue. Subsequent
+                // member reads lower to `.field` on this variable.
+                const auto* ns = (isDeclaration && !declaredTypeName.empty())
+                    ? e.getNativeCStruct(declaredTypeName)
+                    : nullptr;
+                if (ns) {
+                    CType ct;
+                    ct.kind          = CType::Kind::Struct;
+                    ct.mangledName   = declaredTypeName;
+                    ct.nativeCStruct = true;
+                    e.declareGlobal(bareName, ct);
+                    e.emitGlobalDecl(ns->tag + " " + bareName + ";");
+                } else {
+                    e.declareGlobal(bareName, CType::fromKind(CType::Kind::Unknown));
+                    e.emitGlobalDecl("VyneValue " + bareName + ";");
+                }
             }
         }
 
@@ -541,6 +597,24 @@ void AssignmentNode::compile(C_Emitter& e) const {
             std::string val = rhs->getCExpr(e);
             std::string init = nativeInit(e, rhs.get(), val, *reg);
             e.emit(bareName + " = " + init + ";");
+        } else if (reg && reg->kind == CType::Kind::Struct
+                   && reg->nativeCStruct) {
+            // Slice 3b: global target is a native C struct. The RHS
+            // may already be native (constructor / same-interface
+            // variable) or a boxed VyneValue (native-ABI struct
+            // return, e.g. `vml.adam(...)`). `unboxToNative` covers
+            // both cases — it passes native through and unboxes
+            // boxed field by field.
+            const auto* ns = e.getNativeCStruct(reg->mangledName);
+            if (!ns) {
+                throw std::runtime_error(
+                    "internal: nativeCStruct CType without registry entry "
+                    "for '" + reg->mangledName + "' (line " +
+                    std::to_string(lineNumber) + ").");
+            }
+            std::string val = rhs->getCExpr(e);
+            std::string srcExpr = unboxToNative(val, *reg, ns);
+            e.emit(bareName + " = " + srcExpr + ";");
         } else {
             std::string val = rhs->getCExpr(e);
             e.emit(bareName + " = " + e.boxAny(val) + ";");
@@ -602,6 +676,30 @@ void AssignmentNode::compile(C_Emitter& e) const {
                 e.declareLocal(varName, arrType);
                 e.emit(CType::arrayContainerName(elem) + " " + varName +
                        " = " + val + ";");
+                return;
+            }
+        }
+
+        // (A') Slice 3b: fresh local declaration whose annotation
+        //      names a C-eligible interface. Declare the local at the
+        //      native C type and let `unboxToNative` handle either
+        //      RHS form (native already, or boxed VyneValue).
+        //
+        //      Fires on the *declared* type, not the RHS CType, so
+        //      `p :: Point = someBoxedCall()` still gets a native
+        //      local — the unboxing happens once at the boundary
+        //      instead of on every subsequent field read.
+        if (isDeclaration && !declaredTypeName.empty()) {
+            const auto* ns = e.getNativeCStruct(declaredTypeName);
+            if (ns) {
+                CType ct;
+                ct.kind          = CType::Kind::Struct;
+                ct.mangledName   = declaredTypeName;
+                ct.nativeCStruct = true;
+
+                std::string srcExpr = unboxToNative(val, ct, ns);
+                e.declareLocal(varName, ct);
+                e.emit(ns->tag + " " + varName + " = " + srcExpr + ";");
                 return;
             }
         }
@@ -689,8 +787,23 @@ void AssignmentNode::compile(C_Emitter& e) const {
         return;
     }
 
+    // --- Slice 3b: native C struct local reassignment ---
+    if (existing && existing->kind == CType::Kind::Struct
+        && existing->nativeCStruct) {
+        const auto* ns = e.getNativeCStruct(existing->mangledName);
+        if (!ns) {
+            throw std::runtime_error(
+                "internal: nativeCStruct CType without registry entry "
+                "for '" + existing->mangledName + "' (line " +
+                std::to_string(lineNumber) + ").");
+        }
+        std::string val = rhs->getCExpr(e);
+        std::string srcExpr = unboxToNative(val, *existing, ns);
+        e.emit(varName + " = " + srcExpr + ";");
+        return;
+    }
+
     // --- boxed local ---
     std::string val = rhs->getCExpr(e);
     e.emit(varName + " = " + e.boxAny(val)+ ";");
 }
-

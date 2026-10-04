@@ -382,8 +382,37 @@ public:
             if (elem == VType::Int64)
                 return "vyne_array_i64_to_value(&" + expr + ")";
         }
+        // Slice 3a: a native C struct value re-boxes into a VyneValue
+        // by calling the interface's boxed constructor with unboxed
+        // field reads. The constructor takes VyneValue args, so each
+        // field is wrapped with vyne_float / vyne_int / vyne_bool.
+        // mangledName may carry dots (module path); the C ctor symbol
+        // is underscore-mangled to match InterfaceNode::compile.
+        if (ct && ct->kind == CType::Kind::Struct
+              && ct->nativeCStruct
+              && !ct->mangledName.empty()) {
+            const NativeCStruct* ns = getNativeCStruct(ct->mangledName);
+            if (ns) {
+                std::string ctor = "struct_" + ct->mangledName;
+                std::replace(ctor.begin(), ctor.end(), '.', '_');
+                std::string args;
+                for (size_t i = 0; i < ns->fieldNames.size(); ++i) {
+                    if (i) args += ", ";
+                    const std::string fld = expr + "." + ns->fieldNames[i];
+                    CType ft = ns->fieldTypes[i];
+                    if (ft.kind == CType::Kind::Float64)
+                        args += "vyne_float(" + fld + ")";
+                    else if (ft.kind == CType::Kind::Int64)
+                        args += "vyne_int(" + fld + ")";
+                    else if (ft.kind == CType::Kind::Bool)
+                        args += "vyne_bool(" + fld + ")";
+                }
+                return ctor + "(" + args + ")";
+            }
+        }
         return boxIfNative(expr);
     }
+
     std::string nativeRead(const std::string& expr, VType kind) const {
         const CType* ct = exprNativeType(expr);
         CType want = CType::fromVType(kind);

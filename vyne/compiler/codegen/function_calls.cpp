@@ -211,6 +211,57 @@ std::string FunctionCallNode::getCExpr(C_Emitter& e) const {
                 "(line " + std::to_string(lineNumber) + ").");
         }
 
+        // Same-module interface constructor: `Parser(...)` inside vjson
+        // must emit struct_vjson_Parser, not struct_Parser.
+        std::string ctorSuffix = mangledName;
+        std::string dottedName = originalName;
+        if (!mod.empty() && e.isModuleInterface(mod, originalName)) {
+            ctorSuffix = mod + "_" + mangledName;
+            dottedName = mod + "." + originalName;
+        }
+
+        // Slice 3a: if this interface has a registered native C struct,
+        // emit a compound literal of that C type instead of the boxed
+        // constructor call. The value flows through the emitter as a
+        // native temp with CType{Struct, mangledName=dottedName}; the
+        // boxAny path re-boxes it at any dynamic boundary.
+        //
+        // Lookup key is the dotted form so a module-scoped interface
+        // resolves to its own struct even if another module has an
+        // interface with the same bare name.
+        if (const auto* ns = e.getNativeCStruct(dottedName)) {
+            std::string init = "((" + ns->tag + "){";
+            for (size_t i = 0; i < ns->fieldNames.size(); ++i) {
+                if (i) init += ", ";
+                init += "." + ns->fieldNames[i] + " = ";
+                if (i < orderedArgs.size()) {
+                    VType want = ns->fieldTypes[i].toVType();
+                    init += coerceToNative(
+                        e, orderedArgs[i], argCExprs[i], want);
+                } else {
+                    CType ft = ns->fieldTypes[i];
+                    if      (ft.kind == CType::Kind::Int64)   init += "0";
+                    else if (ft.kind == CType::Kind::Float64) init += "0.0";
+                    else if (ft.kind == CType::Kind::Bool)    init += "false";
+                }
+            }
+            init += "})";
+
+            std::string nativeTemp = e.newTemp("struct");
+            e.emit(ns->tag + " " + nativeTemp + " = " + init + ";");
+
+            CType ct;
+            ct.kind          = CType::Kind::Struct;
+            ct.mangledName   = dottedName;
+            ct.nativeCStruct = true;   // Slice 3: C-level value is `vyne_*`
+            e.declareNativeTemp(nativeTemp, ct);
+            return nativeTemp;
+        }
+
+        // Boxed path (unchanged) — used when the interface has no
+        // native C struct representation, or its fields are not
+        // C-eligible. Same logic as before, now reached only as a
+        // fallback.
         const std::vector<std::string>* defaults =
             e.getInterfaceDefaults(originalName);
         if (!defaults) defaults = e.getInterfaceDefaults(mangledName);
@@ -231,13 +282,6 @@ std::string FunctionCallNode::getCExpr(C_Emitter& e) const {
         for (size_t i = 0; i < argStrs.size(); ++i) {
             if (i > 0) directArgs += ", ";
             directArgs += argStrs[i];
-        }
-
-        // Same-module interface constructor: `Parser(...)` inside vjson
-        // must emit struct_vjson_Parser, not struct_Parser.
-        std::string ctorSuffix = mangledName;
-        if (!mod.empty() && e.isModuleInterface(mod, originalName)) {
-            ctorSuffix = mod + "_" + mangledName;
         }
 
         e.emit("VyneValue " + retTemp + " = struct_" + ctorSuffix +

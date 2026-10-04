@@ -24,6 +24,37 @@
 // ============================================================
 
 std::string MemberAccessNode::getCExpr(C_Emitter& e) const {
+    // --- Slice 3c: direct field access on a native C struct receiver ---
+    // The receiver's C-level value is the `vyne_*` typedef, not a
+    // VyneValue, so vyne_struct_get is a type error. Emit `recv.member`
+    // directly and declare the temp with the field's own CType so
+    // downstream native dispatch sees the right primitive kind.
+    //
+    // Only fires for a bare-variable receiver whose CType is a native
+    // struct. Any other shape (nested access, call result) falls
+    // through to the existing paths — nested native field access is
+    // out of scope for this slice.
+    if (receiver->type() == NodeType::VARIABLE) {
+        std::string recvC = receiver->getCExpr(e);
+        const CType* recvCt = e.lookupType(recvC);
+        if (recvCt && recvCt->kind == CType::Kind::Struct
+                   && recvCt->nativeCStruct) {
+            const auto* ns = e.getNativeCStruct(recvCt->mangledName);
+            if (ns) {
+                for (size_t i = 0; i < ns->fieldNames.size(); ++i) {
+                    if (ns->fieldNames[i] == memberName) {
+                        CType fct = ns->fieldTypes[i];
+                        std::string temp = e.newTemp("fld");
+                        e.emit(fct.cTypeName() + " " + temp + " = " +
+                               recvC + "." + memberName + ";");
+                        e.declareNativeTemp(temp, fct);
+                        return temp;
+                    }
+                }
+            }
+        }
+    }
+
     // --- Existing native-module / group resolution -------------------
     if (receiver->type() == NodeType::VARIABLE) {
         auto* var = static_cast<VariableNode*>(receiver.get());
