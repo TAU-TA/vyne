@@ -163,13 +163,18 @@ libraries can be validated against a reference implementation.
 
 **What lands.**
 
-- The bug is in `loops.cpp`'s boxed fallback for `ForNode::getCExpr`,
-  in the branch that emits the accumulator push.
-- The conditional body must produce a value on every path. The current
-  emission produces `vyne_null()` when the `if` branch runs and does not
-  assign.
-- Fix: emit an explicit `VyneValue tmp = vyne_null(); if (cond) { tmp =
-...; } push(tmp);` pattern.
+- Root cause: the boxed fallback in `ForNode::getCExpr` guarded the
+  loop with `if (collection.type == V_ARRAY)`. For an `Array<Float64>`
+  or `Array<Int64>` the boxed wrapper is `V_F64_ARRAY` / `V_I64_ARRAY`,
+  so the guard was false, the loop body never ran, and the collect
+  returned an empty array silently.
+- Fix: bind the wrapper once and use `_vyne_array_size`, which
+  dispatches on all three representations. The iterator type is still
+  lost downstream; that is tracked as the residual gap below.
+- Hardening: emit `VyneValue tmp = vyne_null(); tmp = <body>;
+push(tmp);` for the collect push, so every iteration contributes a
+  value even when the body is an if/else with branches that produce
+  different expressions.
 
 **Residual gap.** The companion `BlockNode::getStaticType()` change
 that lights up the native collect fast path fires only for Float64
