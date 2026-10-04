@@ -136,6 +136,29 @@ void ReturnNode::compile(C_Emitter& e) const {
         const CType& retCt = e.getNativeReturnType();
         if (retCt.kind == CType::Kind::Array && !retCt.args.empty()) {
             VType elem = retCt.args[0].toVType();
+
+            // Empty-array literal in a native array producer: emit the
+            // typed container directly. The native function's return
+            // type is already VyneArray_f64 / VyneArray_i64, so the
+            // box-and-unbox round trip the generic path would take is
+            // pure waste. Check this before evaluating the RHS, because
+            // ArrayNode::getCExpr on `[]` returns a boxed empty container.
+            if (expression && expression->type() == NodeType::ARRAY) {
+                auto* arr = static_cast<const ArrayNode*>(expression.get());
+                if (arr->getElements().empty() &&
+                    (elem == VType::Float64 || elem == VType::Int64)) {
+                    std::string ctor = (elem == VType::Float64)
+                        ? "vyne_array_f64_create"
+                        : "vyne_array_i64_create";
+                    std::string native = e.newTemp("ret_arr");
+                    e.emit(CType::arrayContainerName(elem) + " " + native +
+                           " = " + ctor + "(0);");
+                    e.emitRegionUnwind();
+                    e.emit("return " + native + ";");
+                    return;
+                }
+            }
+
             std::string raw = expression
                 ? expression->getCExpr(e)
                 : "vyne_array_create(0)";
@@ -161,11 +184,42 @@ void ReturnNode::compile(C_Emitter& e) const {
         }
     }
     // --- end native Array<T> return ---------------------------------
+    std::string expr;
 
-    std::string expr = expression ? e.boxAny(expression->getCExpr(e))
-                                  : "vyne_null()";
+    // --- Empty-array return in a function declared to return Array<T> ---
+    // `return [];` in `fn f() -> Array<Float64>` should produce a typed
+    // empty array, not a boxed one — matching the semantics of every
+    // other construction path that already specialises `[]` to the
+    // declared element type.
+    if (expression && expression->type() == NodeType::ARRAY) {
+        auto* arr = static_cast<const ArrayNode*>(expression.get());
+        if (arr->getElements().empty()) {
+            const CType& retCt = e.getCurrentFunctionReturnType();
+            if (retCt.kind == CType::Kind::Array && !retCt.args.empty()) {
+                VType elem = retCt.args[0].toVType();
+                if (elem == VType::Float64 || elem == VType::Int64) {
+                    std::string arrName = e.newTemp("ret_arr");
+                    std::string ctor = (elem == VType::Float64)
+                        ? "vyne_array_f64_create"
+                        : "vyne_array_i64_create";
+                    e.emit(CType::arrayContainerName(elem) + " " + arrName +
+                           " = " + ctor + "(0);");
 
-    // ... rest of the existing function unchanged ...
+                    std::string boxFn = (elem == VType::Float64)
+                        ? "vyne_array_f64_to_value"
+                        : "vyne_array_i64_to_value";
+                    expr = e.newTemp("ret_boxed");
+                    e.emit("VyneValue " + expr + " = " + boxFn +
+                           "(&" + arrName + ");");
+                }
+            }
+        }
+    }
+
+    if (expr.empty()) {
+        expr = expression ? e.boxAny(expression->getCExpr(e))
+                          : "vyne_null()";
+    }
 
     // Every region we're lexically inside at the point of this return.
     // A `return` exits all of them; the question is whether we can safely

@@ -380,7 +380,21 @@ void FunctionNode::compile(C_Emitter& e) const {
     e.emitBlockOpen("VyneValue fn_" + mangledName +
                     "(int arg_count, VyneValue* args) {");
 
+    // Publish the source-level return type so ReturnNode::compile can
+    // resolve `return [];` when the declared type is `Array<T>`.
+    {
+        CType retCt = CType::fromVType(returnType);
+        if (returnType == VType::Array &&
+            getReturnArrayElemType() != VType::Unknown) {
+            retCt.args.push_back(
+                CType::fromVType(getReturnArrayElemType()));
+        }
+        e.setCurrentFunctionReturnType(retCt);
+    }
+
     emitFunctionBody(e, parameters, body, mangledName);
+
+    e.clearCurrentFunctionReturnType();
 
     e.emitBlockClose();
     e.emit("");
@@ -432,7 +446,19 @@ void FunctionNode::compileAs(C_Emitter& e, const std::string& mangledName) const
     e.emit("// fn (aliased): " + mangledName);
     e.emitBlockOpen("VyneValue fn_" + name + "(int arg_count, VyneValue* args) {");
 
+    {
+        CType retCt = CType::fromVType(returnType);
+        if (returnType == VType::Array &&
+            getReturnArrayElemType() != VType::Unknown) {
+            retCt.args.push_back(
+                CType::fromVType(getReturnArrayElemType()));
+        }
+        e.setCurrentFunctionReturnType(retCt);
+    }
+
     emitFunctionBody(e, parameters, body, name);
+
+    e.clearCurrentFunctionReturnType();
 
     e.emitBlockClose();
     e.emit("");

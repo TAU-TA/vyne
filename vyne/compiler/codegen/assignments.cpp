@@ -415,7 +415,7 @@ void AssignmentNode::compile(C_Emitter& e) const {
         varName = "v_" + prefix + "_" + sanitized;
     }
 
-    if (!declaredTypeName.empty()) {
+    if (!declaredTypeName.empty() && expectedType == VType::Struct) {
         if (useGlobal) e.setGlobalStructType(bareName, declaredTypeName);
         else           e.setLocalStructType(varName, declaredTypeName);
     }
@@ -638,6 +638,26 @@ void AssignmentNode::compile(C_Emitter& e) const {
     if (existing && existing->kind == CType::Kind::Array &&
         !existing->args.empty()) {
         VType elem = existing->args[0].toVType();
+
+        // Empty array literal on the RHS of a local reassignment:
+        //     x = [];
+        // is the "reset and refill" idiom. Reuse the local's declared
+        // element type rather than boxing a fresh VyneValue and then
+        // failing the element-type match below.
+        //
+        // The global branch already has this fast path; the local
+        // branch did not.
+        if (rhs->type() == NodeType::ARRAY) {
+            auto* arrRhs = static_cast<const ArrayNode*>(rhs.get());
+            if (arrRhs->getElements().empty()) {
+                std::string ctor = (elem == VType::Float64)
+                    ? "vyne_array_f64_create"
+                    : "vyne_array_i64_create";
+                e.emit(varName + " = " + ctor + "(0);");
+                return;
+            }
+        }
+
         std::string val = rhs->getCExpr(e);
         const CType* rt = e.lookupType(val);
         if (rt && rt->kind == CType::Kind::Array && !rt->args.empty() &&

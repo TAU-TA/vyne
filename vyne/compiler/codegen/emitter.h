@@ -58,11 +58,21 @@ class C_Emitter {
     std::unordered_map<std::string, CType> functionReturnTypes;
     std::unordered_map<std::string, std::string> nativeVariants;
     CType nativeReturnType;
+
     // Out-parameter names for a native variant whose declared return
     // type is a Struct. Empty for every other return kind. Populated by
     // emitNativeFunctionBody; read by ReturnNode::compile to write the
     // boxed result's fields into the out-params at return time.
     std::vector<std::string> structReturnOutParams;
+
+    // Source-level return type of the function currently being emitted.
+    // Set by FunctionNode::compile / compileAs before the body is lowered;
+    // read by ReturnNode::compile to resolve `return [];` when the
+    // declared type is `Array<T>`. Cleared on function exit. Distinct
+    // from nativeReturnType_, which is only set for the native variant
+    // and carries the ABI-level C representation.
+    CType currentFunctionReturnType_;
+
     std::unordered_map<std::string, std::vector<std::string>> interfaceDefaults;
     std::string groupPrefix;
 
@@ -363,6 +373,7 @@ public:
         speculativeStack.clear();
         committedVars.clear();
         nativeReturnType = CType{};
+        currentFunctionReturnType_ = CType{};
         structReturnOutParams.clear();
         localScopes.clear();
         localScopes.emplace_back();
@@ -374,6 +385,7 @@ public:
         localStructTypes.clear();
         fieldCache.clear();
         currentInterfaceType.clear();
+        currentFunctionReturnType_ = CType{};
         indentLevel = 1;
     }
     void setFunctionContext(bool inside) {
@@ -636,6 +648,16 @@ public:
     void clearNativeReturnType() { nativeReturnType = CType{}; }
     const CType& getNativeReturnType() const { return nativeReturnType; }
 
+    void setCurrentFunctionReturnType(const CType& ct) {
+        currentFunctionReturnType_ = ct;
+    }
+    void clearCurrentFunctionReturnType() {
+        currentFunctionReturnType_ = CType{};
+    }
+    const CType& getCurrentFunctionReturnType() const {
+        return currentFunctionReturnType_;
+    }
+
     void setStructReturnOutParams(std::vector<std::string> names) {
         structReturnOutParams = std::move(names);
     }
@@ -797,6 +819,7 @@ public:
         functionReturnTypes.clear();
         nativeVariants.clear();
         nativeReturnType = CType{};
+        currentFunctionReturnType_ = CType{};
         structReturnOutParams.clear();
 
         interfaceArrayFields.clear();

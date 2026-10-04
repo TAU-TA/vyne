@@ -247,6 +247,25 @@ std::string MethodCallNode::getCExpr(C_Emitter& e) const {
         return recvBoxed;
     }
 
+    // Array methods: size / length — read the typed container's `.size`
+    // field directly. The boxed path below would allocate a wrapper via
+    // `vyne_array_f64_to_value(&xs)` per call, which for an SDF parser
+    // calling .size() on every atom array is a real cost. The
+    // `!rt->args.empty()` guard keeps this restricted to `Array<Float64>`
+    // and `Array<Int64>`; a bare `Array` annotation has no element type
+    // and still goes through the boxed path, as do `String`, `Map`, and
+    // user-defined struct methods named `size` (those are caught by the
+    // `receiverIsStruct` check further down).
+    if (methodName == "size" || methodName == "length") {
+        const CType* rt = e.lookupType(recvRaw);
+        if (rt && rt->kind == CType::Kind::Array && !rt->args.empty()) {
+            std::string temp = e.newTemp("len");
+            e.emit("VyneValue " + temp + " = vyne_int(" +
+                   recvRaw + ".size);");
+            return temp;
+        }
+    }
+
     // Every branch below needs a boxed receiver — box it once, here.
     std::string recv = e.newTemp("m_recv");
     e.emit("VyneValue " + recv + " = " + e.boxAny(recvRaw) + ";");
