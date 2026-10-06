@@ -21,11 +21,6 @@ local root = os.scriptdir()
 local RAYLIB_INC = path.join(root, "vendor/raylib/include")
 local RAYLIB_LIB = path.join(root, "vendor/raylib/lib")
 
-local URAGE_INC = {
-    path.join(root, "vendor/urage/core/include"),
-    path.join(root, "vendor/urage/core/src"),
-}
-
 local OPENSSL_INC = "C:/msys64/ucrt64/include"
 local OPENSSL_LIB = "C:/msys64/ucrt64/lib"
 
@@ -48,20 +43,6 @@ local VYNEC_SOURCES = {
 }
 
 -- ---------------------------------------------------------------------------
--- urage shared library
--- ---------------------------------------------------------------------------
-target("urage")
-    set_kind("shared")
-    set_filename("urage.dll")
-    set_targetdir(root)
-    set_languages("c11")
-
-    add_files("vendor/urage/core/src/*.c")
-    add_includedirs(URAGE_INC)
-    add_defines("URAGE_BUILD_SHARED")
-target_end()
-
--- ---------------------------------------------------------------------------
 -- vynec — the compiler binary
 -- ---------------------------------------------------------------------------
 target("vynec")
@@ -74,8 +55,8 @@ target("vynec")
     add_includedirs(
         ".",
         RAYLIB_INC,
-        "lsp/backend/src",
-        "lsp/backend/include",
+        "editors/vscode/lsp/backend/src",
+        "editors/vscode/lsp/backend/include",
         OPENSSL_INC
     )
     add_defines(COMMON_DEFINES)
@@ -91,8 +72,6 @@ target("vynec")
     elseif is_mode("debug") then
         add_cxxflags("-O0", "-g", { force = true })
     end
-
-    add_deps("urage")
 target_end()
 
 -- ===========================================================================
