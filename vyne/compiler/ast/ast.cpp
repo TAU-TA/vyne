@@ -24,7 +24,6 @@
 #include "../../modules/common/vmem/vmem.h"
 #include "../../modules/common/vmath/vmath.h"
 #include "../../modules/common/vfs/vfs.h"
-#include "../../modules/common/vurage/vurage.h"
 #include "../../modules/common/vcv/vcv.h"
 #include "../../modules/common/vaudio/vaudio.h"
 #include "../../modules/common/vnet/vnet.h"
@@ -1898,7 +1897,6 @@ Value NativeModuleNode::evaluate(SymbolContainer& env, uint32_t currentGroupId) 
     if (moduleName == "vmem")   setupVMem(env, StringPool::instance());
     if (moduleName == "vmath")  setupVMath(env, StringPool::instance());
     if (moduleName == "vfs")    setupVFs(env, StringPool::instance());
-    if (moduleName == "vurage") setupVurage(env, StringPool::instance());
     if (moduleName == "vcv")    setupVCV(env, StringPool::instance());
     if (moduleName == "vaudio") setupVAudio(env, StringPool::instance());
     if (moduleName == "vnet")   setupVNet(env, StringPool::instance());
