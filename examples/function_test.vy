@@ -1,5 +1,3 @@
-ruleset { dynamic_casting };
-
 fn add<T>(a :: T, b :: T) -> T {
     return a + b;
 }
