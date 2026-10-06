@@ -34,3 +34,5 @@ nul
 *.bak
 *.ps1
 *.json
+.xmake
+build/*
