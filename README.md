@@ -7,7 +7,7 @@
 [![CI](https://github.com/tuncaygafarli/vyne/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/tuncaygafarli/vyne/actions/workflows/c-cpp.yml)
 [![Docs](https://github.com/tuncaygafarli/vyne/actions/workflows/pages/pages-build-deployment/badge.svg)](https://github.com/tuncaygafarli/vyne/actions/workflows/pages/pages-build-deployment)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](https://isocpp.org/)
+[![C++26](https://img.shields.io/badge/C%2B%2B-26-00599C.svg)](https://isocpp.org/)
 [![Version](https://img.shields.io/badge/version-0.4.0-orange.svg)](CHANGELOG.md)
 [![Platforms](https://img.shields.io/badge/platforms-linux%20%7C%20macOS%20%7C%20windows-lightgrey.svg)](#build-from-source)
 
@@ -713,8 +713,9 @@ compilation or runtime error, `2` on CLI misuse.
 
 ### Prerequisites
 
-- C++17 compiler (GCC 9+, Clang 10+, MSVC 19.20+)
-- Make or CMake 3.15+
+- C++26 compiler (GCC 14+ with `-std=c++26`, or equivalent)
+- [xmake](https://xmake.io/) — `scoop install xmake` on Windows,
+  `brew install xmake` on macOS, `curl -fsSL https://xmake.io/shget.text | bash` on Linux
 - A C11 compiler for the generated output (default: the same compiler)
 
 Vendored dependencies under `vendor/`: Raylib (graphics and audio),
@@ -725,7 +726,7 @@ WebSocket SHA-1 handshake path in `vserv`.
 ### Build
 
 ```bash
-make
+xmake
 ```
 
 Produces `vynec` in the repository root. On Windows, `build.bat` performs
@@ -734,7 +735,7 @@ the equivalent.
 ### Test
 
 ```bash
-make test
+xmake test
 ```
 
 Runs the suite under `tests/`, including compiler tests, DSP tests,
@@ -748,7 +749,7 @@ graphics smoke tests, and the region-safety harness under
 ```
 vyne/
 ├── main.cpp                       # entry point
-├── Makefile
+├── xmake.lua                      # build script
 ├── compiler/
 │   ├── lexer/                     # tokenizer, string interpolation
 │   ├── parser/                    # recursive descent, type resolution
