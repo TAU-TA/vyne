@@ -1,15 +1,9 @@
 ruleset { dynamic_casting };
 
-num = 1;
-arr = [1, 2, 3];
-
-fn modify(a :: Array&) -> Array {
-    a.push(99);
+fn add<T>(a :: T, b :: T) -> T {
+    return a + b;
 }
 
-if (num in arr) {
-    out("dih");
-}
-
-modify(arr);
-out(arr);
+out(add(1,2));
+out(add(1.0, 2.0));
+out(add("A" + "B"));
