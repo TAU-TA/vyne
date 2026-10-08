@@ -197,10 +197,6 @@ int main(int argc, char* argv[]) {
     uint32_t globalId = StringPool::instance().intern("global");
     env[globalId] = {};
 
-    // --- Sub-commands with a fixed argument shape --------------------
-    if (argc > 1 && strcmp(argv[1], "--lsp") == 0)
-        return runLspServer(env);
-
     if (argc == 3 && strcmp(argv[1], "--build-game") == 0) {
         VynePackager packager(argv[2]);
         packager.build();

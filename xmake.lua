@@ -16,7 +16,7 @@ local is_unix    = is_linux or is_macos
 local EXE_SUFFIX = is_windows and ".exe" or ""
 local ROOT       = os.scriptdir()
 
--- Windows: force MinGW (MSVC lacks the C++26 bits we rely on). Linux/macOS:
+-- Windows: force MinGW (MSVC lacks the C++23 bits we rely on). Linux/macOS:
 -- let xmake pick the system compiler.
 if is_windows then
     set_toolchains("mingw")
@@ -27,44 +27,25 @@ add_rules("mode.debug", "mode.release")
 -- ---------------------------------------------------------------------------
 -- Third-party dependencies
 -- ---------------------------------------------------------------------------
--- Raylib: prefer the vendored copy at vendor/raylib if it exists (Windows
--- default). On Unix without a vendored copy, fall back to the system package
--- discovered via pkg-config.
-local RAYLIB_INC = path.join(ROOT, "vendor/raylib/include")
-local RAYLIB_LIB = path.join(ROOT, "vendor/raylib/lib")
-local HAVE_VENDORED_RAYLIB = os.isdir(RAYLIB_LIB) and os.isdir(RAYLIB_INC)
-
-local USE_SYSTEM_RAYLIB = false
-if not HAVE_VENDORED_RAYLIB and is_unix then
-    local ok = try {
-        function ()
-            os.execv("pkg-config", { "--exists", "raylib" },
-                     { stdout = os.nuldev(), stderr = os.nuldev() })
-        end,
-        catch {
-            function () return false end,
-        }
-    }
-    USE_SYSTEM_RAYLIB = (ok == true)
-end
-
-if not HAVE_VENDORED_RAYLIB and not USE_SYSTEM_RAYLIB then
-    raise("raylib not found. Either vendor it at vendor/raylib/ or install "
-       .. "the system package (apt: libraylib-dev, brew: raylib).")
-end
-
--- OpenSSL: system package on Unix, MSYS2 UCRT64 on Windows.
--- We keep the hardcoded Windows paths only for the MinGW case, where
--- pkg-config is unreliable.
-local OPENSSL_INC = is_windows and "C:/msys64/ucrt64/include" or nil
-local OPENSSL_LIB = is_windows and "C:/msys64/ucrt64/lib"     or nil
+-- No external native dependencies are linked. raylib was only used by the
+-- LSP backend; OpenSSL was only used by vserv. Both are deprecated for now.
+--
+-- The vserv module is stubbed out on the source side — see the note in
+-- ast.cpp near the module includes. Do not add files with
+-- `#include <openssl/...>` back into the build until OpenSSL is restored.
+--
+-- When a native dependency is needed again, use xmake's package system:
+--
+--     add_requires("package")      -- top of file, before any target
+--     add_packages("package")      -- inside target("vynec")
+--
+-- It injects the right -I and -L for the active toolchain on every
+-- platform and avoids hardcoded paths.
 
 -- ---------------------------------------------------------------------------
 -- Defines
 -- ---------------------------------------------------------------------------
-local COMMON_DEFINES = {
-    "CPPHTTPLIB_OPENSSL_SUPPORT",
-}
+local COMMON_DEFINES = {}
 if is_windows then
     table.join2(COMMON_DEFINES, {
         "_WIN32", "WIN32_LEAN_AND_MEAN", "NOGDI", "NOUSER",
@@ -74,20 +55,17 @@ end
 -- ---------------------------------------------------------------------------
 -- Link libraries
 -- ---------------------------------------------------------------------------
+-- Windows: Win32 system libraries used by the runtime modules
+-- (graphics, audio, timing, sockets).
+-- Unix:    pthread for threading, dl for dlopen, m for libm.
 local COMMON_LINKS
 if is_windows then
     COMMON_LINKS = {
-        "ssl", "crypto",
-        "raylib", "opengl32", "gdi32", "winmm",
+        "opengl32", "gdi32", "winmm",
         "shell32", "winpthread", "crypt32", "bcrypt", "ws2_32",
     }
 else
-    -- Linux/macOS: system OpenSSL via -lssl -lcrypto; raylib provides
-    -- its own dependencies through pkg-config, but linking against the
-    -- shared library by name works for the common distro packages.
     COMMON_LINKS = {
-        "ssl", "crypto",
-        "raylib",
         "pthread", "dl", "m",
     }
 end
@@ -95,11 +73,13 @@ end
 -- ---------------------------------------------------------------------------
 -- Sources
 -- ---------------------------------------------------------------------------
+-- The LSP backend under editors/vscode/lsp/backend/src/ is intentionally
+-- not compiled. It pulls in raylib and is not needed for the `vynec foo.vy`
+-- path. Re-add it (plus the raylib dependency) if you want `--lsp` back.
 local VYNEC_SOURCES = {
     "*.cpp",
     "cli/*.cpp",
     "vyne/**.cpp",
-    "editors/vscode/lsp/backend/src/*.cpp",
 }
 
 -- ---------------------------------------------------------------------------
@@ -112,27 +92,14 @@ target("vynec")
 
     add_files(VYNEC_SOURCES)
 
-    add_includedirs(
-        ".",
-        "editors/vscode/lsp/backend/src",
-        "editors/vscode/lsp/backend/include"
-    )
-    if HAVE_VENDORED_RAYLIB then
-        add_includedirs(RAYLIB_INC)
-    elseif USE_SYSTEM_RAYLIB then
-        add_packages("raylib")
-    end
-    if is_windows then
-        add_includedirs(OPENSSL_INC)
-    end
+    add_includedirs(".")
 
     add_defines(COMMON_DEFINES)
 
-        add_cxxflags("-std=c++23", { force = true })
+    add_cxxflags("-std=c++23", { force = true })
 
     if is_windows then
         add_ldflags("-mconsole", { force = true })
-        add_linkdirs(RAYLIB_LIB, OPENSSL_LIB)
     end
     add_ldflags("-pthread")
     add_links(COMMON_LINKS)
@@ -387,13 +354,10 @@ task("check-copies")
         local sources = _collect(VYNEC_SOURCES)
         local base_args = {
             "-std=c++23",
-            "-I.", "-I" .. RAYLIB_INC, "-I" .. OPENSSL_INC,
+            "-I.",
             "-Wpessimizing-move", "-Wredundant-move",
             "-fsyntax-only",
         }
-        if HAVE_VENDORED_RAYLIB then
-            table.insert(base_args, "-I" .. RAYLIB_INC)
-        end
         if is_windows then
             table.insert(base_args, "-D_WIN32")
         end
@@ -435,10 +399,6 @@ task("check-leaks")
 
         local args = { "-std=c++23", "-O1", "-g", sanitizer }
         table.insert(args, "-I.")
-        table.insert(args, "-I" .. OPENSSL_INC)
-        if HAVE_VENDORED_RAYLIB then
-            table.insert(args, "-I" .. RAYLIB_INC)
-        end
         for _, d in ipairs(COMMON_DEFINES) do
             table.insert(args, "-D" .. d)
         end
@@ -447,10 +407,6 @@ task("check-leaks")
 
         table.insert(args, "-o"); table.insert(args, out_exe)
 
-        if is_windows then
-            table.insert(args, "-L" .. RAYLIB_LIB)
-            table.insert(args, "-L" .. OPENSSL_LIB)
-        end
         for _, l in ipairs(COMMON_LINKS) do
             table.insert(args, "-l" .. l)
         end

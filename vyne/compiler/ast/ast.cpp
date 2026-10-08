@@ -19,13 +19,10 @@
 #include "ast_helpers.h"
 
 #include "../../modules/common/vcore/vcore.h"
-#include "../../modules/common/vglib/vglib.h"
-#include "../../modules/common/vserv/vserv.h"
 #include "../../modules/common/vmem/vmem.h"
 #include "../../modules/common/vmath/vmath.h"
 #include "../../modules/common/vfs/vfs.h"
 #include "../../modules/common/vcv/vcv.h"
-#include "../../modules/common/vaudio/vaudio.h"
 #include "../../modules/common/vnet/vnet.h"
 #include "../../modules/common/vml/vml.h"
 
@@ -1893,14 +1890,11 @@ Value ModuleNode::evaluate(SymbolContainer& env, uint32_t currentGroupId) const 
 }
 Value NativeModuleNode::evaluate(SymbolContainer& env, uint32_t currentGroupId) const {
     if (moduleName == "vcore")  setupVCore(env, StringPool::instance());
-    if (moduleName == "vglib")  setupVGLib(env, StringPool::instance());
     if (moduleName == "vmem")   setupVMem(env, StringPool::instance());
     if (moduleName == "vmath")  setupVMath(env, StringPool::instance());
     if (moduleName == "vfs")    setupVFs(env, StringPool::instance());
     if (moduleName == "vcv")    setupVCV(env, StringPool::instance());
-    if (moduleName == "vaudio") setupVAudio(env, StringPool::instance());
     if (moduleName == "vnet")   setupVNet(env, StringPool::instance());
-    if (moduleName == "vserv")  setupVServ(env, StringPool::instance());
     if (moduleName == "vml")    setupVML(env, StringPool::instance());
 
     // Make sure the module name is visible in the current scope.
