@@ -185,6 +185,14 @@ static int runTranspile(const std::string& filename,
             cmd += " -I\"" + obInclude + "\"";
             cmd += " \"" + obLib + "\"";
         }
+#ifndef _WIN32
+        // libm is a separate shared object on glibc; the C runtime on
+        // Windows folds its contents into msvcrt, so this link is only
+        // needed on Linux/macOS. Placement matters: it must come after
+        // the object files that reference exp/pow/fmod, which it does
+        // here since gccBase is concatenated before -o and the output.
+        cmd += " -lm";
+#endif
         return cmd;
     };
 
@@ -230,9 +238,9 @@ static int runTranspile(const std::string& filename,
     // ---------------- Phase 2c: link for --compile / --run -------------
     std::string cmd = gccBase() + " -o \"" + exeName + "\"";
 #ifdef _WIN32
+    // 64 MB stack. MSVC and MinGW honour this; GNU ld on Linux does not
+    // implement -z stacksize, so the flag is only emitted on Windows.
     cmd += " -Wl,--stack,67108864";
-#else
-    cmd += " -Wl,-z,stacksize=67108864";
 #endif
 
     auto start_compile = std::chrono::high_resolution_clock::now();
