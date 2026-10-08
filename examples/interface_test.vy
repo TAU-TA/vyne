@@ -1,6 +1,23 @@
-interface Point { x :: Float64, y :: Float64, }
+interface Atom {
+    x        :: Float64,
+    y        :: Float64,
+    z        :: Float64,
+    element  :: Int64,
+    aromatic :: Bool,
+}
 
-pts :: Array<Point> = [Point(1.0, 2.0), Point(3.0, 4.0)];
-out(pts[0].x);
-out(pts[1].y);
-out(pts[0].x + pts[1].y);
+interface Molecule {
+    atoms :: Array<Atom>,
+    name  :: String,
+    props :: Map,
+}
+
+mol :: Molecule = Molecule(
+    [Atom(1.0, 0.0, 0.0, 6, false), Atom(0.0, 1.0, 0.0, 1, false)],
+    "methane",
+    {"formula": "CH4"}
+);
+
+out(mol.name);
+out(mol.atoms[0].element);
+out(mol.atoms[1].x);
