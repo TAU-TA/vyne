@@ -115,6 +115,18 @@ std::string FunctionCallNode::getCExpr(C_Emitter& e) const {
         for (const auto& a : arguments) orderedArgs.push_back(a.get());
     }
 
+    if (!e.isInterface(originalName)) {
+        if (const auto* sig = e.getFunctionSignature(originalName)) {
+            if (orderedArgs.size() != sig->size()) {
+                throw std::runtime_error(
+                    "Compile Error: function '" + originalName +
+                    "' expects " + std::to_string(sig->size()) +
+                    " argument(s), got " + std::to_string(orderedArgs.size()) +
+                    " (line " + std::to_string(lineNumber) + ").");
+            }
+        }
+    }
+
     // --- M2: monomorphization --------------------------------------
     // Only fire when the parser recorded type args. Inference is a
     // follow-up; explicit `foo<Int64>(...)` is the load-bearing case.

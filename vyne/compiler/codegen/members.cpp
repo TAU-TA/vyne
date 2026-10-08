@@ -24,16 +24,41 @@
 // ============================================================
 
 std::string MemberAccessNode::getCExpr(C_Emitter& e) const {
-    // --- Slice 3c: direct field access on a native C struct receiver ---
+    // --- Slice 3c (+ extension): direct field access on a native C struct ---
     // The receiver's C-level value is the `vyne_*` typedef, not a
     // VyneValue, so vyne_struct_get is a type error. Emit `recv.member`
     // directly and declare the temp with the field's own CType so
     // downstream native dispatch sees the right primitive kind.
     //
-    // Only fires for a bare-variable receiver whose CType is a native
-    // struct. Any other shape (nested access, call result) falls
-    // through to the existing paths — nested native field access is
-    // out of scope for this slice.
+    // Fires for any receiver whose CType carries Struct + nativeCStruct:
+    //   - a bare variable (Slice 3c)
+    //   - an index read from a `vyne_Array_vyne_*` container (Slice 3f)
+    //   - a field read on another native struct (chained access)
+    //   - a struct constructor used directly as a receiver
+    //
+    // The receiver is materialized exactly once here and reused by every
+    // subsequent branch, so no path below can double-emit its statements.
+    std::string recvC = receiver->getCExpr(e);
+    const CType* recvCt = e.lookupType(recvC);
+
+    if (recvCt && recvCt->kind == CType::Kind::Struct
+               && recvCt->nativeCStruct) {
+        const auto* ns = e.getNativeCStruct(recvCt->mangledName);
+        if (ns) {
+            for (size_t i = 0; i < ns->fieldNames.size(); ++i) {
+                if (ns->fieldNames[i] == memberName) {
+                    CType fct = ns->fieldTypes[i];
+                    std::string temp = e.newTemp("fld");
+                    e.emit(fct.cTypeName() + " " + temp + " = " +
+                           recvC + "." + memberName + ";");
+                    e.declareNativeTemp(temp, fct);
+                    return temp;
+                }
+            }
+        }
+    }
+
+    // --- Existing native-module / group resolution -------------------
     if (receiver->type() == NodeType::VARIABLE) {
         std::string recvC = receiver->getCExpr(e);
         const CType* recvCt = e.lookupType(recvC);
@@ -97,7 +122,7 @@ std::string MemberAccessNode::getCExpr(C_Emitter& e) const {
                 if (const auto* cached = e.getFieldCache(cacheKey))
                     return cached->temp;
 
-                std::string recv = e.boxAny(receiver->getCExpr(e));
+                std::string recv = e.boxAny(recvC);
                 uint32_t fid = StringPool::intern(memberName);
                 std::string temp = e.newTemp("fld");
                 const char* cName = (elem == VType::Float64)
@@ -127,7 +152,7 @@ std::string MemberAccessNode::getCExpr(C_Emitter& e) const {
                 if (const auto* cached = e.getFieldCache(cacheKey))
                     return cached->temp;
 
-                std::string recv = e.boxAny(receiver->getCExpr(e));
+                std::string recv = e.boxAny(recvC);
                 uint32_t fid = StringPool::intern(memberName);
                 std::string boxed = e.newTemp("fb");
                 e.emit("VyneValue " + boxed + " = vyne_struct_get(" +
@@ -152,7 +177,7 @@ std::string MemberAccessNode::getCExpr(C_Emitter& e) const {
     }
 
     // --- Boxed fallback ----------------------------------------------
-    std::string recv = e.boxAny(receiver->getCExpr(e));
+    std::string recv = e.boxAny(recvC);
     uint32_t fid = StringPool::intern(memberName);
     return "vyne_struct_get(" + recv + ", " + std::to_string(fid) + ")";
 }

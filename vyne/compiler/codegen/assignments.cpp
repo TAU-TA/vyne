@@ -528,6 +528,40 @@ void AssignmentNode::compile(C_Emitter& e) const {
                 e.emit("VyneValue " + varName + " = " + e.boxAny(val) + ";");
                 return;
             }
+
+            // Slice 3e-global: struct-element array. `inferArrayElemType`
+            // only recognizes primitives, so `Array<Point>` lands here with
+            // elem == Unknown. The primitive block above did NOT evaluate
+            // the RHS, so this is the first and only evaluation. Look at
+            // the RHS's actual CType — the ArrayNode already built the
+            // native container — and declare the global at that type so
+            // subsequent index and field reads stay native.
+            {
+                std::string val = rhs->getCExpr(e);
+                const CType* rt = e.lookupType(val);
+                if (rt && rt->kind == CType::Kind::Array && !rt->args.empty()) {
+                    const CType& elemCt = rt->args[0];
+                    if (elemCt.kind == CType::Kind::Struct
+                        && elemCt.nativeCStruct) {
+                        const auto* ns = e.getNativeCStruct(elemCt.mangledName);
+                        if (ns) {
+                            CType arrType = *rt;
+                            e.declareGlobal(bareName, arrType);
+                            e.emitGlobalDecl("vyne_Array_" + ns->tag + " " +
+                                             bareName + ";");
+                            e.emit(bareName + " = " + val + ";");
+                            return;
+                        }
+                    }
+                }
+                // Non-struct RHS with an unresolvable annotation. The RHS
+                // is already evaluated; declare the global boxed and store,
+                // rather than falling through (which would re-evaluate it).
+                e.declareGlobal(bareName, CType::fromKind(CType::Kind::Unknown));
+                e.emitGlobalDecl("VyneValue " + bareName + ";");
+                e.emit(bareName + " = " + e.boxAny(val) + ";");
+                return;
+            }
         }
 
         const CType* existing = e.lookupGlobalType(bareName);
