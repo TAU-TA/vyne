@@ -50,7 +50,6 @@ fn :: vjson _expect(p :: Parser, ch :: String) {
     p.pos = p.pos + 1;
     return;
 }
-
 # ---- public entry point --------------------------------------------
 
 fn :: vjson parse(src :: String) {
