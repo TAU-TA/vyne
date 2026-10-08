@@ -412,6 +412,37 @@ void AssignmentNode::compile(C_Emitter& e) const {
                       + ".as.i64 : (int64_t)" + cell + ".as.f64";
             } else if (ft.kind == CType::Kind::Bool) {
                 init += "(" + cell + ".as.i64 != 0)";
+            } else if (ft.kind == CType::Kind::Str ||
+                       ft.kind == CType::Kind::Map) {
+                // The native struct stores String and Map fields as a
+                // bare VyneValue (see cFieldTypeFor in interfaces.cpp).
+                // The boxed cell is exactly that, so pass it through.
+                init += cell;
+            } else if (ft.kind == CType::Kind::Array && !ft.args.empty()) {
+                const CType& el = ft.args[0];
+                if (el.kind == CType::Kind::Struct && el.nativeCStruct) {
+                    throw std::runtime_error(
+                        "Compile Error: unboxing a native struct with an "
+                        "Array<Struct> field is not implemented yet "
+                        "(field '" + ns->fieldNames[i] + "' of '" +
+                        target.mangledName + "', line " +
+                        std::to_string(lineNumber) + ").\n"
+                        "  Assign to the array field element-by-element, "
+                        "or construct the struct from a native source.");
+                }
+                if (el.kind == CType::Kind::Float64) {
+                    init += "vyne_value_to_array_f64(" + cell + ")";
+                } else if (el.kind == CType::Kind::Int64) {
+                    init += "vyne_value_to_array_i64(" + cell + ")";
+                } else {
+                    init += cell;
+                }
+            } else {
+                throw std::runtime_error(
+                    "internal: unboxToNative has no case for CType::Kind " +
+                    std::to_string((int)ft.kind) + " on field '" +
+                    ns->fieldNames[i] + "' of '" + target.mangledName +
+                    "' (line " + std::to_string(lineNumber) + ").");
             }
         }
         init += "})";
@@ -488,10 +519,14 @@ void AssignmentNode::compile(C_Emitter& e) const {
                 elem = getArrayElemType();
             }
 
-            if (elem != VType::Unknown) {
+            // Struct-element arrays need the vyne_Array_vyne_<tag>
+            // container, not the f64/i64 ctor chosen below. Skip the
+            // primitive fast path so the Slice 3e-global handler further
+            // down (or the boxed fallback) owns the declaration.
+            if (elem != VType::Unknown && elem != VType::Struct) {
                 // Fresh typed-array allocation from an empty literal:
                 //   x :: Array<Float64> = [];
-                // lowers to `vyne_array_f64_create(0)`.
+                // lowers to `vyne_array_f64_create(0)`
                 if (rhs->type() == NodeType::ARRAY) {
                     auto* arrRhs = static_cast<const ArrayNode*>(rhs.get());
                     if (arrRhs->getElements().empty()) {
@@ -676,7 +711,10 @@ void AssignmentNode::compile(C_Emitter& e) const {
                     else if (dt.find("Float64") != std::string::npos) elem = VType::Float64;
                 }
 
-                if (elem != VType::Unknown) {
+                // Struct element: the primitive ctor below does not apply.
+                // Fall through to the generic path, which will declare the
+                // local from the RHS's own CType (or box it).
+                if (elem != VType::Unknown && elem != VType::Struct) {
                     std::string ctor = (elem == VType::Float64)
                         ? "vyne_array_f64_create"
                         : "vyne_array_i64_create";

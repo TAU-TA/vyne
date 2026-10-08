@@ -60,28 +60,6 @@ std::string MemberAccessNode::getCExpr(C_Emitter& e) const {
 
     // --- Existing native-module / group resolution -------------------
     if (receiver->type() == NodeType::VARIABLE) {
-        std::string recvC = receiver->getCExpr(e);
-        const CType* recvCt = e.lookupType(recvC);
-        if (recvCt && recvCt->kind == CType::Kind::Struct
-                   && recvCt->nativeCStruct) {
-            const auto* ns = e.getNativeCStruct(recvCt->mangledName);
-            if (ns) {
-                for (size_t i = 0; i < ns->fieldNames.size(); ++i) {
-                    if (ns->fieldNames[i] == memberName) {
-                        CType fct = ns->fieldTypes[i];
-                        std::string temp = e.newTemp("fld");
-                        e.emit(fct.cTypeName() + " " + temp + " = " +
-                               recvC + "." + memberName + ";");
-                        e.declareNativeTemp(temp, fct);
-                        return temp;
-                    }
-                }
-            }
-        }
-    }
-
-    // --- Existing native-module / group resolution -------------------
-    if (receiver->type() == NodeType::VARIABLE) {
         auto* var = static_cast<VariableNode*>(receiver.get());
         std::string modName = var->getOriginalName();
 
@@ -190,22 +168,73 @@ void MemberAssignmentNode::compile(C_Emitter& e) const {
     // Any write invalidates all cached unboxes for this function.
     e.clearFieldCache();
 
-    // --- Slice 3d: field write on a native C struct receiver ----------
+    // --- FAST PATH: index-into-native-struct-array as lvalue -----------
+    // `arr[i].member = value` where `arr` is an `Array<Struct>` cannot
+    // go through the general receiver path below. `IndexAccessNode::
+    // getCExpr` always materializes the element into a temp copy, which
+    // is correct for reads but loses writes: `idx_N.member = v` updates
+    // the local copy and the array element is untouched.
+    //
+    // Emit `base.data[idx].member = value` directly. The container's
+    // `data` is a pointer into the shared backing store, so writing
+    // through it reaches the real element. This mirrors the read path
+    // in collections.cpp:IndexAccessNode::getCExpr (Slice 3f) — but for
+    // writes we deliberately do NOT materialize the element first.
+    if (receiver->type() == NodeType::INDEX_ACCESS) {
+        auto* ia = static_cast<IndexAccessNode*>(receiver.get());
+        std::string baseRaw = ia->getBase()->getCExpr(e);
+        const CType* bt = e.lookupType(baseRaw);
+        if (bt && bt->kind == CType::Kind::Array
+            && !bt->args.empty()
+            && bt->args[0].kind == CType::Kind::Struct
+            && bt->args[0].nativeCStruct) {
+            const auto* elNs = e.getNativeCStruct(bt->args[0].mangledName);
+            if (elNs) {
+                for (size_t i = 0; i < elNs->fieldNames.size(); ++i) {
+                    if (elNs->fieldNames[i] != memberName) continue;
+                    CType fct = elNs->fieldTypes[i];
+                    std::string rawIdx = ia->getIndex()->getCExpr(e);
+                    std::string idx = coerceToNative(
+                        e, ia->getIndex(), rawIdx, VType::Int64);
+                    std::string rawRhs = rhs->getCExpr(e);
+                    std::string native = coerceToNative(
+                        e, rhs.get(), rawRhs, fct.toVType());
+                    e.emit(baseRaw + ".data[" + idx + "]." + memberName +
+                           " = " + native + ";");
+                    return;
+                }
+                throw std::runtime_error(
+                    "Compile Error: interface '" + bt->args[0].mangledName +
+                    "' has no field '" + memberName + "' (line " +
+                    std::to_string(lineNumber) + ").");
+            }
+        }
+    }
+    // --- end index-lvalue fast path -----------------------------------
+
+    // Materialize the receiver exactly once. Every branch below either
+    // returns (native struct write) or reuses recvC (boxed fallback),
+    // so compound receivers — index reads, chained field access,
+    // constructor expressions — are never evaluated twice. This also
+    // pins the receiver's evaluation ahead of the RHS, matching source
+    // order for `recv.member = rhs`.
+    std::string recvC = receiver->getCExpr(e);
+    const CType* recvCt = e.lookupType(recvC);
+
+    // --- Slice 3d (extended): field write on a native C struct --------
     // The receiver's C-level value is the `vyne_*` typedef, not a
     // VyneValue. The generic box-and-set path below would rebuild a
     // throwaway boxed copy via boxAny, mutate the copy, and discard it,
     // silently losing the write. Emit `recv.member = value;` directly
     // and coerce the RHS to the field's primitive kind.
     //
-    // Only fires for a bare-variable receiver whose CType is a native
-    // struct. Chained receivers (`a.b.c = ...`) fall through to the
-    // boxed path, which is correct-but-slow until a later slice
-    // extends the lvalue handling.
-    if (receiver->type() == NodeType::VARIABLE) {
-        std::string recvC = receiver->getCExpr(e);
-        const CType* recvCt = e.lookupType(recvC);
-        if (recvCt && recvCt->kind == CType::Kind::Struct
-                   && recvCt->nativeCStruct) {
+    // Fires for any receiver whose CType carries Struct + nativeCStruct:
+    //   - a bare variable (Slice 3d)
+    //   - an index read from a vyne_Array_vyne_* container (`mol.atoms[i].x = 1`)
+    //   - a field read on another native struct (chained access)
+    //   - a struct constructor used directly as a receiver
+    if (recvCt && recvCt->kind == CType::Kind::Struct
+               && recvCt->nativeCStruct) {
             const auto* ns = e.getNativeCStruct(recvCt->mangledName);
             if (!ns) {
                 throw std::runtime_error(
@@ -231,7 +260,6 @@ void MemberAssignmentNode::compile(C_Emitter& e) const {
                     std::to_string(lineNumber) + ").");
             }
             return;
-        }
     }
     // --- end Slice 3d -------------------------------------------------
 
@@ -290,7 +318,7 @@ void MemberAssignmentNode::compile(C_Emitter& e) const {
         }
     }
 
-    std::string recv = e.boxAny(receiver->getCExpr(e));
+    std::string recv = e.boxAny(recvC);
     uint32_t fid = StringPool::intern(memberName);
     e.emit("vyne_struct_set(" + recv + ", " + std::to_string(fid) +
            ", \"" + memberName + "\", " + val + ");");

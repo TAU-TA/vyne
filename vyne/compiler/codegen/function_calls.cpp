@@ -247,7 +247,40 @@ std::string FunctionCallNode::getCExpr(C_Emitter& e) const {
                 if (i) init += ", ";
                 init += "." + ns->fieldNames[i] + " = ";
                 if (i < orderedArgs.size()) {
-                    VType want = ns->fieldTypes[i].toVType();
+                    CType ft = ns->fieldTypes[i];
+
+                    // Struct-element array field receiving an empty
+                    // literal: `ArrayNode::getCExpr` has no type
+                    // context, so it lowers `[]` to a boxed
+                    // `vyne_array_create(0)` — a VyneValue. The native
+                    // struct field is `vyne_Array_vyne_<tag>`, so we
+                    // substitute the native empty-container constructor.
+                    //
+                    // Non-empty struct-array literals already resolve
+                    // correctly: the array-literal fast path in
+                    // collections.cpp detects all-native-struct
+                    // elements and builds the container directly, and
+                    // coerceToNative passes it through unchanged.
+                    // Only the empty-literal shape needs this repair.
+                    if (ft.kind == CType::Kind::Array && !ft.args.empty()
+                        && ft.args[0].kind == CType::Kind::Struct
+                        && ft.args[0].nativeCStruct
+                        && orderedArgs[i]
+                        && orderedArgs[i]->type() == NodeType::ARRAY) {
+                        auto* arrNode = static_cast<const ArrayNode*>(
+                            orderedArgs[i]);
+                        if (arrNode->getElements().empty()) {
+                            const auto* elNs = e.getNativeCStruct(
+                                ft.args[0].mangledName);
+                            if (elNs) {
+                                init += "vyne_Array_" + elNs->tag +
+                                        "_create(0)";
+                                continue;
+                            }
+                        }
+                    }
+
+                    VType want = ft.toVType();
                     init += coerceToNative(
                         e, orderedArgs[i], argCExprs[i], want);
                 } else {
@@ -255,6 +288,21 @@ std::string FunctionCallNode::getCExpr(C_Emitter& e) const {
                     if      (ft.kind == CType::Kind::Int64)   init += "0";
                     else if (ft.kind == CType::Kind::Float64) init += "0.0";
                     else if (ft.kind == CType::Kind::Bool)    init += "false";
+                    // Missing argument at a struct-element array
+                    // position: same repair as above, for the case
+                    // where the constructor call supplies fewer
+                    // arguments than the interface declares fields.
+                    else if (ft.kind == CType::Kind::Array
+                             && !ft.args.empty()
+                             && ft.args[0].kind == CType::Kind::Struct
+                             && ft.args[0].nativeCStruct) {
+                        const auto* elNs = e.getNativeCStruct(
+                            ft.args[0].mangledName);
+                        if (elNs) {
+                            init += "vyne_Array_" + elNs->tag +
+                                    "_create(0)";
+                        }
+                    }
                 }
             }
             init += "})";

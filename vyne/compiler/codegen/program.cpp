@@ -24,6 +24,49 @@
 // ============================================================
 
 void ProgramNode::compile(C_Emitter& e) const {
+    // --- Slice 3g: fixed-point C-eligibility -------------------------
+    // An interface is C-eligible iff every field is a primitive scalar,
+    // a String, a Map, or an Array<X> whose element X is itself a
+    // C-eligible struct. Eligibility is a fixed point: `Molecule` may
+    // depend on `Atom`, `Atom` may depend on `Point`, and the source
+    // may declare them in any order.
+    //
+    // This runs before any statement is lowered. InterfaceNode::compile
+    // then consults the emitter's set instead of recomputing, so the
+    // rule is enforced in one place and once per program.
+    //
+    // Ordering note: emitting a typedef that references another
+    // interface's container still requires source order — see the
+    // diagnostic in InterfaceNode::compile. The fixed-point pass makes
+    // eligibility order-independent, not emission order-independent.
+    {
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            for (const auto& stmt : statements) {
+                if (!stmt || stmt->type() != NodeType::INTERFACE) continue;
+                auto* iface = static_cast<const InterfaceNode*>(stmt.get());
+
+                std::string name     = iface->getInterfaceName();
+                std::string modName  = iface->getModuleName();
+                std::string fullName = modName.empty()
+                    ? name
+                    : (modName + "." + name);
+
+                // isCEligible already does dot-suffix probing, so a hit
+                // on either spelling short-circuits the re-check.
+                if (e.isCEligible(fullName)) continue;
+
+                if (interfaceIsCEligible(e, *iface)) {
+                    e.markCEligible(fullName);
+                    if (fullName != name) e.markCEligible(name);
+                    changed = true;
+                }
+            }
+        }
+    }
+    // --- end Slice 3g -------------------------------------------------
+
     for (const auto& stmt : statements) {
         if (stmt && stmt->type() == NodeType::INTERFACE) {
             auto* iface = static_cast<const InterfaceNode*>(stmt.get());

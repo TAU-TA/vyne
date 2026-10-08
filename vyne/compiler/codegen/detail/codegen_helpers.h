@@ -279,3 +279,7 @@ void registerInterfaceLayoutsFromMembers(
     const std::string& interfaceName,
     const std::string& moduleName,
     const std::vector<InterfaceMember>& members);
+
+// Slice 3g: predicate shared by the fixed-point pass in
+// ProgramNode::compile and the emitter inside InterfaceNode::compile.
+bool interfaceIsCEligible(C_Emitter& e, const InterfaceNode& iface);

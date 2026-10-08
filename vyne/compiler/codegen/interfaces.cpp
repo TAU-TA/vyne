@@ -27,27 +27,83 @@
 // own. Keeping the rule strict here means no existing interface's
 // emission changes — only new typedefs appear.
 // ============================================================
-static bool memberIsCEligible(const InterfaceMember& m) {
-    return m.type == VType::Int64
-        || m.type == VType::Float64
-        || m.type == VType::Bool;
+static std::string arrayElemTypeName(const InterfaceMember& m) {
+    const std::string& tp = m.typePath;
+    size_t lt = tp.find('<');
+    if (lt == std::string::npos) return "";
+    if (tp.empty() || tp.back() != '>') return "";
+    if (tp.substr(0, lt) != "Array") return "";
+
+    std::string inner = tp.substr(lt + 1, tp.size() - lt - 2);
+    size_t s = inner.find_first_not_of(" \t");
+    size_t e = inner.find_last_not_of(" \t");
+    if (s == std::string::npos) return "";
+    return inner.substr(s, e - s + 1);
 }
 
-static bool interfaceIsCEligible(const InterfaceNode& iface) {
+static bool memberIsCEligible(C_Emitter& e, const InterfaceMember& m) {
+    // Primitives fit the flat representation directly.
+    if (m.type == VType::Int64
+     || m.type == VType::Float64
+     || m.type == VType::Bool) return true;
+
+    // String and Map store as a single VyneValue inside the C typedef.
+    // Not unboxed, but a valid struct field — enough to let a struct
+    // containing them stay native at the outer level.
+    if (m.type == VType::String
+     || m.type == VType::Map) return true;
+
+    // Array<X> is eligible iff X is a C-eligible struct. Array<Int64>
+    // and Array<Float64> are deliberately not accepted here — that
+    // would flip `vlin.Types.Matrix` to native, which is out of scope
+    // for this slice.
+    if (m.type == VType::Array) {
+        std::string elemName = arrayElemTypeName(m);
+        if (elemName.empty()) return false;
+        return e.isCEligible(elemName);
+    }
+
+    return false;
+}
+
+bool interfaceIsCEligible(C_Emitter& e, const InterfaceNode& iface) {
     const auto& members = iface.getMembers();
     if (members.empty()) return false;
     for (const auto& m : members) {
-        if (!memberIsCEligible(m)) return false;
+        if (!memberIsCEligible(e, m)) return false;
     }
     return true;
 }
 
-static CType cFieldTypeFor(const InterfaceMember& m) {
+static CType cFieldTypeFor(C_Emitter& e, const InterfaceMember& m) {
     switch (m.type) {
         case VType::Int64:   return CType::fromKind(CType::Kind::Int64);
         case VType::Float64: return CType::fromKind(CType::Kind::Float64);
         case VType::Bool:    return CType::fromKind(CType::Kind::Bool);
-        default:             return CType::fromKind(CType::Kind::Unknown);
+        case VType::String:  return CType::fromKind(CType::Kind::Str);
+        case VType::Map:     return CType::fromKind(CType::Kind::Map);
+        case VType::Array: {
+            std::string elemName = arrayElemTypeName(m);
+            if (elemName.empty()) return CType::fromKind(CType::Kind::Unknown);
+
+            CType el;
+            el.kind          = CType::Kind::Struct;
+            el.mangledName   = elemName;
+            el.nativeCStruct = true;
+            // Tag is optional at construction time. If the element
+            // interface hasn't been compiled yet, `nativeName` stays
+            // empty and the caller emits a source-order diagnostic.
+            if (const auto* ns = e.getNativeCStruct(elemName)) {
+                el.nativeName = ns->tag;
+            }
+
+            CType ct;
+            ct.kind = CType::Kind::Array;
+            ct.args.push_back(el);
+            return ct;
+        }
+        default:
+            return CType::fromKind(CType::Kind::Unknown);
     }
 }
 
@@ -87,7 +143,7 @@ void InterfaceNode::compile(C_Emitter& e) const {
     // affect it: an interface with methods can still have a C struct
     // representation for its fields, because method dispatch always
     // goes through the boxed VyneStruct (see vyne_struct_call).
-    if (interfaceIsCEligible(*this)) {
+    if (e.isCEligible(fullName) || e.isCEligible(interfaceName)) {
         std::string tag = "vyne_" + cStructName;
 
         std::vector<std::string> fieldNames;
@@ -96,7 +152,31 @@ void InterfaceNode::compile(C_Emitter& e) const {
         fieldTypes.reserve(members.size());
         for (const auto& m : members) {
             fieldNames.push_back(m.name);
-            fieldTypes.push_back(cFieldTypeFor(m));
+            CType ft = cFieldTypeFor(e, m);
+
+            if (ft.kind == CType::Kind::Unknown) {
+                throw std::runtime_error(
+                    "internal: interface '" + fullName + "' passed "
+                    "C-eligibility but field '" + m.name + "' has no "
+                    "C representation.");
+            }
+
+            // Array<Struct> fields reference the element interface's
+            // container typedef, which must already exist. Enforce
+            // source order with a readable diagnostic rather than
+            // letting the C compiler complain about an unknown type.
+            if (ft.kind == CType::Kind::Array && !ft.args.empty()
+                && ft.args[0].kind == CType::Kind::Struct
+                && ft.args[0].nativeName.empty()) {
+                const std::string& elemName = ft.args[0].mangledName;
+                throw std::runtime_error(
+                    "Compile Error: interface '" + fullName + "' has field '" +
+                    m.name + "' of type '" + m.typePath + "', but interface '" +
+                    elemName + "' is defined after '" + fullName + "'.\n"
+                    "  Define '" + elemName + "' above '" + fullName + "'.");
+            }
+
+            fieldTypes.push_back(ft);
         }
 
         // Register under every spelling a caller might probe with.
@@ -158,12 +238,27 @@ void InterfaceNode::compile(C_Emitter& e) const {
                 if (i) ctorArgs += ", ";
                 const CType& ft = fieldTypes[i];
                 std::string fld = "arr.data[i]." + fieldNames[i];
-                if (ft.kind == CType::Kind::Float64)
+                if (ft.kind == CType::Kind::Float64) {
                     ctorArgs += "vyne_float(" + fld + ")";
-                else if (ft.kind == CType::Kind::Int64)
+                } else if (ft.kind == CType::Kind::Int64) {
                     ctorArgs += "vyne_int(" + fld + ")";
-                else if (ft.kind == CType::Kind::Bool)
+                } else if (ft.kind == CType::Kind::Bool) {
                     ctorArgs += "vyne_bool(" + fld + ")";
+                } else if (ft.kind == CType::Kind::Str ||
+                           ft.kind == CType::Kind::Map) {
+                    ctorArgs += fld;
+                } else if (ft.kind == CType::Kind::Array && !ft.args.empty()) {
+                    const CType& el = ft.args[0];
+                    if (el.kind == CType::Kind::Struct && el.nativeCStruct
+                        && !el.nativeName.empty()) {
+                        ctorArgs += "vyne_struct_array_box_" + el.nativeName +
+                                    "(" + fld + ")";
+                    } else if (el.kind == CType::Kind::Float64) {
+                        ctorArgs += "vyne_array_f64_to_value(&" + fld + ")";
+                    } else if (el.kind == CType::Kind::Int64) {
+                        ctorArgs += "vyne_array_i64_to_value(&" + fld + ")";
+                    }
+                }
             }
 
             std::string body =

@@ -124,6 +124,17 @@ class C_Emitter {
     };
     std::unordered_map<std::string, NativeCStruct> nativeCStructs;
 
+    // Slice 3g: fixed-point C-eligibility set. An interface name lands
+    // here once every field is a primitive scalar, a String, a Map, or
+    // an Array<X> whose element X is itself in this set. Populated by
+    // ProgramNode::compile before any statement is lowered.
+    //
+    // This is deliberately separate from `nativeCStructs`: the latter is
+    // populated during InterfaceNode::compile and carries the tag and
+    // field layout. Eligibility has to be known earlier, so the fixed
+    // point can converge before any typedef is emitted.
+    std::unordered_set<std::string> cEligibleInterfaces;
+
     // Ordered field layout for struct-typed native variants. Key is any
     // spelling under which the interface was registered (bare, dotted,
     // underscore-mangled). Value is the field list in declaration order.
@@ -423,12 +434,29 @@ public:
                     if (i) args += ", ";
                     const std::string fld = expr + "." + ns->fieldNames[i];
                     CType ft = ns->fieldTypes[i];
-                    if (ft.kind == CType::Kind::Float64)
+                    if (ft.kind == CType::Kind::Float64) {
                         args += "vyne_float(" + fld + ")";
-                    else if (ft.kind == CType::Kind::Int64)
+                    } else if (ft.kind == CType::Kind::Int64) {
                         args += "vyne_int(" + fld + ")";
-                    else if (ft.kind == CType::Kind::Bool)
+                    } else if (ft.kind == CType::Kind::Bool) {
                         args += "vyne_bool(" + fld + ")";
+                    } else if (ft.kind == CType::Kind::Str ||
+                               ft.kind == CType::Kind::Map) {
+                        // Already a VyneValue in the native struct; pass
+                        // it through unchanged.
+                        args += fld;
+                    } else if (ft.kind == CType::Kind::Array && !ft.args.empty()) {
+                        const CType& el = ft.args[0];
+                        if (el.kind == CType::Kind::Struct && el.nativeCStruct
+                            && !el.nativeName.empty()) {
+                            args += "vyne_struct_array_box_" + el.nativeName +
+                                    "(" + fld + ")";
+                        } else if (el.kind == CType::Kind::Float64) {
+                            args += "vyne_array_f64_to_value(&" + fld + ")";
+                        } else if (el.kind == CType::Kind::Int64) {
+                            args += "vyne_array_i64_to_value(&" + fld + ")";
+                        }
+                    }
                 }
                 return ctor + "(" + args + ")";
             }
@@ -596,6 +624,28 @@ public:
 
     bool hasNativeCStruct(const std::string& ifaceName) const {
         return getNativeCStruct(ifaceName) != nullptr;
+    }
+
+    // --- Slice 3g: C-eligibility set ---------------------------------
+    void markCEligible(const std::string& ifaceName) {
+        cEligibleInterfaces.insert(ifaceName);
+    }
+
+    // Probe with the same dot-suffix walk every other accessor uses, so
+    // a caller holding "vchem.Molecule" finds an interface registered
+    // as either "vchem.Molecule" or "Molecule".
+    bool isCEligible(const std::string& ifaceName) const {
+        auto probe = [&](const std::string& k) {
+            return cEligibleInterfaces.count(k) > 0;
+        };
+        if (probe(ifaceName)) return true;
+        std::string tmp = ifaceName;
+        size_t dot;
+        while ((dot = tmp.find('.')) != std::string::npos) {
+            tmp = tmp.substr(dot + 1);
+            if (probe(tmp)) return true;
+        }
+        return false;
     }
 
     // --- Struct-typed native ABI (Stage 1) ----------------------------
@@ -947,6 +997,7 @@ public:
         interfaceArrayFields.clear();
         interfacePrimitiveFields.clear();
         nativeCStructs.clear();
+        cEligibleInterfaces.clear();
         interfaceStructLayout.clear();
         localStructTypes.clear();
         globalStructTypes.clear();
