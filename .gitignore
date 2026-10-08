@@ -36,3 +36,4 @@ nul
 *.json
 .xmake
 build/*
+.VSCodeCounter/*
