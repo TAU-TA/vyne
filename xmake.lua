@@ -1,40 +1,96 @@
 -- ============================================================================
--- Vyne — xmake build script
+-- Vyne — xmake build script (cross-platform)
 -- ============================================================================
 set_project("vyne")
 set_version("0.4.0")
 set_encodings("utf-8")
 
--- Force MinGW toolchain. Xmake defaults to MSVC on Windows; this project
--- is built with g++/gcc from MSYS2 UCRT64.
-set_toolchains("mingw")
--- Uncomment and adjust if xmake cannot auto-detect your MinGW install:
--- set_config("mingw", "C:/msys64/ucrt64")
+-- ---------------------------------------------------------------------------
+-- Platform detection
+-- ---------------------------------------------------------------------------
+local is_windows = is_plat("windows")
+local is_linux   = is_plat("linux")
+local is_macos   = is_plat("macosx")
+local is_unix    = is_linux or is_macos
+
+local EXE_SUFFIX = is_windows and ".exe" or ""
+local ROOT       = os.scriptdir()
+
+-- Windows: force MinGW (MSVC lacks the C++26 bits we rely on). Linux/macOS:
+-- let xmake pick the system compiler.
+if is_windows then
+    set_toolchains("mingw")
+end
 
 add_rules("mode.debug", "mode.release")
 
 -- ---------------------------------------------------------------------------
--- Paths
+-- Third-party dependencies
 -- ---------------------------------------------------------------------------
-local root = os.scriptdir()
+-- Raylib: prefer the vendored copy at vendor/raylib if it exists (Windows
+-- default). On Unix without a vendored copy, fall back to the system package
+-- discovered via pkg-config.
+local RAYLIB_INC = path.join(ROOT, "vendor/raylib/include")
+local RAYLIB_LIB = path.join(ROOT, "vendor/raylib/lib")
+local HAVE_VENDORED_RAYLIB = os.isdir(RAYLIB_LIB) and os.isdir(RAYLIB_INC)
 
-local RAYLIB_INC = path.join(root, "vendor/raylib/include")
-local RAYLIB_LIB = path.join(root, "vendor/raylib/lib")
+local USE_SYSTEM_RAYLIB = false
+if not HAVE_VENDORED_RAYLIB and is_unix then
+    local ok, _ = try { function ()
+        os.execv("pkg-config", { "--exists", "raylib" })
+    end, catch { function () end }
+    if ok ~= nil then
+        USE_SYSTEM_RAYLIB = true
+    end
+end
 
-local OPENSSL_INC = "C:/msys64/ucrt64/include"
-local OPENSSL_LIB = "C:/msys64/ucrt64/lib"
+if not HAVE_VENDORED_RAYLIB and not USE_SYSTEM_RAYLIB then
+    raise("raylib not found. Either vendor it at vendor/raylib/ or install "
+       .. "the system package (apt: libraylib-dev, brew: raylib).")
+end
 
+-- OpenSSL: system package on Unix, MSYS2 UCRT64 on Windows.
+-- We keep the hardcoded Windows paths only for the MinGW case, where
+-- pkg-config is unreliable.
+local OPENSSL_INC = is_windows and "C:/msys64/ucrt64/include" or nil
+local OPENSSL_LIB = is_windows and "C:/msys64/ucrt64/lib"     or nil
+
+-- ---------------------------------------------------------------------------
+-- Defines
+-- ---------------------------------------------------------------------------
 local COMMON_DEFINES = {
     "CPPHTTPLIB_OPENSSL_SUPPORT",
-    "_WIN32", "WIN32_LEAN_AND_MEAN", "NOGDI", "NOUSER",
 }
+if is_windows then
+    table.join2(COMMON_DEFINES, {
+        "_WIN32", "WIN32_LEAN_AND_MEAN", "NOGDI", "NOUSER",
+    })
+end
 
-local COMMON_LINKS = {
-    "ssl", "crypto",
-    "raylib", "opengl32", "gdi32", "winmm",
-    "shell32", "winpthread", "crypt32", "bcrypt", "ws2_32",
-}
+-- ---------------------------------------------------------------------------
+-- Link libraries
+-- ---------------------------------------------------------------------------
+local COMMON_LINKS
+if is_windows then
+    COMMON_LINKS = {
+        "ssl", "crypto",
+        "raylib", "opengl32", "gdi32", "winmm",
+        "shell32", "winpthread", "crypt32", "bcrypt", "ws2_32",
+    }
+else
+    -- Linux/macOS: system OpenSSL via -lssl -lcrypto; raylib provides
+    -- its own dependencies through pkg-config, but linking against the
+    -- shared library by name works for the common distro packages.
+    COMMON_LINKS = {
+        "ssl", "crypto",
+        "raylib",
+        "pthread", "dl", "m",
+    }
+end
 
+-- ---------------------------------------------------------------------------
+-- Sources
+-- ---------------------------------------------------------------------------
 local VYNEC_SOURCES = {
     "*.cpp",
     "cli/*.cpp",
@@ -47,24 +103,34 @@ local VYNEC_SOURCES = {
 -- ---------------------------------------------------------------------------
 target("vynec")
     set_kind("binary")
-    set_filename("vynec.exe")
-    set_targetdir(root)
+    set_filename("vynec" .. EXE_SUFFIX)
+    set_targetdir(ROOT)
 
     add_files(VYNEC_SOURCES)
 
     add_includedirs(
         ".",
-        RAYLIB_INC,
         "editors/vscode/lsp/backend/src",
-        "editors/vscode/lsp/backend/include",
-        OPENSSL_INC
+        "editors/vscode/lsp/backend/include"
     )
+    if HAVE_VENDORED_RAYLIB then
+        add_includedirs(RAYLIB_INC)
+    elseif USE_SYSTEM_RAYLIB then
+        add_packages("raylib")
+    end
+    if is_windows then
+        add_includedirs(OPENSSL_INC)
+    end
+
     add_defines(COMMON_DEFINES)
 
     add_cxxflags("-std=c++26", { force = true })
 
-    add_ldflags("-mconsole", "-pthread", { force = true })
-    add_linkdirs(RAYLIB_LIB, OPENSSL_LIB)
+    if is_windows then
+        add_ldflags("-mconsole", { force = true })
+        add_linkdirs(RAYLIB_LIB, OPENSSL_LIB)
+    end
+    add_ldflags("-pthread")
     add_links(COMMON_LINKS)
 
     if is_mode("release") then
@@ -78,7 +144,7 @@ target_end()
 -- Test infrastructure
 -- ===========================================================================
 
-local VYNEC_EXE = path.join(root, "vynec.exe")
+local VYNEC_EXE = path.join(ROOT, "vynec" .. EXE_SUFFIX)
 
 local SKIP_TESTS = {
     "tests/graphics/game_test.vy",
@@ -121,16 +187,14 @@ local function _run_one(f)
             })
             ok = true
         end,
-        catch {
-            function () end,
-        }
+        catch { function () end },
     }
     return ok
 end
 
 local function _run_group(name, patterns)
     if not os.isfile(VYNEC_EXE) then
-        raise("vynec.exe not found — run `xmake` first")
+        raise("vynec" .. EXE_SUFFIX .. " not found — run `xmake` first")
     end
 
     local files = _collect(patterns)
@@ -233,12 +297,14 @@ task("test-codegen")
     set_category("test")
     set_menu { description = "Run codegen golden tests" }
     on_run(function ()
-        if not os.isfile(path.join(root, "scripts/test_codegen.sh")) then
+        local script = path.join(ROOT, "scripts/test_codegen.sh")
+        if not os.isfile(script) then
             raise("scripts/test_codegen.sh not found")
         end
-        os.execv("bash", { "scripts/test_codegen.sh" }, {
-            curdir = root,
-            envs = { VYNEC = "./vynec.exe" },
+        -- bash is present on Git-for-Windows, MSYS2, Linux, and macOS.
+        os.execv("bash", { script }, {
+            curdir = ROOT,
+            envs = { VYNEC = "./vynec" .. EXE_SUFFIX },
         })
     end)
 task_end()
@@ -285,7 +351,7 @@ task("quick-test")
         }
         local failed = 0
         for _, name in ipairs(tests) do
-            local f = path.join(root, "tests", name)
+            local f = path.join(ROOT, "tests", name)
             if _run_one(f) then
                 print("  PASS: " .. name)
             else
@@ -302,7 +368,7 @@ task("benchmark")
     set_menu { description = "Run performance benchmarks" }
     on_run(function ()
         for _, name in ipairs({ "fib_test.vy", "factorial_test.vy", "bubble_sort_test.vy" }) do
-            os.execv(VYNEC_EXE, { "--benchmark", path.join(root, "tests", name) })
+            os.execv(VYNEC_EXE, { "--benchmark", path.join(ROOT, "tests", name) })
         end
     end)
 task_end()
@@ -311,16 +377,22 @@ task("check-copies")
     set_category("action")
     set_menu { description = "Scan for copy/move warnings" }
     on_run(function ()
-        local warn_file = path.join(root, "warning.txt")
+        local warn_file = path.join(ROOT, "warning.txt")
         io.writefile(warn_file, "")
 
         local sources = _collect(VYNEC_SOURCES)
         local base_args = {
             "-std=c++26",
-            "-I.", "-I" .. RAYLIB_INC, "-I" .. OPENSSL_INC,
+            "-I.", "-I" .. OPENSSL_INC,
             "-Wpessimizing-move", "-Wredundant-move",
             "-fsyntax-only",
         }
+        if HAVE_VENDORED_RAYLIB then
+            table.insert(base_args, "-I" .. RAYLIB_INC)
+        end
+        if is_windows then
+            table.insert(base_args, "-D_WIN32")
+        end
 
         for _, src in ipairs(sources) do
             print("Checking " .. src .. "...")
@@ -346,30 +418,47 @@ task("check-leaks")
     set_category("action")
     set_menu { description = "Build with ASan/LSan and run a network test" }
     on_run(function ()
-        local sources = _collect(VYNEC_SOURCES)
-        local out_exe = path.join(root, "vyne_leak_test.exe")
+        -- LeakSanitizer is bundled into ASan on Linux/macOS. On Windows
+        -- MinGW, LSan is not available; ASan alone is still useful for
+        -- use-after-free, so keep the task working but skip the leak
+        -- portion there.
+        local sanitizer = is_windows
+            and "-fsanitize=address"
+            or  "-fsanitize=address,undefined"
 
-        local args = {
-            "-std=c++26", "-O1", "-g",
-            "-fsanitize=address,leak",
-            "-I.", "-I" .. RAYLIB_INC, "-I" .. OPENSSL_INC,
-            "-DCPPHTTPLIB_OPENSSL_SUPPORT", "-D_WIN32",
-            "-DWIN32_LEAN_AND_MEAN", "-DNOGDI", "-DNOUSER",
-        }
+        local sources = _collect(VYNEC_SOURCES)
+        local out_exe = path.join(ROOT, "vyne_leak_test" .. EXE_SUFFIX)
+
+        local args = { "-std=c++26", "-O1", "-g", sanitizer }
+        table.insert(args, "-I.")
+        table.insert(args, "-I" .. OPENSSL_INC)
+        if HAVE_VENDORED_RAYLIB then
+            table.insert(args, "-I" .. RAYLIB_INC)
+        end
+        for _, d in ipairs(COMMON_DEFINES) do
+            table.insert(args, "-D" .. d)
+        end
+
         for _, s in ipairs(sources) do table.insert(args, s) end
-        table.insert(args, "-o");          table.insert(args, out_exe)
-        table.insert(args, "-L" .. RAYLIB_LIB)
-        table.insert(args, "-L" .. OPENSSL_LIB)
+
+        table.insert(args, "-o"); table.insert(args, out_exe)
+
+        if is_windows then
+            table.insert(args, "-L" .. RAYLIB_LIB)
+            table.insert(args, "-L" .. OPENSSL_LIB)
+        end
         for _, l in ipairs(COMMON_LINKS) do
             table.insert(args, "-l" .. l)
         end
-        table.insert(args, "-mconsole")
+        if is_windows then
+            table.insert(args, "-mconsole")
+        end
         table.insert(args, "-pthread")
 
-        print("Building vyne_leak_test.exe...")
+        print("Building vyne_leak_test" .. EXE_SUFFIX .. "...")
         os.execv("g++", args)
 
-        print("Running vyne_leak_test.exe tests/network/socket.vy ...")
+        print("Running vyne_leak_test" .. EXE_SUFFIX .. " tests/network/socket.vy ...")
         os.execv(out_exe, { "tests/network/socket.vy" })
     end)
 task_end()
