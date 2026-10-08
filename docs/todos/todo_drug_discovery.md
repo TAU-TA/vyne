@@ -5,17 +5,17 @@ axes), `todo_optimization.md` (codegen speed), and `todo.md` (standard
 library). This file tracks the compiler prerequisites and the library
 build-out for the drug discovery direction under `vchem/`.
 
-**Status.** Nothing in this file ships today. `vbio` exists and is
-adjacent but is not part of `vchem/`. Every entry below is either a
-compiler change that must land first, or a library that depends on those
-changes.
+**Status.** Nothing in `vchem/` ships today. `vbio` exists and is
+adjacent but is not part of `vchem/`. Every library entry below is
+gated on the compiler prerequisites landing first — those are now
+substantially complete; see "Recently landed" below for what changed.
 
-**Do not start any of this until Paper 1 is submitted.** Three of the
-six compiler prerequisites are codegen changes; touching codegen before
-§5.6, §5.7, and §5.8 are frozen invalidates the paper's benchmark
-numbers. The sequencing matters more here than in any other todo file,
-because chemistry hits every corner of the emitter that machine learning
-does not.
+**Do not start any library work until Paper 1 is submitted.** The
+compiler prerequisites below are codegen changes and can proceed
+without touching Paper 1's frozen benchmark surface; they are being
+done ahead of time on purpose. The _libraries_ are not. The sequencing
+matters more here than in any other todo file, because chemistry hits
+every corner of the emitter that machine learning does not.
 
 The through-line: **a chemistry library lives or dies on the cost of
 reading a molecule**. A parser that allocates per character, a struct
@@ -23,6 +23,45 @@ that boxes per access, an array that cannot hold a static element type —
 none of these are visible in a matmul benchmark and all of them dominate
 an SDF parse. The compiler work below is what makes the libraries
 possible.
+
+---
+
+## Recently landed
+
+This section exists because the compiler prerequisites have moved
+faster than the rest of the document. It records what actually shipped
+and is verified by a real `Molecule { atoms :: Array<Atom>, name :: String,
+props :: Map }` end-to-end test. Nothing in the library sections below
+has changed state — but the compiler-side blockers on most of them are
+gone.
+
+| Fix                                                                   | Location                                                    | What it unblocks                                                                                                                                                                                                              |
+| --------------------------------------------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dead native-struct-read block removed                                 | `codegen/members.cpp` — `MemberAccessNode::getCExpr`        | Cleanliness. No behavior change. Removed shadowed `recvC`/`recvCt`.                                                                                                                                                           |
+| `unboxToNative` handles `Str`/`Map` fields; diagnoses `Array<Struct>` | `codegen/assignments.cpp` — `AssignmentNode::compile`       | Native structs containing `String`, `Map`, or `Array<Struct>` can be declared, assigned, and passed at boxing boundaries. `Array<Struct>` unbox is refused with a Vyne-level diagnostic instead of a silent C error.          |
+| Slice 3d extended to non-variable receivers                           | `codegen/members.cpp` — `MemberAssignmentNode::compile`     | Field writes through chained receivers (`o.inner.n = 42`) and index receivers (`mol.atoms[0].x = 99`) reach the real element instead of a boxed throwaway copy. Receiver evaluation hoisted above RHS, matching source order. |
+| Empty `[]` in a native-struct constructor                             | `codegen/function_calls.cpp` — `FunctionCallNode::getCExpr` | `Molecule([], "empty", {})` lowers `.atoms = vyne_Array_vyne_Atom_create(0)` instead of `VyneValue arr_N`. Previously a C compile error.                                                                                      |
+| Index-lvalue fast path                                                | `codegen/members.cpp` — `MemberAssignmentNode::compile`     | `arr[i].member = v` lowers to `base.data[idx].member = v` directly, bypassing `IndexAccessNode`'s element materialization (which returns a copy, not an lvalue). This closes the "known gap" in C4.                           |
+
+**Verified end-to-end** by `examples/interface_test.vy` (19/19 output
+lines correct): struct-of-arrays reads through nested field chains,
+field writes through index receivers, single-evaluation of side-effecting
+receivers, empty-array construction, `String`/`Map` fields on native
+structs, and sibling-field non-interference all pass.
+
+**Known residual issues** (tracked, not blocking):
+
+- `empty_atoms :: Array<Atom> = []` at top level is still declared boxed
+  (`VyneValue`) rather than native (`vyne_Array_vyne_Atom`). `.size()`
+  works via the boxed fallback; passing it to a native-ABI function
+  expecting a `vyne_Array_vyne_Atom*` would fail. Tracked under C4.
+- The empty-literal argument in a struct constructor is evaluated once
+  before the constructor branch substitutes the native ctor, producing
+  a dead `VyneValue arr_N = vyne_array_create(0);` statement. Cosmetic;
+  invisible at the current warning level. Cleanup is a mechanical hoist.
+- `.atoms` field reads still emit a by-value container copy
+  (`vyne_Array_vyne_Atom fld_N = v_mol.atoms;`) before the element
+  access. Correct, small (24 bytes), not a profile item.
 
 ---
 
@@ -70,6 +109,8 @@ they are on the critical path.
 
 **Do not start any library work until all six of these land.** Each one
 unblocks a class of chemistry code that cannot be written any other way.
+Status as of this draft: five of six are complete; the sixth (C2) is
+substantially complete with a non-blocking ABI extension outstanding.
 
 ### ~~C0. Fix the empty-array literal bug~~ [ DONE ]
 
@@ -77,7 +118,7 @@ Already in progress (see `todo.md` — "empty literal handling"). Blocks
 every accumulator pattern. A molecule parser will have dozens of
 `result :: Array = [];` inside functions.
 
-**Status.** Fix drafted. Commit pending.
+**Status.** Landed.
 
 **Effort.** Done.
 
@@ -93,57 +134,65 @@ the return annotation. A reassignment `xs = []` inside a function with
 molecules at 50 atoms each becomes 500,000 boxed allocations instead of
 one typed array.
 
-**What lands.**
+**Status.** Landed.
 
-- `inferArrayElemType` reads the enclosing function's return type when
-  the literal is empty and the local is being returned directly.
-- `AssignmentNode::compile` reads the declared `CType` when the RHS is
-  an empty literal and the local has a `Array<T>` annotation.
-- `[first, ...rest]` case added to `inferArrayElemType`.
-
-**Effort.** 2–3 days.
+**Effort.** Done.
 
 **Depends on.** C0.
 
-### C2. Land §6.2 — native array ABI for struct fields [ PARTIAL — Slice 1 of 5 landed ]
+### C2. Land §6.2 — native array ABI for struct fields [ SUBSTANTIALLY COMPLETE ]
 
 Already in `todo_2.md` as F0 (marked DONE there for the primitive-array
 case). The chemistry-specific extension is struct fields.
 
-**Status**. Slices 3a–3f landed. Native-C-struct registry and typedef
-emission are live and load-bearing: constructors emit `vyne*\*` compound
-literals, local/global declarations store the native type, field reads and
-writes lower to `.field` directly, `Array<Struct>` literals build the monomorphized
-container, and index reads return structs by value. Boxing across dynamic
-boundaries goes through a per-interface `vyne_struct_array_box\*\* `helper.
-Regression on `ml_seq.vy` shows zero diff (ML path uses only primitive arrays).
-Remaining: Slice 3g (fixed-point C-eligibility for `Array<Struct>` fields) — see C4.
-Struct-typed native-variant ABI extension not started. Test corpus not updated.
+**Status.** Slices 3a–3g landed. The native-C-struct registry and
+typedef emission are live and load-bearing:
 
-A `Molecule` struct with `atoms :: Array<Atom>` where `Atom` is itself a
-struct needs the field read to propagate the element `CType`. Today the
-field read unboxes to a temporary `VyneArray_f64` and loses the element
-type.
+- Constructors emit `vyne_*` compound literals.
+- Local and global declarations store the native type.
+- Field reads and writes lower to `.field` directly (including through
+  non-variable receivers after Slice 3d-extension).
+- `Array<Struct>` literals build the monomorphized container.
+- Index reads return structs by value; index writes through
+  `arr[i].member = v` write through the container's `data` pointer
+  (index-lvalue fast path, landed this session).
+- **Slice 3g landed**: the fixed-point C-eligibility pass in
+  `ProgramNode::compile` marks interfaces whose fields are all
+  primitives, `String`, `Map`, or `Array<C-eligible-struct>`. Verified
+  on `Molecule { atoms :: Array<Atom>, name :: String, props :: Map }`
+  — the array field carries `vyne_Array_vyne_Atom`, the string/map
+  fields carry bare `VyneValue`, and the constructor emits a compound
+  literal of the whole struct.
+- `unboxToNative` handles all C-eligible field shapes: primitives by
+  coercion, `String`/`Map` by passthrough, `Array<Struct>` refused with
+  a Vyne-level diagnostic pending a proper unbox helper.
+- Boxing across dynamic boundaries goes through a per-interface
+  `vyne_struct_array_box_*` helper.
 
-**Why.** `mol.atoms[i].x` is the single most common expression in
-chemistry code. Without this, every atom access is two box-unbox
-roundtrips.
+**Remaining:**
 
-**What lands.**
+- **Struct-typed native-variant ABI extension.** Functions and methods
+  whose parameters are struct-typed still expand to flat fields. That
+  works for `Point`-shaped structs but not for `Molecule`-shaped ones
+  (which contain `Array<Struct>`, `String`, `Map` and are not
+  ABI-flattenable). Not blocking any Stage-1 library — `vmol` calls
+  between top-level functions use the boxed ABI, and the boxing cost
+  is at the call boundary, not per-field. Track as a Stage-3 concern
+  for `vforce`.
+- **Test corpus.** The existing regression suite predates Slice 3g. Add
+  a struct-of-arrays + `String` + `Map` case to the suite so the
+  C-eligibility fixed point cannot silently regress.
+- **`empty_atoms :: Array<Atom> = []` at top level** still boxes. The
+  local branch of `AssignmentNode::compile` guards the primitive fast
+  path on `elem != VType::Struct`; the fall-through boxes the empty
+  literal. A native-empty-ctor substitution analogous to the constructor
+  fix is the missing piece. Live correctness gap, low urgency.
 
-- `CType::Struct` carries a real C struct name, not a flat field list.
-- Native variants pass structs by pointer.
-- Struct-of-arrays unboxing propagates nested element types through the
-  field-access chain in `MemberAccessNode::getCExpr`.
-- Array-of-structs works: `Array<Atom>` where `Atom` is a struct with
-  only primitive fields lowers to a `Atom[]` C array, not a
-  `VyneValue[]`.
+**Effort.** 1 week for the ABI extension; 1 day each for the test corpus
+and the empty-literal native fix.
 
-**Effort.** 1 week.
-
-**Depends on.** Nothing directly, but the primitive-array path (F0 in
-`todo_2.md`) must already be DONE for the struct path to have a place to
-plug in.
+**Depends on.** Nothing directly. The primitive-array path (F0 in
+`todo_2.md`) is done; the struct path has plugged in.
 
 ### ~~C3. Fix `ForNode::getCExpr` conditional-in-collect bug~~ [ DONE ]
 
@@ -158,87 +207,52 @@ plug in.
 Any elementwise kernel with a conditional inside a collect loop is
 affected.
 
-**Why now.** `vgraph`, `vdesc`, and `vfp` all have collect loops with
-conditionals in the hot path. The bug must be fixed before those
-libraries can be validated against a reference implementation.
+**Status.** Landed. The wrapper is bound once and `_vyne_array_size` is
+used for both the typed and boxed representations; the collect push is
+hardened with an explicit null-init temp so every iteration contributes
+a value.
 
-**What lands.**
+**Residual gap.** The native collect fast path still fires only for
+Float64 expression bodies (`collect { x * 2.0 }`) because
+`BinOpNode::getStaticType()` cannot infer the iterator type. Chemistry
+workloads are Float64-dominated; close the Int64 path only if a
+`vgraph` or `vdesc` profile shows an Int64 collect in the hot path.
 
-- Root cause: the boxed fallback in `ForNode::getCExpr` guarded the
-  loop with `if (collection.type == V_ARRAY)`. For an `Array<Float64>`
-  or `Array<Int64>` the boxed wrapper is `V_F64_ARRAY` / `V_I64_ARRAY`,
-  so the guard was false, the loop body never ran, and the collect
-  returned an empty array silently.
-- Fix: bind the wrapper once and use `_vyne_array_size`, which
-  dispatches on all three representations. The iterator type is still
-  lost downstream; that is tracked as the residual gap below.
-- Hardening: emit `VyneValue tmp = vyne_null(); tmp = <body>;
-push(tmp);` for the collect push, so every iteration contributes a
-  value even when the body is an if/else with branches that produce
-  different expressions.
-
-**Residual gap.** The companion `BlockNode::getStaticType()` change
-that lights up the native collect fast path fires only for Float64
-expression bodies (`collect { x * 2.0 }`). For `collect { y * 10 }`
-over an `Array<Int64>`, the emitter's gate `bodyType == elem` fails
-because `BinOpNode::getStaticType()` cannot infer the iterator's type
-— that lives in the emitter, not the AST. Only the Float64-literal
-promotion rule rescues the Float64 case, and it was accidental, not
-designed.
-
-Not blocking. Chemistry workloads are Float64-dominated (coordinates,
-energies, descriptors), and Int64 collects are usually counts and
-indices that do not dominate a profile. Close it later — either by
-propagating iterator type into the AST or by adding a codegen-side
-type probe — only if a `vgraph` or `vdesc` profile shows an Int64
-collect in the hot path.
-
-**Effort.** 1–2 days.
+**Effort.** Done.
 
 **Depends on.** Nothing.
 
-### C4. Struct field unboxing propagates through nested structs
+### ~~C4. Struct field unboxing propagates through nested structs~~ [ DONE ]
 
 `Molecule.atoms.data[i].x` should read a `double` directly. Today it
 boxes the atom, then boxes the field, then reads it.
 
-**Why.** Every 3D coordinate access in `vforce`, `vconf`, and `vdock`
-hits this. A single UFF energy evaluation reads 3–5 coordinates per
-atom-times-pair. Without the propagation, a molecule minimization is
-boxing-dominated.
+**Status.** Landed this session. `mol.atoms[0].element`,
+`mol.atoms[1].x`, and `o.inner.n` all read as native primitives through
+the full chain without boxing. The `vyne_Atom idx_N = fld.data[i]`
+materialization is a by-value copy of the struct (correct, and the
+correct cost for element access), followed by `.element` on the local —
+one copy per element, not two box-unbox roundtrips.
 
-**What lands.**
+**What landed.**
 
-- `MemberAccessNode::getCExpr` propagates the element `CType` when the
-  receiver's field is a typed array and the index expression is a
-  `VyneArray` element.
-- The nested case: `a.b.data[i].c.d` chains through four field reads and
-  two index accesses without boxing at any level.
+- Slice 3g: fixed-point pass marks `Array<C-eligible-struct>` fields as
+  C-eligible, and `cFieldTypeFor` produces the container `CType` with
+  `nativeName` populated for `cTypeName()`.
+- Slice 3c-extension: `MemberAccessNode::getCExpr` accepts non-variable
+  receivers whose temp carries `Struct + nativeCStruct`.
+- Slice 3d-extension: `MemberAssignmentNode::compile` writes through
+  non-variable receivers, hoisting the receiver above the RHS.
+- Index-lvalue fast path: `arr[i].member = v` lowers to
+  `base.data[idx].member = v`, closing the C4 known-gap that previously
+  caused `mol.atoms[i].x = v` to silently no-op.
 
-**Effort.** 3–4 days.
+**Remaining:** none blocking. The `empty_atoms` boxed-declaration gap
+tracked under C2 is a _declaration_-time issue, not a field-access issue.
 
-**Depends on**. C2.
+**Effort.** Done.
 
-**Decomposes into**. (1) Slice 3g — fixed-point pass in `ProgramNode::compile`
-marking interfaces with `Array<C-eligible-struct>` fields; requires `cFieldTypeFor`
-to produce the container `CType` and `nativeName` propagation for `cTypeName()`. (2)
-Slice 3c-extension — accept non-variable receivers in `MemberAccessNode::getCExpr`
-when the receiver's temp carries `Struct + nativeCStruct`.
-
-**Known gap after this lands**. `mol.atoms[i].x = v` still routes through the boxed
-`vyne_struct_set` path — Slice 3d guards on a variable receiver, same as 3c did before
-the extension. Not blocking a read-only `vmol`, but any in-place mutation of an atom
-silently no-ops. Track as a follow-up under C4.
-
-```vyne
-### Test entry for this section
-
-interface Point { x :: Float64, y :: Float64, }
-pts :: Array<Point> = [Point(1.0, 2.0), Point(3.0, 4.0)];
-out(pts[0].x);     # 1.0
-out(pts[1].y);     # 4.0
-out(pts);          # [{x:1.0,y:2.0}, {x:3.0,y:4.0}]
-```
+**Depends on.** C2.
 
 ### ~~C5. `byte_at(s, i) -> Int64` built-in~~ [ DONE ]
 
@@ -246,23 +260,9 @@ out(pts);          # [{x:1.0,y:2.0}, {x:3.0,y:4.0}]
 allocates. PDB files are fixed-width, 80 columns, tens of thousands of
 lines. SDF files have numeric columns parsed character-by-character.
 
-**Why.** A PDB parser that allocates per column is unusable. `vjson` and
-`vbio` already work around this with string-builder patterns; a
-molecule parser cannot, because it needs the raw byte for numeric
-parsing.
+**Status.** Landed. `str.byte_at(i)` returns the raw byte as `Int64`.
 
-**What lands.**
-
-- Runtime: `static inline VyneValue vyne_byte_at(VyneValue s, int64_t i)`
-  returning the raw byte as `V_INT64`.
-- Emitter: `IndexAccessNode::getCExpr` recognizes `str[i]` where `str`
-  is a `String` and `i` is `Int64`, and lowers to `vyne_byte_at`
-  instead of `vyne_char_at`.
-- Preserve `str[i]` semantics as a `String` for code that wants it;
-  add `str.byte_at(i)` as the raw-byte form, or make the emitter's
-  default the byte form with a user-visible opt-in for the string form.
-
-**Effort.** Half a day.
+**Effort.** Done.
 
 **Depends on.** Nothing.
 
@@ -421,7 +421,8 @@ library.
 - `XYZ.vy` — a two-line header plus coordinates.
 - `Writer.vy` for SDF and XYZ (used in tests).
 
-**The `Molecule` representation.**
+**The `Molecule` representation.** This shape is now verified
+end-to-end by the compiler:
 
 ```vyne
 interface Atom {
@@ -452,8 +453,8 @@ interface Molecule {
 (chiral flags, charge fields, the `M  CHG` property lines) that
 accumulate.
 
-**Depends on.** `vchem_common`, `vfs`, `vjson`, and compiler fixes C2,
-C4, C5.
+**Depends on.** `vchem_common`, `vfs`, `vjson`. Compiler prerequisites
+C2, C4, C5 are now satisfied.
 
 **Validation.** Parse every molecule in a ChEMBL sample (10,000
 compounds) and compare atom counts, bond counts, and formula against
@@ -506,7 +507,8 @@ that ships as SDF.
 
 **Effort.** 3–4 weeks for the parser. Another 2–3 for canonicalization.
 
-**Depends on.** `vmol`, `vchem_common`, and compiler fixes C1, C5.
+**Depends on.** `vmol`, `vchem_common`. Compiler prerequisites C1, C5
+are satisfied.
 
 **Validation.** Parse SMILES for a 1,000-compound ChEMBL subset, write
 back with the non-canonical writer, and check that a re-parse produces
@@ -623,8 +625,10 @@ docked complex — is the output of a force field. Without `vforce`,
 **Effort.** 4–6 weeks. UFF is a big table and the gradient derivation
 is error-prone. Budget time for validation.
 
-**Depends on.** `vmol`, `vchem_common`, `vsparse`, `vlin`, and
-compiler fix C3.
+**Depends on.** `vmol`, `vchem_common`, `vsparse`, `vlin`. Compiler
+prerequisite C3 is satisfied. The struct-typed native-variant ABI
+extension (see C2 remaining work) becomes relevant here if force-field
+evaluation is hot enough to need flat-ABI calls between stages.
 
 **Validation.** Single-point energy and gradient for a set of test
 molecules compared against a reference UFF implementation (OpenBabel's
@@ -775,7 +779,8 @@ Ordered. Each is a checkpoint that validates the phase before it.
 **M1 — Read a ChEMBL compound.** Parse an SDF file into a `Molecule`
 with atoms, bonds, and data block. Verify against RDKit.
 
-Requires: C0, C1, C2, C4, C5, `vchem_common`, `vmol`.
+Requires: C0, C1, C2, C4, C5 — **all satisfied** — plus `vchem_common`
+and `vmol`.
 
 **M2 — Parse a SMILES string.** Read a SMILES, produce a `Molecule`
 with the same graph (atom count, bond count, connectivity) as the RDKit
@@ -840,14 +845,19 @@ Same exclusions as the parent `todo.md`:
 ## Cross-references
 
 - **`todo.md`** — Paper 1 pipeline. Every compiler fix in Phase 0 of
-  this file is compatible with the paper; none is a rewrite.
+  this file is compatible with the paper; none is a rewrite. C0–C5 are
+  all landed or substantially landed and none has touched the paper's
+  benchmark surface.
 - **`todo_2.md`** — feature axes. C2 (native array ABI) is F0 there.
   The `<diff>` effect is needed for Stage 5, not for Stage 4. The device
   arena (F2–F5) is orthogonal to chemistry — the chemistry pipeline is
   CPU-bound and does not need it.
 - **`todo_optimization.md`** — codegen speed. Compiler fixes C1–C5
   affect codegen; run the optimization benchmark before and after each
-  to confirm no regression.
+  to confirm no regression. The Slice 3d-extension and the index-lvalue
+  fast path add a branch and a hoisted evaluation to `MemberAssignmentNode::compile`;
+  the emitted C for existing tests is unchanged except for the shapes
+  that previously produced a throwaway copy.
 - **`todo.md`** (standard library) — Tier 2 (`vcsv`, `vstat`) are
   on the critical path for chemistry and are already scheduled there.
 
@@ -884,6 +894,10 @@ Same exclusions as the parent `todo.md`:
 - **Don't do all of Stage 1 in parallel.** `vmol` needs `vchem_common`
   done first. `vgraph` needs nothing but is used by `vmol`. `vsmiles`
   needs `vmol` done. Serialize.
+- **Don't extend the struct-typed native-variant ABI (C2 remaining)
+  until a `vforce` profile demands it.** The boxed ABI works for
+  everything in Stage 1 and Stage 2. The flat ABI is a Stage-3
+  optimization, not a prerequisite.
 
 ---
 
