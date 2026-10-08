@@ -36,12 +36,16 @@ local HAVE_VENDORED_RAYLIB = os.isdir(RAYLIB_LIB) and os.isdir(RAYLIB_INC)
 
 local USE_SYSTEM_RAYLIB = false
 if not HAVE_VENDORED_RAYLIB and is_unix then
-    local ok, _ = try { function ()
-        os.execv("pkg-config", { "--exists", "raylib" })
-    end, catch { function () end }
-    if ok ~= nil then
-        USE_SYSTEM_RAYLIB = true
-    end
+    local ok = try {
+        function ()
+            os.execv("pkg-config", { "--exists", "raylib" },
+                     { stdout = os.nuldev(), stderr = os.nuldev() })
+        end,
+        catch {
+            function () return false end,
+        }
+    }
+    USE_SYSTEM_RAYLIB = (ok == true)
 end
 
 if not HAVE_VENDORED_RAYLIB and not USE_SYSTEM_RAYLIB then
@@ -124,7 +128,7 @@ target("vynec")
 
     add_defines(COMMON_DEFINES)
 
-    add_cxxflags("-std=c++26", { force = true })
+        add_cxxflags("-std=c++23", { force = true })
 
     if is_windows then
         add_ldflags("-mconsole", { force = true })
@@ -382,8 +386,8 @@ task("check-copies")
 
         local sources = _collect(VYNEC_SOURCES)
         local base_args = {
-            "-std=c++26",
-            "-I.", "-I" .. OPENSSL_INC,
+            "-std=c++23",
+            "-I.", "-I" .. RAYLIB_INC, "-I" .. OPENSSL_INC,
             "-Wpessimizing-move", "-Wredundant-move",
             "-fsyntax-only",
         }
@@ -429,7 +433,7 @@ task("check-leaks")
         local sources = _collect(VYNEC_SOURCES)
         local out_exe = path.join(ROOT, "vyne_leak_test" .. EXE_SUFFIX)
 
-        local args = { "-std=c++26", "-O1", "-g", sanitizer }
+        local args = { "-std=c++23", "-O1", "-g", sanitizer }
         table.insert(args, "-I.")
         table.insert(args, "-I" .. OPENSSL_INC)
         if HAVE_VENDORED_RAYLIB then
