@@ -26,7 +26,8 @@
 void IfNode::compile(C_Emitter& e) const {
     std::string cond = e.boxAny(condition->getCExpr(e));
     e.emitBlockOpen("if (vyne_is_truthy(" + cond + ")) {");
-    if (body) body->compile(e);
+    if (body)
+        body->compile(e);
     e.emitBlockClose();
     if (elseBody) {
         e.emitBlockOpen("else {");
@@ -61,7 +62,8 @@ void WhileNode::compile(C_Emitter& e) const {
     e.emitBlockOpen("while (1) {");
     std::string cond = e.boxAny(condition->getCExpr(e));
     e.emit("if (!vyne_is_truthy(" + cond + ")) break;");
-    if (body) body->compile(e);
+    if (body)
+        body->compile(e);
     e.emitBlockClose();
 }
 
@@ -76,10 +78,12 @@ void ReturnNode::compile(C_Emitter& e) const {
         std::string raw = expression ? expression->getCExpr(e) : "vyne_null()";
         std::string native = coerceToNative(e, expression.get(), raw, retVT);
         if (e.hasRegion()) {
-            e.emit("vmem_runtime_pop_checkpoints(" +
-            std::to_string(e.getRegionStack().size()) + ");");
+            e.emit(
+                "vmem_runtime_pop_checkpoints(" +
+                std::to_string(e.getRegionStack().size()) + ");"
+            );
         } else {
-            e.emitRegionUnwind();   // no-op if stack is empty anyway
+            e.emitRegionUnwind(); // no-op if stack is empty anyway
         }
         e.emit("return " + native + ";");
         return;
@@ -94,34 +98,38 @@ void ReturnNode::compile(C_Emitter& e) const {
             if (!layout) {
                 throw std::runtime_error(
                     "Native variant returns Struct '" + retCt.mangledName +
-                    "' but no field layout is registered.");
+                    "' but no field layout is registered."
+                );
             }
 
-            std::string boxed = e.boxAny(expression
-                ? expression->getCExpr(e)
-                : "vyne_null()");
+            std::string boxed =
+                e.boxAny(expression ? expression->getCExpr(e) : "vyne_null()");
             std::string slot = e.newTemp("ret_struct");
             e.emit("VyneValue " + slot + " = " + boxed + ";");
 
             for (size_t i = 0; i < layout->size(); ++i) {
                 const auto& fd = (*layout)[i];
                 const std::string& op = outParams[i];
-                std::string fieldVal =
-                    "vyne_struct_get(" + slot + ", " +
-                    std::to_string(fd.id) + ")";
+                std::string fieldVal = "vyne_struct_get(" + slot + ", " +
+                                       std::to_string(fd.id) + ")";
 
                 if (fd.type.kind == CType::Kind::Int64) {
                     std::string fb = e.newTemp("fb");
                     e.emit("VyneValue " + fb + " = " + fieldVal + ";");
-                    e.emit("*" + op + " = (" + fb + ".type == V_INT64) ? " +
-                           fb + ".as.i64 : (int64_t)" + fb + ".as.f64;");
+                    e.emit(
+                        "*" + op + " = (" + fb + ".type == V_INT64) ? " + fb +
+                        ".as.i64 : (int64_t)" + fb + ".as.f64;"
+                    );
                 } else if (fd.type.kind == CType::Kind::Float64) {
                     std::string fb = e.newTemp("fb");
                     e.emit("VyneValue " + fb + " = " + fieldVal + ";");
-                    e.emit("*" + op + " = (" + fb + ".type == V_FLOAT64) ? " +
-                           fb + ".as.f64 : (double)" + fb + ".as.i64;");
-                } else if (fd.type.kind == CType::Kind::Array &&
-                           !fd.type.args.empty()) {
+                    e.emit(
+                        "*" + op + " = (" + fb + ".type == V_FLOAT64) ? " + fb +
+                        ".as.f64 : (double)" + fb + ".as.i64;"
+                    );
+                } else if (
+                    fd.type.kind == CType::Kind::Array && !fd.type.args.empty()
+                ) {
                     bool isF64 = (fd.type.args[0].toVType() == VType::Float64);
                     std::string conv = isF64 ? "vyne_value_to_array_f64"
                                              : "vyne_value_to_array_i64";
@@ -130,8 +138,10 @@ void ReturnNode::compile(C_Emitter& e) const {
             }
 
             if (e.hasRegion()) {
-                e.emit("vmem_runtime_pop_checkpoints(" +
-                       std::to_string(e.getRegionStack().size()) + ");");
+                e.emit(
+                    "vmem_runtime_pop_checkpoints(" +
+                    std::to_string(e.getRegionStack().size()) + ");"
+                );
             } else {
                 e.emitRegionUnwind();
             }
@@ -165,33 +175,33 @@ void ReturnNode::compile(C_Emitter& e) const {
                 if (arr->getElements().empty() &&
                     (elem == VType::Float64 || elem == VType::Int64)) {
                     std::string ctor = (elem == VType::Float64)
-                        ? "vyne_array_f64_create"
-                        : "vyne_array_i64_create";
+                                           ? "vyne_array_f64_create"
+                                           : "vyne_array_i64_create";
                     std::string native = e.newTemp("ret_arr");
-                    e.emit(CType::arrayContainerName(elem) + " " + native +
-                           " = " + ctor + "(0);");
+                    e.emit(
+                        CType::arrayContainerName(elem) + " " + native + " = " +
+                        ctor + "(0);"
+                    );
                     e.emitRegionUnwind();
                     e.emit("return " + native + ";");
                     return;
                 }
             }
 
-            std::string raw = expression
-                ? expression->getCExpr(e)
-                : "vyne_array_create(0)";
+            std::string raw =
+                expression ? expression->getCExpr(e) : "vyne_array_create(0)";
 
             const CType* got = e.lookupType(raw);
             std::string native;
-            if (got && got->kind == CType::Kind::Array &&
-                !got->args.empty() &&
+            if (got && got->kind == CType::Kind::Array && !got->args.empty() &&
                 got->args[0].toVType() == elem) {
                 // Already a typed container — use it directly.
                 native = raw;
             } else {
                 // Boxed VyneValue — unbox at the ABI boundary.
                 const char* fn = (elem == VType::Float64)
-                    ? "vyne_value_to_array_f64"
-                    : "vyne_value_to_array_i64";
+                                     ? "vyne_value_to_array_f64"
+                                     : "vyne_value_to_array_i64";
                 native = std::string(fn) + "(" + e.boxAny(raw) + ")";
             }
 
@@ -217,25 +227,28 @@ void ReturnNode::compile(C_Emitter& e) const {
                 if (elem == VType::Float64 || elem == VType::Int64) {
                     std::string arrName = e.newTemp("ret_arr");
                     std::string ctor = (elem == VType::Float64)
-                        ? "vyne_array_f64_create"
-                        : "vyne_array_i64_create";
-                    e.emit(CType::arrayContainerName(elem) + " " + arrName +
-                           " = " + ctor + "(0);");
+                                           ? "vyne_array_f64_create"
+                                           : "vyne_array_i64_create";
+                    e.emit(
+                        CType::arrayContainerName(elem) + " " + arrName +
+                        " = " + ctor + "(0);"
+                    );
 
                     std::string boxFn = (elem == VType::Float64)
-                        ? "vyne_array_f64_to_value"
-                        : "vyne_array_i64_to_value";
+                                            ? "vyne_array_f64_to_value"
+                                            : "vyne_array_i64_to_value";
                     expr = e.newTemp("ret_boxed");
-                    e.emit("VyneValue " + expr + " = " + boxFn +
-                           "(&" + arrName + ");");
+                    e.emit(
+                        "VyneValue " + expr + " = " + boxFn + "(&" + arrName +
+                        ");"
+                    );
                 }
             }
         }
     }
 
     if (expr.empty()) {
-        expr = expression ? e.boxAny(expression->getCExpr(e))
-                          : "vyne_null()";
+        expr = expression ? e.boxAny(expression->getCExpr(e)) : "vyne_null()";
     }
 
     // Every region we're lexically inside at the point of this return.
@@ -251,16 +264,19 @@ void ReturnNode::compile(C_Emitter& e) const {
     // unsafe, matching the "box on uncertainty" rule elsewhere in this file.
     VType retType = expression ? expression->getStaticType() : VType::Null;
     bool primitiveSafe =
-        (retType == VType::Int64  || retType == VType::Float64 ||
-         retType == VType::Bool   || retType == VType::Null);
+        (retType == VType::Int64 || retType == VType::Float64 ||
+         retType == VType::Bool || retType == VType::Null);
 
     auto emitRegionCleanup = [&]() {
-        if (nRegions == 0) return;
+        if (nRegions == 0)
+            return;
         if (primitiveSafe) {
             e.emitRegionUnwind();
         } else {
-            e.emit("vmem_runtime_pop_checkpoints(" +
-                   std::to_string(nRegions) + ");");
+            e.emit(
+                "vmem_runtime_pop_checkpoints(" + std::to_string(nRegions) +
+                ");"
+            );
         }
     };
 
@@ -296,23 +312,33 @@ std::string ReturnNode::getCExpr(C_Emitter& e) const {
 void BreakNode::compile(C_Emitter& e) const {
     if (e.hasTryCleanup()) {
         throw std::runtime_error(
-            "Compile Error: 'break' inside try/catch/finally is not supported by "
-            "the C backend (line " + std::to_string(lineNumber) + "). "
-            "Use a flag variable and break outside the try.");
+            "Compile Error: 'break' inside try/catch/finally is not supported "
+            "by "
+            "the C backend (line " +
+            std::to_string(lineNumber) +
+            "). "
+            "Use a flag variable and break outside the try."
+        );
     }
-    e.emitRegionUnwind(); 
+    e.emitRegionUnwind();
     e.emit("break;");
 }
-std::string BreakNode::getCExpr(C_Emitter& e) const { return "vyne_null()"; }
+std::string BreakNode::getCExpr(C_Emitter& e) const {
+    return "vyne_null()";
+}
 
 void ContinueNode::compile(C_Emitter& e) const {
     if (e.hasTryCleanup()) {
         throw std::runtime_error(
-            "Compile Error: 'continue' inside try/catch/finally is not supported by "
-            "the C backend (line " + std::to_string(lineNumber) + ").");
+            "Compile Error: 'continue' inside try/catch/finally is not "
+            "supported by "
+            "the C backend (line " +
+            std::to_string(lineNumber) + ")."
+        );
     }
     e.emitRegionUnwind();
     e.emit("continue;");
 }
-std::string ContinueNode::getCExpr(C_Emitter& e) const { return "vyne_null()"; }
-
+std::string ContinueNode::getCExpr(C_Emitter& e) const {
+    return "vyne_null()";
+}
