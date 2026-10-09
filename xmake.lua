@@ -97,9 +97,9 @@ target("vynec")
     add_defines(COMMON_DEFINES)
 
     add_cxxflags("-std=c++23", { force = true })
-
     if is_windows then
         add_ldflags("-mconsole", { force = true })
+        add_syslinks("ws2_32")
     end
     add_ldflags("-pthread")
     add_links(COMMON_LINKS)
