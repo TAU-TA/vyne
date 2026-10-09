@@ -1,6 +1,13 @@
 CompileFlags:
-Add: - -std=c++23 - -I.
-Compiler: clang
+  Compiler: C:/Users/Admin/scoop/apps/mingw/current/bin/g++.exe
+  Add:
+    - -std=c++23
+    - -I.
+    - -Ivyne/runtime
+    - -Ivyne/modules
+
 Diagnostics:
-ClangTidy:
-Add: - bugprone-_ - performance-_
+  ClangTidy:
+    Add:
+      - bugprone-*
+      - performance-*
