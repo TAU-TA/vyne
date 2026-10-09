@@ -60,7 +60,7 @@ group Types :: vml {
     # Adam hyperparameters. The per-parameter state lives in a
     # separate AdamState value — one per weight matrix — because Vyne
     # has no way to attach auxiliary storage to an existing interface
-    # value without changing its constructor ABI.
+    # value without changing its native constructor ABI.
     interface Adam {
         lr    :: Float64,
         beta1 :: Float64,

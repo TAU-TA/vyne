@@ -28,13 +28,13 @@ vmath.seed(42);
 # ======================================================================
 # CONFIG
 # ======================================================================
-N_PER_CLASS = 300;
-WINDOW      = 256;            # power of two, so no FFT padding is needed
-EPOCHS      = 500;
-HIDDEN1     = 32;
-HIDDEN2     = 16;
-BATCH       = 32;
-PRINT_EVERY = 50;
+N_PER_CLASS :: Int64 = 300;
+WINDOW      :: Int64 = 256;            # power of two, so no FFT padding is needed
+EPOCHS      :: Int64 = 500;
+HIDDEN1     :: Int64 = 32;
+HIDDEN2     :: Int64 = 16;
+BATCH       :: Int64 = 32;
+PRINT_EVERY :: Int64 = 50;
 
 USE_CODON  :: Bool = false;
 
