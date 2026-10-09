@@ -15,7 +15,7 @@ enum {
     VBOP_EQ = 43, VBOP_NEQ = 44,
     VBOP_GT = 45, VBOP_LT = 46, VBOP_GTE = 47, VBOP_LTE = 48,
     VBOP_AND = 49, VBOP_OR = 50,
-    VBOP_FLOOR_DIV = 51
+    VBOP_FLOOR_DIV = 51, VBOP_BITWISE_NOT = 52
 };
 
 static VyneValue vyne_binop_slow(VyneValue left, VyneValue right, int op) {
@@ -215,12 +215,18 @@ static inline VyneValue vyne_in_operator(VyneValue left, VyneValue right, int is
 
 static inline VyneValue vyne_unary(VyneValue val, int op) {
     switch (op) {
-        case 44: // '!' 
+        case VBOP_NEQ: // '!' 
             return vyne_bool(!vyne_is_truthy(val));
-        case 30: // '-'
+        case VBOP_SUB: // '-'
             if (val.type == V_INT64) return vyne_int(-val.as.i64);
             if (val.type == V_FLOAT64) return vyne_float(-val.as.f64);
             return vyne_null();
+        case VBOP_BITWISE_NOT:
+            if (val.type != V_INT64) {
+                fprintf(stderr,"Runtime Error: Bitwise operators should be used with integers only.");
+                return vyne_bool(0); 
+            }
+            return vyne_int(~val.as.i64);
         default:
             return val;
     }

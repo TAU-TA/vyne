@@ -16,6 +16,7 @@
 // along with Vyne. If not, see <https://www.gnu.org/licenses/>.
 
 #include "detail/codegen_helpers.h"
+#include <stdexcept>
 
 // Binary, unary and postfix operations; operands may emit prerequisite statements.
 // Keep expressions that emit statements in evaluation order; see README.md.
@@ -306,13 +307,13 @@ std::string UnaryNode::getCExpr(C_Emitter& e) const {
             "Compile Error: '&' (address-of) is not supported by the C backend "
             "(line " + std::to_string(lineNumber) + "). Use the interpreter instead.");
     }
-
     std::string val = e.boxAny(right->getCExpr(e));
     std::string temp = e.newTemp("un");
     int opCode = static_cast<int>(op);
 
     if (op == VTokenType::Exclamatory) opCode = 44;
     else if (op == VTokenType::Substract) opCode = 30;
+    else if(op == VTokenType::Bitwise_Not) opCode = 52; // enum value of bitwise not in codegen/operators.h
 
     e.emit("VyneValue " + temp + " = vyne_unary(" + val +
            ", " + std::to_string(opCode) + ");");
