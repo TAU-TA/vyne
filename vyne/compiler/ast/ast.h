@@ -547,6 +547,14 @@ public:
         const VType rt = rightNode->getStaticType();
 
         switch (op) {
+            case VTokenType::Bitwise_And:
+            case VTokenType::Bitwise_Not:
+            case VTokenType::Bitwise_Or:
+            case VTokenType::Bitwise_Xor:
+            case VTokenType::Bitwise_Sll:
+            case VTokenType::Bitwise_Srl:
+                if(lt == VType::Int64 && rt == VType::Int64) return VType::Int64;
+                return VType::Unknown;
             case VTokenType::Add:
                 if (lt == VType::String || rt == VType::String) return VType::String;
                 if (lt == VType::Array  && rt == VType::Array)  return VType::Array;

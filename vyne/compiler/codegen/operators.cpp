@@ -153,11 +153,41 @@ std::string BinOpNode::getCExpr(C_Emitter& e) const {
             case VTokenType::Or:
                 e.emit("VyneValue " + temp + " = vyne_bool((" + lv + " != 0) || (" + rv + " != 0));");
                 return temp;
+            case VTokenType::Bitwise_And:
+                e.emit("VyneValue " + temp + " = vyne_int(" + lv + " & " + rv + ");");
+                return temp;
+            case VTokenType::Bitwise_Or:
+                e.emit("VyneValue " + temp + " = vyne_int(" + lv + " | " + rv + ");");
+                return temp;
+            case VTokenType::Bitwise_Xor:
+                e.emit("VyneValue " + temp + " = vyne_int(" + lv + " ^ " + rv + ");");
+                return temp;
+            case VTokenType::Bitwise_Sll:
+                e.emit("VyneValue " + temp + " = vyne_int(" + lv + " << " + rv + ");");
+                return temp;
+            case VTokenType::Bitwise_Srl:
+                e.emit("VyneValue " + temp + " = vyne_int(" + lv + " >> " + rv + ");");
+                return temp;
             default:
                 break; // fall through to slow path
         }
     }
 
+    // f3rhd : you may change this later based on the semantic rules, for now i assume no bitwise operations if they include any floating numbers
+    if (lt == VType::Float64 || rt == VType::Float64) {
+        switch (op) {
+            case VTokenType::Bitwise_And:
+            case VTokenType::Bitwise_Not:
+            case VTokenType::Bitwise_Xor:
+            case VTokenType::Bitwise_Or:
+            case VTokenType::Bitwise_Sll:
+            case VTokenType::Bitwise_Srl:
+                throw std::runtime_error(
+                    "Compile Error: Bitwise operators should only be used with integer values  "
+                    "(line " + std::to_string(lineNumber) + ").");
+            default:;
+        }
+    }
     // =========================================================
     // FAST PATH: Float64 op Float64 → native double result
     // =========================================================
@@ -291,6 +321,12 @@ std::string BinOpNode::getCExpr(C_Emitter& e) const {
         case VTokenType::And:              opCode = 49; break;
         case VTokenType::Or:               opCode = 50; break;
         case VTokenType::Floor_Divide:     opCode = 51; break;
+        case VTokenType::Bitwise_Not:      opCode = 52; break;
+        case VTokenType::Bitwise_And:      opCode = 53; break;
+        case VTokenType::Bitwise_Or:       opCode = 54; break;
+        case VTokenType::Bitwise_Xor:      opCode = 55; break;
+        case VTokenType::Bitwise_Sll:      opCode = 56; break;
+        case VTokenType::Bitwise_Srl:      opCode = 57; break;
         default: break;
     }
 
@@ -307,13 +343,40 @@ std::string UnaryNode::getCExpr(C_Emitter& e) const {
             "Compile Error: '&' (address-of) is not supported by the C backend "
             "(line " + std::to_string(lineNumber) + "). Use the interpreter instead.");
     }
+    /*
+        f3rhd:
+        normally this conditional should be checked but due to type info loss it will alert false positives and terminate the compiler
+        fn main() {
+            x :: Int64 = 32;
+            
+            y :: Int64 = ~((~((x >> 3) << 3) + 1)) | 64; # y = 95
+            
+            z :: Int64 = (y ^ 15) & 112;                # z = 80
+            if z == 80 {
+                out ("Test passed");
+            }
+            else {
+                out("Test failed");
+            }
+        }
+        main();
+        X variable's type in the second line evaluates to unknown for some reason. 
+        and because of that in the condition below becomes true and throws a compiler error.
+        Uncomment those once type problem is fixed
+    */
+    //if (op == VTokenType::Bitwise_Not &&
+    //    right->getStaticType() != VType::Int64) {
+    //    throw std::runtime_error(
+    //        "Compile Error: Bitwise operators should only be used with integer values  "
+    //        "(line " + std::to_string(lineNumber) + ").");
+    //}
     std::string val = e.boxAny(right->getCExpr(e));
     std::string temp = e.newTemp("un");
     int opCode = static_cast<int>(op);
 
     if (op == VTokenType::Exclamatory) opCode = 44;
     else if (op == VTokenType::Substract) opCode = 30;
-    else if(op == VTokenType::Bitwise_Not) opCode = 52; // enum value of bitwise not in codegen/operators.h
+    else if (op == VTokenType::Bitwise_Not) opCode = 52; // enum value of bitwise not in codegen/operators.h
 
     e.emit("VyneValue " + temp + " = vyne_unary(" + val +
            ", " + std::to_string(opCode) + ");");
