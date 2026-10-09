@@ -47,26 +47,26 @@
 struct BlasDispatchEntry {
     const char* group;
     const char* method;
-    bool        transpose_a;
-    bool        transpose_b;
+    bool transpose_a;
+    bool transpose_b;
 };
 
 static const BlasDispatchEntry BLAS_DISPATCH_TABLE[] = {
     // C = A·B
-    {"vlin", "multiply",                 false, false},
+    {"vlin", "multiply", false, false},
     // C = A·Bᵀ
-    {"vlin", "multiply_trans_b",         false, true },
+    {"vlin", "multiply_trans_b", false, true},
     // C = Aᵀ·B
-    {"vlin", "trans_a_multiply",         true,  false},
+    {"vlin", "trans_a_multiply", true, false},
     // C = Aᵀ·Bᵀ
-    {"vlin", "trans_a_multiply_trans_b", true,  true },
+    {"vlin", "trans_a_multiply_trans_b", true, true},
 };
 
-static inline const BlasDispatchEntry* lookupBlasDispatch(
-    const std::string& group, const std::string& method)
-{
+static inline const BlasDispatchEntry*
+lookupBlasDispatch(const std::string& group, const std::string& method) {
     for (const auto& e : BLAS_DISPATCH_TABLE) {
-        if (group == e.group && method == e.method) return &e;
+        if (group == e.group && method == e.method)
+            return &e;
     }
     return nullptr;
 }
