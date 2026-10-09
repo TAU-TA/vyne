@@ -1,0 +1,6 @@
+CompileFlags:
+Add: - -std=c++23 - -I.
+Compiler: clang
+Diagnostics:
+ClangTidy:
+Add: - bugprone-_ - performance-_
