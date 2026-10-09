@@ -751,15 +751,42 @@ std::unique_ptr<ASTNode> Parser::parseLogicalOr() {
 }
 
 std::unique_ptr<ASTNode> Parser::parseLogicalAnd() {
-    auto left = parseEquality();
+    auto left = parseBitwiseOr();
     while (peekToken().type == VTokenType::And) {
         Token opToken = getNextToken();
-        auto right = parseEquality();
+        auto right = parseBitwiseOr();
         left = std::make_unique<BinOpNode>(VTokenType::And, std::move(left), std::move(right));
     }
     return left;
 }
 
+std::unique_ptr<ASTNode> Parser::parseBitwiseOr() {
+    auto left = parseBitwiseXor();
+    while (peekToken().type == VTokenType::Bitwise_Or) {
+        Token opToken = getNextToken();
+        auto right = parseBitwiseXor();
+        left = std::make_unique<BinOpNode>(VTokenType::Bitwise_Or, std::move(left), std::move(right));
+    }
+    return left;
+}
+std::unique_ptr<ASTNode> Parser::parseBitwiseXor() {
+    auto left = parseBitwiseAnd();
+    while (peekToken().type == VTokenType::Bitwise_Xor) {
+        Token opToken = getNextToken();
+        auto right = parseBitwiseAnd();
+        left = std::make_unique<BinOpNode>(VTokenType::Bitwise_Xor, std::move(left), std::move(right));
+    }
+    return left;
+}
+std::unique_ptr<ASTNode> Parser::parseBitwiseAnd() {
+    auto left = parseEquality();
+    while (peekToken().type == VTokenType::Bitwise_And) {
+        Token opToken = getNextToken();
+        auto right = parseEquality();
+        left = std::make_unique<BinOpNode>(VTokenType::Bitwise_And, std::move(left), std::move(right));
+    }
+    return left;
+}
 std::unique_ptr<ASTNode> Parser::parseEquality() {
     auto left = parseInExpression();
     while (peekToken().type == VTokenType::Double_Equals || peekToken().type == VTokenType::Not_Equal) {
@@ -772,16 +799,27 @@ std::unique_ptr<ASTNode> Parser::parseEquality() {
 
 
 std::unique_ptr<ASTNode> Parser::parseRelational() {
-    auto left = parseAdditive();
+    auto left = parseShift();
     while (peekToken().type == VTokenType::Greater || peekToken().type == VTokenType::Smaller || 
            peekToken().type == VTokenType::Greater_Or_Equal || peekToken().type == VTokenType::Smaller_Or_Equal) {
         Token opToken = getNextToken();
-        auto right = parseAdditive();
+        auto right = parseShift();
         left = std::make_unique<BinOpNode>(opToken.type, std::move(left), std::move(right));
     }
     return left;
 }
 
+std::unique_ptr<ASTNode> Parser::parseShift() {
+    auto left = parseAdditive();
+    auto const& currTok = peekToken();
+    while (currTok.type == VTokenType::Bitwise_Sll ||
+           currTok.type == VTokenType::Bitwise_Srl) {
+        Token opToken = getNextToken();
+        auto right = parseAdditive();
+        left = std::make_unique<BinOpNode>(opToken.type,std::move(left),std::move(right));
+    }
+    return left;
+}
 std::unique_ptr<ASTNode> Parser::parseAdditive() {
     auto left = parseTerm();
     while (peekToken().type == VTokenType::Add || peekToken().type == VTokenType::Substract || peekToken().type == VTokenType::Floor_Divide || peekToken().type == VTokenType::Modulo) {
@@ -805,9 +843,11 @@ std::unique_ptr<ASTNode> Parser::parseTerm() {
 }
 
 std::unique_ptr<ASTNode> Parser::parseUnary() {
-    if (peekToken().type == VTokenType::Exclamatory || 
-        peekToken().type == VTokenType::Substract   ||
-        peekToken().type == VTokenType::Addresser) {
+    if (
+        peekToken().type == VTokenType::Exclamatory ||
+        peekToken().type == VTokenType::Substract ||
+        peekToken().type == VTokenType::Addresser ||
+        peekToken().type == VTokenType::Bitwise_Not) {
         Token opToken = getNextToken();
         
         auto right = parseUnary(); 

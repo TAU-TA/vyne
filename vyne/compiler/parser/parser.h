@@ -183,8 +183,12 @@ public:
 	std::unique_ptr<ASTNode>     parsePostfix();
 	std::unique_ptr<ASTNode>     parseUnary();
 	std::unique_ptr<ASTNode>     parseAdditive();
+	std::unique_ptr<ASTNode> 	 parseShift();
 	std::unique_ptr<ASTNode>     parseRelational();
 	std::unique_ptr<ASTNode>     parseEquality();
+	std::unique_ptr<ASTNode>     parseBitwiseAnd();
+	std::unique_ptr<ASTNode>     parseBitwiseXor();
+	std::unique_ptr<ASTNode>     parseBitwiseOr();
 	std::unique_ptr<ASTNode>     parseLogicalAnd();
 	std::unique_ptr<ASTNode>     parseLogicalOr();
 	std::unique_ptr<ASTNode>     parseRange();
