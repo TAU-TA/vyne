@@ -77,6 +77,14 @@ enum class VTokenType {
     Exclamatory, // !
     Addresser,   // $
 
+    // --- OPERATORS : BITWISE --- 
+    Bitwise_And, // &
+    Bitwise_Or, // | 
+    Bitwise_Xor, // ^
+    Bitwise_Not, // ~
+    Bitwise_Sll, // <<
+    Bitwise_Srl, // >> 
+
     // --- OPERATORS: LOGIC & RELATIONAL ---
     And,
     Or,               // &&, ||
@@ -88,7 +96,7 @@ enum class VTokenType {
     Greater_Or_Equal, // >=
     Smaller_Or_Equal, // <=
     Pipeline,         // |>
-    Referencer,       // &
+    Referencer,       // ^^
 
     // --- DELIMITERS & SYMBOLS ---
     Left_Parenthese,    // (
@@ -315,7 +323,21 @@ inline std::string VTokenTypeToString(VTokenType type) {
     case VTokenType::Addresser:
         return "'$'";
     case VTokenType::Referencer:
+        return "'^^'";
+
+    // --- OPERATORS: BITWISE ---
+    case VTokenType::Bitwise_And:
         return "'&'";
+    case VTokenType::Bitwise_Or:
+        return "'|'";
+    case VTokenType::Bitwise_Xor:
+        return "'^";
+    case VTokenType::Bitwise_Not:
+        return "'~'";
+    case VTokenType::Bitwise_Sll:
+        return "'<<'";
+    case VTokenType::Bitwise_Srl:
+        return "'>>'";
 
     // --- OPERATORS: LOGIC & RELATIONAL ---
     case VTokenType::And:
