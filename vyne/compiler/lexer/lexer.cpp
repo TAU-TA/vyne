@@ -349,6 +349,9 @@ std::vector<Token> tokenize(std::string_view input) {
                     "<="
                 );
                 i++;
+            } else if (i + 1 < input.length() && input[i + 1] == '<') {
+                tokens.emplace_back(VTokenType::Bitwise_Sll,currentLine,0,"<<");
+                i++;
             } else {
                 tokens.emplace_back(VTokenType::Smaller, currentLine, 0, "<");
             }
@@ -363,9 +366,18 @@ std::vector<Token> tokenize(std::string_view input) {
                     ">="
                 );
                 i++;
-            } else {
+            }
+            else if (i + 1 < input.length() && input[i + 1] == '>') {
+                tokens.emplace_back(VTokenType::Bitwise_Srl,currentLine,0,">>");
+                i++;
+            }
+            else {
                 tokens.emplace_back(VTokenType::Greater, currentLine, 0, ">");
             }
+            break;
+        }
+        case '~': {
+            tokens.emplace_back(VTokenType::Bitwise_Not,currentLine,0,"~");
             break;
         }
         case '=': {
@@ -415,8 +427,7 @@ std::vector<Token> tokenize(std::string_view input) {
                 tokens.emplace_back(VTokenType::And, currentLine, 0, "&&");
                 i += 2;
             } else {
-                tokens
-                    .emplace_back(VTokenType::Referencer, currentLine, 0, "&");
+                tokens.emplace_back(VTokenType::Bitwise_And, currentLine, 0, "&");
                 i++;
             }
             continue;
@@ -428,6 +439,17 @@ std::vector<Token> tokenize(std::string_view input) {
             } else if (i + 1 < input.length() && input[i + 1] == '>') {
                 tokens.emplace_back(VTokenType::Pipeline, currentLine, 0, "|>");
                 i++;
+            } else {
+                tokens.emplace_back(VTokenType::Bitwise_Or,currentLine,0,"|");
+            }
+            break;
+        }
+        case '^': {
+            if (i + 1 < input.length() && input[i + 1] == '^') {
+                tokens.emplace_back(VTokenType::Referencer,currentLine,0,"^^");
+                i++;
+            } else {
+                tokens.emplace_back(VTokenType::Bitwise_Xor,currentLine,0,"|");
             }
             break;
         }

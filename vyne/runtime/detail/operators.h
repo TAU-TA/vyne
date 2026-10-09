@@ -6,16 +6,34 @@
 
 #pragma once
 #include "equality.h"
+#include <assert.h>
+#include <winnt.h>
+#include <stdio.h>
 // BINARY OPERATORS
 // ============================================================================
 
 enum {
-    VBOP_ADD = 29, VBOP_SUB = 30, VBOP_MUL = 31, VBOP_DIV = 32,
-    VBOP_MOD = 36, VBOP_POW = 37,
-    VBOP_EQ = 43, VBOP_NEQ = 44,
-    VBOP_GT = 45, VBOP_LT = 46, VBOP_GTE = 47, VBOP_LTE = 48,
-    VBOP_AND = 49, VBOP_OR = 50,
-    VBOP_FLOOR_DIV = 51
+    VBOP_ADD = 29,
+    VBOP_SUB = 30,
+    VBOP_MUL = 31,
+    VBOP_DIV = 32,
+    VBOP_MOD = 36,
+    VBOP_POW = 37,
+    VBOP_EQ = 43,
+    VBOP_NEQ = 44,
+    VBOP_GT = 45,
+    VBOP_LT = 46,
+    VBOP_GTE = 47,
+    VBOP_LTE = 48,
+    VBOP_AND = 49,
+    VBOP_OR = 50,
+    VBOP_FLOOR_DIV = 51,
+    VBOP_BITWISE_NOT = 52,
+    VBOP_BITWISE_AND = 53,
+    VBOP_BITWISE_OR = 54,
+    VBOP_BITWISE_XOR = 55,
+    VBOP_BITWISE_SLL = 56,
+    VBOP_BITWISE_SRL = 57
 };
 
 static VyneValue vyne_binop_slow(VyneValue left, VyneValue right, int op) {
@@ -108,10 +126,13 @@ static inline VyneValue vyne_binop(VyneValue left, VyneValue right, int op) {
             case VBOP_ADD: return vyne_int(l + r);
             case VBOP_SUB: return vyne_int(l - r);
             case VBOP_MUL: return vyne_int(l * r);
-            case VBOP_DIV:
-                if (r == 0) { fprintf(stderr, "Runtime error: Division by zero!\n"); exit(1); }
-                return vyne_int(l / r);
+            case VBOP_BITWISE_AND: return vyne_int(l & r);
+            case VBOP_BITWISE_OR: return vyne_int(l | r);
+            case VBOP_BITWISE_XOR: return vyne_int(l ^ r);
+            case VBOP_BITWISE_SLL : return vyne_int(l << r);
+            case VBOP_BITWISE_SRL: return vyne_int(l >> r);
             case VBOP_FLOOR_DIV:
+            case VBOP_DIV:
                 if (r == 0) { fprintf(stderr, "Runtime error: Division by zero!\n"); exit(1); }
                 return vyne_int(l / r);
             case VBOP_MOD:
@@ -153,6 +174,14 @@ static inline VyneValue vyne_binop(VyneValue left, VyneValue right, int op) {
             case VBOP_LTE: return vyne_bool(l <= r);
             case VBOP_AND: return vyne_bool((l != 0.0) && (r != 0.0));
             case VBOP_OR:  return vyne_bool((l != 0.0) || (r != 0.0));
+            case VBOP_BITWISE_AND:
+            case VBOP_BITWISE_XOR:
+            case VBOP_BITWISE_OR:
+            case VBOP_BITWISE_SLL:
+            case VBOP_BITWISE_SRL: {
+                printf("Behavior of this is yet to be implemented. FILE : %s, LINE : %d", __FILE__,__LINE__);
+                assert(false);
+            }
             default: break;
         }
     }
@@ -215,12 +244,14 @@ static inline VyneValue vyne_in_operator(VyneValue left, VyneValue right, int is
 
 static inline VyneValue vyne_unary(VyneValue val, int op) {
     switch (op) {
-        case 44: // '!' 
+        case VBOP_NEQ: // '!' 
             return vyne_bool(!vyne_is_truthy(val));
-        case 30: // '-'
+        case VBOP_SUB: // '-'
             if (val.type == V_INT64) return vyne_int(-val.as.i64);
             if (val.type == V_FLOAT64) return vyne_float(-val.as.f64);
             return vyne_null();
+        case VBOP_BITWISE_NOT:
+            return vyne_int(~val.as.i64);
         default:
             return val;
     }
