@@ -811,9 +811,8 @@ std::unique_ptr<ASTNode> Parser::parseRelational() {
 
 std::unique_ptr<ASTNode> Parser::parseShift() {
     auto left = parseAdditive();
-    auto const& currTok = peekToken();
-    while (currTok.type == VTokenType::Bitwise_Sll ||
-           currTok.type == VTokenType::Bitwise_Srl) {
+    while (peekToken().type == VTokenType::Bitwise_Sll ||
+           peekToken().type == VTokenType::Bitwise_Srl) {
         Token opToken = getNextToken();
         auto right = parseAdditive();
         left = std::make_unique<BinOpNode>(opToken.type,std::move(left),std::move(right));

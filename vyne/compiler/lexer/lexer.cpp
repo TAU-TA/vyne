@@ -368,7 +368,7 @@ std::vector<Token> tokenize(std::string_view input) {
                 i++;
             }
             else if (i + 1 < input.length() && input[i + 1] == '>') {
-                tokens.emplace_back(VTokenType::Bitwise_Srl,currentLine,0,"<<");
+                tokens.emplace_back(VTokenType::Bitwise_Srl,currentLine,0,">>");
                 i++;
             }
             else {
