@@ -213,7 +213,7 @@ hardened with an explicit null-init temp so every iteration contributes
 a value.
 
 **Residual gap.** The native collect fast path still fires only for
-Float64 expression bodies (`collect { x * 2.0 }`) because
+`Float64` expression bodies (`collect { x * 2.0 }`) because
 `BinOpNode::getStaticType()` cannot infer the iterator type. Chemistry
 workloads are Float64-dominated; close the Int64 path only if a
 `vgraph` or `vdesc` profile shows an Int64 collect in the hot path.
